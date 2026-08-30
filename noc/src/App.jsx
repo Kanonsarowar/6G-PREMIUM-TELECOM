@@ -912,11 +912,11 @@ function DIDInventoryPage({token}){
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
             <thead>
-              <tr>{["NUMBERS","COUNTRY","TARIFF","PAYMENT TERMS","DEL"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr>
+              <tr>{["NUMBERS","COUNTRY","SUPPLIER","TARIFF","PAYMENT TERMS","DEL"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {filtered.length===0
-                ?<tr><td colSpan={5} style={{padding:40,textAlign:"center",color:"#999"}}>No number blocks found</td></tr>
+                ?<tr><td colSpan={6} style={{padding:40,textAlign:"center",color:"#999"}}>No number blocks found</td></tr>
                 :filtered.map((r)=>{
                   const nums=getNumbers(r);
                   const isExp=expanded[r.id];
@@ -940,6 +940,7 @@ function DIDInventoryPage({token}){
                           </div>
                         </td>
                         <td style={{padding:"13px 14px",fontSize:13,fontWeight:600,color:"#333"}}>{(r.country_name||"—").replace("ITLAY","Italy")}</td>
+                        <td style={{padding:"13px 14px",fontSize:13,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"WTP"}</td>
                         <td style={{padding:"13px 14px",fontSize:13,color:"#333",fontFamily:"monospace"}}>{tariff}</td>
                         <td style={{padding:"13px 14px",fontSize:13,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
                         <td style={{padding:"13px 14px",textAlign:"center"}}>
@@ -947,10 +948,10 @@ function DIDInventoryPage({token}){
                         </td>
                       </tr>
                       {isExp&&(nums.length===0
-                        ?<tr style={{background:"#FAF5FF"}}><td colSpan={5} style={{padding:"10px 14px 10px 52px",fontSize:12,color:"#999",fontStyle:"italic"}}>No individual numbers in this range</td></tr>
+                        ?<tr style={{background:"#FAF5FF"}}><td colSpan={6} style={{padding:"10px 14px 10px 52px",fontSize:12,color:"#999",fontStyle:"italic"}}>No individual numbers in this range</td></tr>
                         :nums.map((d,di)=>(
                           <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
-                            <td colSpan={5} style={{padding:"8px 14px 8px 52px"}}>
+                            <td colSpan={6} style={{padding:"8px 14px 8px 52px"}}>
                               <span style={{fontSize:12,fontFamily:"monospace",color:di%2===0?"#10B981":"#555",fontWeight:500}}>{d.number}</span>
                               <span style={{fontSize:11,color:"#AAA",marginLeft:12}}>{(d.created_at||"").slice(0,19)}</span>
                             </td>
