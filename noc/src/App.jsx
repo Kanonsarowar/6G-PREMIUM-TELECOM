@@ -513,35 +513,115 @@ function CDRPage({token}){
   const [cdrs,setCdrs]=useState([]);
   const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState("");
-  useEffect(()=>{apiFetch("/cdr?per_page=100",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
-  const filtered=cdrs.filter(c=>!search||(c.src||"").includes(search)||(c.did||"").includes(search));
+  const [filter,setFilter]=useState("all");
+  useEffect(()=>{apiFetch("/cdr?per_page=200",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
+  const filtered=cdrs.filter(c=>{
+    const matchSearch=!search||(c.src||"").includes(search)||(c.did||"").includes(search)||(c.caller||"").includes(search);
+    const matchFilter=filter==="all"||(filter==="answered"&&c.disposition==="ANSWERED")||(filter==="failed"&&c.disposition!=="ANSWERED");
+    return matchSearch&&matchFilter;
+  });
+  const totalRev=filtered.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
+  const totalDur=filtered.reduce((a,c)=>a+parseInt(c.billsec||c.duration||0),0);
+  const answered=filtered.filter(c=>c.disposition==="ANSWERED").length;
   return(
     <div style={{padding:16}}>
-      <div style={{marginBottom:12,fontSize:16,fontWeight:800}}>CDR Analytics</div>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..."
-        style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-          background:"rgba(255,255,255,0.06)",color:C.text,fontSize:12,outline:"none",
-          boxSizing:"border-box",marginBottom:12}}/>
-      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-        :filtered.length===0?<div style={{textAlign:"center",padding:40,color:C.muted}}>No records</div>
-        :filtered.map((c,i)=>(
-          <Card key={i} style={{padding:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-              <span style={{fontSize:12,fontWeight:700,color:C.blue,fontFamily:"monospace"}}>{c.src||"—"}</span>
-              <span style={{fontSize:11,color:c.disposition==="ANSWERED"?C.green:C.red,fontWeight:700}}>
-                {c.disposition==="ANSWERED"?"OK":"FAIL"}
-              </span>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:10}}>
-              <span style={{color:C.muted}}>DID: <span style={{color:C.text,fontFamily:"monospace"}}>{c.did||"—"}</span></span>
-              <span style={{color:C.muted}}>Dur: <span style={{color:C.text}}>{c.billsec||0}s</span></span>
-              <span style={{color:C.muted}}>Rev: <span style={{color:C.yellow}}>€{c.revenue||"0.00"}</span></span>
-              <span style={{color:C.muted}}>{(c.call_start||"").slice(5,16)}</span>
-            </div>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>CDR Analytics</div>
+        <span style={{fontSize:11,color:C.muted}}>{filtered.length} records</span>
+      </div>
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+        {[
+          {label:"Total Calls",value:filtered.length,color:"#2CADA6"},
+          {label:"Answered",value:answered,color:"#10B981"},
+          {label:"Revenue",value:"€"+totalRev.toFixed(4),color:"#F5A623"},
+        ].map((s,i)=>(
+          <Card key={i} style={{padding:"12px 14px",textAlign:"center"}}>
+            <div style={{fontSize:18,fontWeight:800,color:s.color}}>{s.value}</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:2}}>{s.label}</div>
           </Card>
         ))}
       </div>
+      {/* Search + Filter */}
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="Search caller, DID..."
+          style={{flex:1,padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
+            background:"#FFFFFF",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+        <select value={filter} onChange={e=>setFilter(e.target.value)}
+          style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
+            background:"#FFFFFF",color:C.text,fontSize:13,outline:"none",cursor:"pointer"}}>
+          <option value="all">All</option>
+          <option value="answered">Answered</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
+      {/* Table */}
+      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
+      :filtered.length===0?<Card style={{padding:40,textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📋</div>
+          <div style={{color:C.muted,fontSize:13}}>No CDR records found</div>
+        </Card>
+      :<Card style={{padding:0,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+            <thead>
+              <tr style={{background:"#F8F9FA"}}>
+                {["DATE/TIME","CALLER","DID","DURATION","STATUS","REVENUE","SUPPLIER"].map((h,i)=>(
+                  <th key={i} style={{fontSize:11,color:"#9A9A9A",fontWeight:600,
+                    letterSpacing:"0.5px",padding:"12px 14px",textAlign:"left",
+                    borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c,i)=>{
+                const ok=c.disposition==="ANSWERED";
+                return(
+                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`,
+                    background:i%2===0?"#FFFFFF":"#FAFAFA"}}>
+                    <td style={{padding:"10px 14px",fontSize:12,color:C.muted,whiteSpace:"nowrap"}}>
+                      {(c.call_start||c.created_at||"—").slice(0,16)}
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:13,fontWeight:600,
+                      color:"#1A1A1A",fontFamily:"monospace"}}>
+                      {c.src||c.caller||"—"}
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:13,
+                      color:"#2CADA6",fontFamily:"monospace",fontWeight:600}}>
+                      {c.did||c.callee||c.dst||"—"}
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:13,color:"#333"}}>
+                      {c.billsec||c.duration||0}s
+                    </td>
+                    <td style={{padding:"10px 14px"}}>
+                      <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+                        background:ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                        color:ok?"#10B981":"#EF4444"}}>
+                        {ok?"ANSWERED":"FAILED"}
+                      </span>
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:13,
+                      color:"#F5A623",fontWeight:700,fontFamily:"monospace"}}>
+                      €{parseFloat(c.revenue||0).toFixed(4)}
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>
+                      {c.trunk_name||"WTP"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center",
+          background:"#F8F9FA"}}>
+          <span style={{fontSize:12,color:C.muted}}>{filtered.length} records · {Math.floor(totalDur/60)}m {totalDur%60}s total</span>
+          <span style={{fontSize:12,color:"#F5A623",fontWeight:700}}>Total: €{totalRev.toFixed(4)}</span>
+        </div>
+      </Card>}
     </div>
   );
 }
