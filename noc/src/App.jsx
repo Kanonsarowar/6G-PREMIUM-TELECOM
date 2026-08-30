@@ -348,102 +348,154 @@ function DashboardPage({token}){
       setLoading(false);
     });
   },[token]);
-
   const now=new Date();
-  const timeStr=now.toLocaleTimeString();
-
+  const todayCards=[
+    {label:"TODAY CALLS",value:stats.today_calls,color:"#3B82F6",icon:"📞"},
+    {label:"TODAY MINUTES",value:stats.today_minutes,color:"#06B6D4",icon:"⏱"},
+    {label:"TODAY REVENUE",value:"$"+eurToUsd(stats.today_revenue),color:"#F5A623",icon:"💰"},
+    {label:"TODAY REVENUE €",value:"€"+stats.today_revenue,color:"#3B82F6",icon:"💶"},
+    {label:"ACTIVE DIDS",value:stats.dids,color:"#8B5CF6",icon:"📱"},
+    {label:"COUNTRIES",value:stats.today_countries,color:"#06B6D4",icon:"🌍"},
+  ];
+  const allTimeCards=[
+    {label:"TOTAL CALLS",value:stats.calls,color:"#3B82F6"},
+    {label:"TOTAL MINUTES",value:stats.minutes,color:"#06B6D4"},
+    {label:"TOTAL REVENUE",value:"€"+stats.revenue,color:"#F5A623"},
+    {label:"TOTAL DIDS",value:stats.dids,color:"#8B5CF6"},
+  ];
+  const barMax=Math.max(parseFloat(stats.today_calls||1),parseFloat(stats.calls||1));
   return(
-    <div style={{padding:16}}>
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:16,fontWeight:800}}>Dashboard</div>
-        <div style={{fontSize:10,color:C.muted}}>{now.toLocaleDateString()}</div>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Dashboard</div>
+        <div style={{fontSize:12,color:"#999",background:"#F0F0F0",padding:"4px 12px",borderRadius:20}}>
+          {now.toLocaleDateString()}
+        </div>
       </div>
-
-      {/* Live Stats Bar */}
-      <Card style={{padding:12,marginBottom:12,background:`${C.green}08`,border:`1px solid ${C.green}20`}}>
+      {/* Live Bar */}
+      <div style={{background:"linear-gradient(135deg,#2CADA6,#38B7A8)",borderRadius:14,
+        padding:"14px 16px",marginBottom:16,
+        boxShadow:"0 4px 16px rgba(44,173,166,0.25)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:C.green,display:"inline-block"}}/>
-            <span style={{fontSize:11,color:C.green,fontWeight:700}}>LIVE</span>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:"#FFFFFF",
+              display:"inline-block",boxShadow:"0 0 8px rgba(255,255,255,0.8)"}}/>
+            <span style={{fontSize:12,color:"#FFFFFF",fontWeight:700,letterSpacing:"1px"}}>LIVE NOW</span>
           </div>
-          <div style={{display:"flex",gap:16}}>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:20,fontWeight:900,color:C.green,fontFamily:"monospace"}}>{loading?"...":stats.live}</div>
-              <div style={{fontSize:9,color:C.muted}}>Active Calls</div>
-            </div>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:20,fontWeight:900,color:C.yellow,fontFamily:"monospace"}}>{loading?"...":stats.asr}%</div>
-              <div style={{fontSize:9,color:C.muted}}>ASR</div>
-            </div>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:20,fontWeight:900,color:C.blue,fontFamily:"monospace"}}>{loading?"...":stats.suppliers}</div>
-              <div style={{fontSize:9,color:C.muted}}>Suppliers</div>
-            </div>
+          <div style={{display:"flex",gap:20}}>
+            {[
+              {label:"Active Calls",value:stats.live,color:"#FFFFFF"},
+              {label:"ASR",value:stats.asr+"%",color:"#F5A623"},
+              {label:"Suppliers",value:stats.suppliers,color:"#FFFFFF"},
+            ].map((s,i)=>(
+              <div key={i} style={{textAlign:"center"}}>
+                <div style={{fontSize:22,fontWeight:800,color:s.color,fontFamily:"monospace"}}>{loading?"...":s.value}</div>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"1px",textTransform:"uppercase"}}>{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
-      </Card>
-
-      {/* Today Stats */}
-      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8,fontWeight:700}}>
-        Today
       </div>
+      {/* Today Section */}
+      <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",textTransform:"uppercase",
+        letterSpacing:"1px",marginBottom:10}}>Today</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        {[
-          ["Today Calls",    stats.today_calls,    C.blue,   "📞"],
-          ["Today Minutes",  stats.today_minutes,  C.cyan,   "⏱"],
-          ["Today Revenue",  `$${eurToUsd(stats.today_revenue)}`, C.yellow,"💰"],
-          ["Today Revenue €", `€${stats.today_revenue}`, C.blue,"💶"],
-          ["Active DIDs",    stats.dids,            C.purple, "📱"],
-          ["Active Countries", stats.today_countries, C.cyan,   "🌍"],
-        ].map(([l,v,c,icon])=>(
-          <Card key={l} style={{padding:14,borderLeft:`3px solid ${c}`}}>
-            <div style={{fontSize:16,marginBottom:4}}>{icon}</div>
-            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:4}}>{l}</div>
-            <div style={{fontSize:20,fontWeight:900,color:c,fontFamily:"monospace"}}>{loading?"...":v}</div>
-          </Card>
-        ))}
-      </div>
-
-      {/* All Time Stats */}
-      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8,fontWeight:700}}>
-        All Time
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        {[
-          ["Total Calls",   stats.calls,    C.blue],
-          ["Total Minutes", stats.minutes,  C.cyan],
-          ["Total Revenue", `€${stats.revenue}`, C.yellow],
-          ["Total DIDs",    stats.dids,     C.purple],
-        ].map(([l,v,c])=>(
-          <Card key={l} style={{padding:12,borderTop:`2px solid ${c}`}}>
-            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>{l}</div>
-            <div style={{fontSize:18,fontWeight:900,color:c,fontFamily:"monospace"}}>{loading?"...":v}</div>
-          </Card>
-        ))}
-      </div>
-      <Card style={{padding:14,marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>System Status</div>
-        {[["API","Online",C.green],["Database","Connected",C.green],["Asterisk","Active",C.green]].map(([k,v,c])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:c,fontWeight:700}}>{v}</span>
+        {todayCards.map((c,i)=>(
+          <div key={i} style={{background:"#FFFFFF",borderRadius:14,padding:"14px 12px",
+            borderLeft:`4px solid ${c.color}`,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:24,marginBottom:6}}>{c.icon}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",
+              textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>{c.label}</div>
+            <div style={{fontSize:30,fontWeight:800,color:c.color,
+              fontFamily:"monospace",lineHeight:1}}>{loading?"...":c.value}</div>
           </div>
         ))}
-      </Card>
-      <Card style={{padding:14}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Server</div>
+      </div>
+      {/* All Time Section */}
+      <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",textTransform:"uppercase",
+        letterSpacing:"1px",marginBottom:10}}>All Time</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+        {allTimeCards.map((c,i)=>(
+          <div key={i} style={{background:"#FFFFFF",borderRadius:14,padding:"14px 12px",
+            borderLeft:`4px solid ${c.color}`,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",
+              textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>{c.label}</div>
+            <div style={{fontSize:30,fontWeight:800,color:c.color,
+              fontFamily:"monospace",lineHeight:1}}>{loading?"...":c.value}</div>
+          </div>
+        ))}
+      </div>
+      {/* Performance Chart */}
+      <div style={{background:"#FFFFFF",borderRadius:14,padding:16,
+        boxShadow:"0 2px 8px rgba(0,0,0,0.06)",marginBottom:16}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",
+          textTransform:"uppercase",letterSpacing:"1px",marginBottom:14}}>
+          Performance Overview
+        </div>
+        {[
+          {label:"Calls",today:stats.today_calls,total:stats.calls,color:"#3B82F6"},
+          {label:"Minutes",today:stats.today_minutes,total:stats.minutes,color:"#06B6D4"},
+          {label:"Revenue €",today:stats.today_revenue,total:stats.revenue,color:"#F5A623"},
+        ].map((m,i)=>{
+          const todayPct=Math.min(100,barMax>0?(parseFloat(m.today)||0)/barMax*100:0);
+          const totalPct=Math.min(100,barMax>0?(parseFloat(m.total)||0)/barMax*100:0);
+          return(
+            <div key={i} style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:12,fontWeight:600,color:"#333"}}>{m.label}</span>
+                <span style={{fontSize:11,color:"#999"}}>{m.today} / {m.total}</span>
+              </div>
+              <div style={{height:8,borderRadius:4,background:"#F0F0F0",marginBottom:3}}>
+                <div style={{height:"100%",borderRadius:4,
+                  background:m.color,width:todayPct+"%",
+                  transition:"width 0.5s ease"}}/>
+              </div>
+              <div style={{height:8,borderRadius:4,background:"#F0F0F0"}}>
+                <div style={{height:"100%",borderRadius:4,
+                  background:m.color+"60",width:totalPct+"%",
+                  transition:"width 0.5s ease"}}/>
+              </div>
+              <div style={{display:"flex",gap:16,marginTop:4}}>
+                <span style={{fontSize:10,color:m.color,fontWeight:600}}>▪ Today</span>
+                <span style={{fontSize:10,color:m.color+"99",fontWeight:600}}>▪ All Time</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* System Status */}
+      <div style={{background:"#FFFFFF",borderRadius:14,padding:14,
+        boxShadow:"0 2px 8px rgba(0,0,0,0.06)",marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",
+          textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>System Status</div>
+        {[["API","Online","#10B981"],["Database","Connected","#10B981"],["Asterisk","Active","#10B981"]].map(([k,v,c])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",
+            padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
+            <span style={{fontSize:13,color:"#666"}}>{k}</span>
+            <span style={{fontSize:12,color:c,fontWeight:700,
+              background:c+"15",padding:"2px 10px",borderRadius:10}}>{v}</span>
+          </div>
+        ))}
+      </div>
+      {/* Server Info */}
+      <div style={{background:"#FFFFFF",borderRadius:14,padding:14,
+        boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",
+          textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>Server</div>
         {[["IP","195.200.14.165"],["OS","Ubuntu 24.04"],["Asterisk","20.6.0"]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v}</span>
+          <div key={k} style={{display:"flex",justifyContent:"space-between",
+            padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
+            <span style={{fontSize:13,color:"#666"}}>{k}</span>
+            <span style={{fontSize:12,color:"#2CADA6",fontFamily:"monospace",fontWeight:600}}>{v}</span>
           </div>
         ))}
-      </Card>
-      
+      </div>
     </div>
   );
 }
-
 // ── Live Calls ────────────────────────────────────────────────────
 function LiveCallsPage({token}){
   const [calls,setCalls]=useState([]);
