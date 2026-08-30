@@ -112,12 +112,26 @@ Route::middleware('auth:sanctum')->group(function() {
     });
 
     // ── Suppliers ─────────────────────────────────────────────
-    Route::get('/v1/suppliers', function() {
+    Route::get('/v1/suppliers', function(Request $request) {
+        $user = $request->user();
         $trunks = DB::table('trunks')->get();
+        // Admin only sees nickname list
+        if ($user && $user->role === 'admin') {
+            $trunks = $trunks->map(function($t) {
+                return [
+                    'id'       => $t->id,
+                    'nickname' => $t->nickname ?? $t->name,
+                    'status'   => $t->is_active ? 'active' : 'inactive',
+                ];
+            });
+        }
         return response()->json(['data'=>$trunks]);
     });
 
     Route::post('/v1/suppliers', function(Request $r) {
+        if ($r->user()->role !== 'superadmin') {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
         $id = DB::table('trunks')->insertGetId([
             'name'       => $r->name,
             'host'       => $r->host,
