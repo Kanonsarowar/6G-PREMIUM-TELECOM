@@ -45,7 +45,7 @@ const getNavGroups=(role)=>{
   {key:"system",label:"System",items:[
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
     {id:"customers",label:"Customers",icon:"◷"},
-    {id:"testlabs",label:"Test Labs",icon:"⚗"},
+    {id:"testlabs",label:"Test Number",icon:"⚗"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
@@ -65,7 +65,7 @@ const NAV_GROUPS=[
   {key:"system",label:"System",items:[
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
     {id:"customers",label:"Customers",icon:"◷"},
-    {id:"testlabs",label:"Test Labs",icon:"⚗"},
+    {id:"testlabs",label:"Test Number",icon:"⚗"},
     {id:"settings",label:"Settings",icon:"⚙"},
   ]},
 ];
