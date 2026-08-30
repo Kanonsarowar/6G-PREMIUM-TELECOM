@@ -17,11 +17,12 @@ class ErrorBoundary extends React.Component {
   }
 }
 const C = {
-  bg:"#F0F0F5",surface:"#FFFFFF",card:"#FFFFFF",
-  border:"rgba(0,0,0,0.08)",text:"#1E293B",muted:"#64748B",
-  green:"#7C3AED",blue:"#6D28D9",purple:"#7C3AED",
+  bg:"#F4F6FA",surface:"#FFFFFF",card:"#FFFFFF",
+  border:"rgba(60,47,143,0.12)",text:"#1E293B",muted:"#64748B",
+  green:"#10B981",blue:"#3B82F6",purple:"#4C3BA8",
   yellow:"#F59E0B",red:"#EF4444",orange:"#F97316",cyan:"#06B6D4",
-  sidebarBg:"#4B3FA0",
+  sidebarBg:"#3C2F8F",topbarBg:"#3C2F8F",
+  accent:"#6C5CE7",accentLight:"rgba(108,92,231,0.12)",
 };
 const eurToUsd = v => (parseFloat(v||0)*1.08).toFixed(4);
 const usdToSar = v => (parseFloat(v||0)*3.75).toFixed(2);
@@ -74,6 +75,7 @@ const apiFetch=async(path,token,opts={})=>{
       headers:{Authorization:`Bearer ${token}`,Accept:"application/json","Content-Type":"application/json"},
       ...opts
     });
+    if(r.status===401){return{error:"Unauthenticated",status:401};}
     return r.json();
   }catch(e){return{error:e.message};}
 };
@@ -2027,9 +2029,13 @@ export default function App(){
     apiFetch("/auth/me",t).then(d=>{
       const u=d.data||d;
       if(u?.id){setToken(t);setUser(u);}
-      else{localStorage.removeItem("noc_token");setToken("");}
+      else{localStorage.removeItem("noc_token");setToken("");setUser(null);}
       setReady(true);
-    }).catch(()=>setReady(true));
+    }).catch(()=>{
+      localStorage.removeItem("noc_token");
+      setToken("");setUser(null);
+      setReady(true);
+    });
   },[]);
 
   useEffect(()=>{
