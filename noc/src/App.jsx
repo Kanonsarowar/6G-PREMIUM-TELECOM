@@ -176,22 +176,22 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
       fontFamily:"'Nunito','Poppins',sans-serif",
       boxShadow:"2px 0 12px rgba(0,0,0,0.06)"}}>
       {/* Logo */}
-      <div style={{padding:"18px 16px",borderBottom:"1px solid #F0F0F0",
-        display:"flex",alignItems:"center",gap:12,minHeight:68}}>
+      <div style={{padding:"18px 16px",borderBottom:"1px solid rgba(255,255,255,0.15)",
+        display:"flex",alignItems:"center",gap:12,minHeight:68,
+        background:"linear-gradient(90deg,#5B4FCF,#4B3FB5)"}}>
         <div style={{width:36,height:36,borderRadius:10,flexShrink:0,
-          background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
-          boxShadow:"0 4px 12px rgba(44,173,166,0.3)"}}>📡</div>
+          background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📡</div>
         {open&&<div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:15,fontWeight:900,color:"#1A1A1A",letterSpacing:"0.3px"}}>
-            <span style={{color:"#2CADA6"}}>6G</span>
+          <div style={{fontSize:15,fontWeight:900,letterSpacing:"0.3px"}}>
+            <span style={{color:"#FFFFFF"}}>6G</span>
             <span style={{color:"#F5A623"}}>STATS</span>
           </div>
-          <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>NOC Platform</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>NOC Platform</div>
         </div>}
         <button onClick={toggle} style={{marginLeft:open?"0":"auto",
-          background:"#F5F5F5",border:"1px solid #E8E8E8",
-          color:"#888",cursor:"pointer",fontSize:10,borderRadius:6,
+          background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
+          color:"#FFFFFF",cursor:"pointer",fontSize:10,borderRadius:6,
           width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
           {open?"◀":"▶"}
         </button>
@@ -253,185 +253,64 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
   );
 }
 // ── Mobile Drawer ─────────────────────────────────────────────────
-function MobileDrawer({page,setPage,user,logout,onClose}){
-  return(
-    <>
-      <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,backdropFilter:"blur(3px)"}}/>
-      <div style={{position:"fixed",top:0,left:0,height:"100%",width:270,
-        background:C.sidebarBg,zIndex:201,display:"flex",flexDirection:"column",
-        borderRight:"1px solid rgba(255,255,255,0.08)",overflowY:"auto"}}>
-        <div style={{padding:"18px 16px",borderBottom:`1px solid ${C.border}`,
-          display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:34,height:34,borderRadius:9,flexShrink:0,
-              background:"linear-gradient(135deg,rgba(127,119,221,0.18),rgba(127,119,221,0.04))",
-              border:"1px solid rgba(127,119,221,0.28)",
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>📡</div>
-            <div>
-              <div style={{fontSize:13,fontWeight:800,color:C.text,letterSpacing:"0.4px"}}>6G Premium</div>
-              <div style={{fontSize:9,color:C.green,letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:600}}>Telecom NOC</div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,0.05)",
-            border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",
-            borderRadius:6,width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-        </div>
-        <div style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
-          {getNavGroups(user?.role).map(g=>(
-            <div key={g.key} style={{marginBottom:4}}>
-              <div style={{fontSize:9,letterSpacing:"1.5px",color:C.muted,textTransform:"uppercase",
-                padding:"10px 10px 5px",fontWeight:700}}>{g.label}</div>
-              {g.items.map(n=>{
-                const active=page===n.id;
-                return(
-                  <button key={n.id} onClick={()=>{setPage(n.id);onClose();}}
-                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",
-                      padding:"10px 12px",borderRadius:8,marginBottom:1,cursor:"pointer",
-                      background:active?"rgba(127,119,221,0.08)":"transparent",
-                      border:active?"1px solid rgba(127,119,221,0.22)":"1px solid transparent",
-                      color:active?C.green:C.text,fontSize:13,fontWeight:active?600:400,
-                      textAlign:"left",transition:"all 0.15s"}}>
-                    <span style={{fontSize:15,width:20,textAlign:"center",opacity:active?1:0.55}}>{n.icon}</span>
-                    <span>{n.label}</span>
-                    {active&&<span style={{marginLeft:"auto",width:5,height:5,borderRadius:"50%",background:C.green,boxShadow:"0 0 6px rgba(127,119,221,0.6)"}}/>}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-        <div style={{padding:"14px 12px",borderTop:`1px solid ${C.border}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-            <div style={{width:34,height:34,borderRadius:"50%",flexShrink:0,
-              background:"linear-gradient(135deg,rgba(127,119,221,0.25),rgba(56,189,248,0.12))",
-              display:"flex",alignItems:"center",justifyContent:"center",
-              fontSize:12,fontWeight:700,color:C.green,border:`1px solid ${C.border}`}}>
-              {(user?.name||"A")[0].toUpperCase()}
-            </div>
-            <div>
-              <div style={{fontSize:12,color:C.text,fontWeight:600}}>{user?.name||"Admin"}</div>
-              <div style={{fontSize:10,color:C.muted}}>{user?.email||""}</div>
-            </div>
-          </div>
-          <button onClick={logout} style={{width:"100%",padding:"9px",borderRadius:7,fontSize:11,
-            border:`1px solid ${C.red}30`,background:`${C.red}0D`,color:C.red,cursor:"pointer",fontWeight:600}}>Sign Out</button>
-        </div>
-      </div>
-    </>
-  );
-}
-// ── Desktop Sidebar ───────────────────────────────────────────────
-function DesktopSidebar({page,setPage,open,toggle,user,logout}){
-  return(
-    <div style={{width:open?228:56,background:C.sidebarBg,borderRight:"1px solid rgba(255,255,255,0.08)",
-      display:"flex",flexDirection:"column",flexShrink:0,transition:"width 0.22s ease",overflow:"hidden"}}>
-      <div style={{padding:"15px 12px",borderBottom:`1px solid ${C.border}`,
-        display:"flex",alignItems:"center",gap:10,minHeight:58}}>
-        <div style={{width:32,height:32,borderRadius:8,flexShrink:0,
-          background:"linear-gradient(135deg,rgba(127,119,221,0.18),rgba(127,119,221,0.04))",
-          border:"1px solid rgba(127,119,221,0.28)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>📡</div>
-        {open&&<div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:12,fontWeight:800,color:"#FFFFFF",fontWeight:800,whiteSpace:"nowrap",letterSpacing:"0.4px"}}>6G Premium</div>
-          <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:600}}>Telecom NOC</div>
-        </div>}
-        <button onClick={toggle} style={{marginLeft:open?"0":"auto",
-          background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,
-          color:C.muted,cursor:"pointer",fontSize:9,borderRadius:5,
-          width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-          {open?"◀":"▶"}
-        </button>
-      </div>
-      <div style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
-        {getNavGroups(user?.role).map(g=>(
-          <div key={g.key} style={{marginBottom:4}}>
-            {open&&<div style={{fontSize:9,letterSpacing:"1.5px",color:"rgba(255,255,255,0.55)",textTransform:"uppercase",
-              padding:"8px 8px 4px",fontWeight:700}}>{g.label}</div>}
-            {g.items.map((n,ni)=>{
-              const active=page===n.id;
-              return(
-                <div key={n.id}>
-                  {ni>0&&<div style={{height:1,background:"rgba(255,255,255,0.08)",margin:"2px 4px"}}/>}
-                  <button onClick={()=>setPage(n.id)}
-                    title={!open?n.label:undefined}
-                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",
-                      padding:open?"10px 12px":"11px 0",justifyContent:open?"flex-start":"center",
-                      borderRadius:7,cursor:"pointer",
-                      background:active?"rgba(255,255,255,0.18)":"transparent",
-                      border:active?"1px solid rgba(255,255,255,0.35)":"1px solid transparent",
-                      color:"#FFFFFF",fontSize:13,fontWeight:active?700:500,
-                      textAlign:"left",whiteSpace:"nowrap",transition:"all 0.15s"}}>
-                    <span style={{fontSize:15,width:22,textAlign:"center",flexShrink:0,
-                      color:"#FFFFFF",opacity:active?1:0.7}}>{n.icon}</span>
-                    {open&&<span style={{color:"#FFFFFF",fontSize:13,fontWeight:active?700:500,
-                      opacity:active?1:0.85}}>{n.label}</span>}
-                    {open&&active&&<span style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",
-                      background:"#FFFFFF",flexShrink:0}}/>}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-      {open&&<div style={{padding:"12px 10px",borderTop:`1px solid ${C.border}`}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <div style={{width:30,height:30,borderRadius:"50%",flexShrink:0,
-            background:"linear-gradient(135deg,rgba(127,119,221,0.22),rgba(56,189,248,0.12))",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:11,fontWeight:700,color:C.green,border:`1px solid ${C.border}`}}>
-            {(user?.name||"A")[0].toUpperCase()}
-          </div>
-          <div style={{minWidth:0}}>
-            <div style={{fontSize:11,color:"#FFFFFF",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.name||"Admin"}</div>
-            <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.email||""}</div>
-          </div>
-        </div>
-        <button onClick={logout} style={{width:"100%",padding:"7px",borderRadius:6,fontSize:10,
-          border:`1px solid ${C.red}25`,background:`${C.red}0D`,color:C.red,cursor:"pointer",fontWeight:600}}>Sign Out</button>
-      </div>}
-      {!open&&<div style={{padding:"10px 8px",borderTop:`1px solid ${C.border}`}}>
-        <button onClick={logout} title="Sign Out"
-          style={{width:"100%",padding:"8px 0",borderRadius:6,fontSize:13,
-          border:`1px solid ${C.red}25`,background:`${C.red}0D`,color:C.red,cursor:"pointer"}}>x</button>
-      </div>}
-    </div>
-  );
-}
-// ── Top Bar ───────────────────────────────────────────────────────
-function TopBar({liveCalls,revenue,onMenuClick,isMobile}){
+
+
+function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
   const [time,setTime]=useState(new Date().toLocaleTimeString());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
   return(
-    <div style={{height:56,background:"#4B3FA0",borderBottom:"1px solid rgba(255,255,255,0.1)",
-      display:"flex",alignItems:"center",padding:"0 16px",gap:10,flexShrink:0,zIndex:100}}>
+    <div style={{height:64,background:"linear-gradient(90deg,#5B4FCF,#4B3FB5)",
+      display:"flex",alignItems:"center",padding:"0 16px",gap:10,
+      flexShrink:0,zIndex:100,boxShadow:"0 2px 12px rgba(75,63,181,0.3)"}}>
+      {/* Hamburger */}
       {isMobile&&(
-        <button onClick={onMenuClick} style={{background:"rgba(255,255,255,0.1)",
-          border:"1px solid rgba(255,255,255,0.2)",color:"#FFFFFF",fontSize:16,cursor:"pointer",
-          borderRadius:7,width:36,height:36,display:"flex",alignItems:"center",
-          justifyContent:"center",flexShrink:0}}>☰</button>
+        <button onClick={onMenuClick} style={{background:"rgba(255,255,255,0.15)",
+          border:"1px solid rgba(255,255,255,0.2)",color:"#FFFFFF",fontSize:18,
+          cursor:"pointer",borderRadius:10,width:40,height:40,
+          display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>☰</button>
       )}
-      {isMobile&&<span style={{fontSize:14,fontWeight:800,color:"#FFFFFF"}}>6G Premium</span>}
-      {!isMobile&&<div style={{display:"flex",alignItems:"center",gap:6}}>
-        <span style={{width:7,height:7,borderRadius:"50%",background:C.green,display:"inline-block",
-          boxShadow:"0 0 8px rgba(127,119,221,0.5)"}}/>
-        <span style={{fontSize:10,letterSpacing:"1.5px",color:C.green,fontWeight:700,textTransform:"uppercase"}}>System Live</span>
-      </div>}
-      <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
-        borderRadius:20,background:"rgba(127,119,221,0.06)",border:"1px solid rgba(127,119,221,0.14)"}}>
-        <span style={{width:5,height:5,borderRadius:"50%",background:C.green,display:"inline-block"}}/>          
-        <span style={{fontSize:10,color:C.muted,fontWeight:500}}>Live</span>
-        <span style={{fontSize:12,color:C.green,fontWeight:800,fontFamily:"monospace"}}>{liveCalls}</span>
+      {/* Brand */}
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        {!isMobile&&<div style={{width:38,height:38,borderRadius:10,flexShrink:0,
+          background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📡</div>}
+        <div>
+          <div style={{fontSize:15,fontWeight:900,color:"#FFFFFF",lineHeight:1.2,letterSpacing:"0.3px"}}>
+            <span style={{color:"#FFFFFF"}}>6G</span>
+            <span style={{color:"#F5A623"}}>STATS</span>
+          </div>
+          <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase"}}>NOC Platform</div>
+        </div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",
-        borderRadius:20,background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.14)"}}>
-        <span style={{fontSize:10,color:C.muted,fontWeight:500}}>Rev</span>
-        <span style={{fontSize:12,color:C.yellow,fontWeight:800,fontFamily:"monospace"}}>€{revenue}</span>
+      {/* Pills */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",
+          borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
+          <span style={{width:7,height:7,borderRadius:"50%",background:"#10B981",
+            display:"inline-block",boxShadow:"0 0 6px #10B981"}}/>
+          <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Live</span>
+          <span style={{fontSize:13,color:"#10B981",fontWeight:800,fontFamily:"monospace"}}>{liveCalls}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",
+          borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
+          <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Rev</span>
+          <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>€{revenue}</span>
+        </div>
       </div>
-      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:11,color:C.muted,fontFamily:"monospace"}}>{time}</span>
-        <div style={{width:1,height:16,background:C.border}}/>
-        <span style={{fontSize:10,color:C.muted}}>195.200.14.165</span>
+      {/* Right side */}
+      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12}}>
+        <span style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontFamily:"monospace"}}>{time}</span>
+        {!isMobile&&<div style={{display:"flex",alignItems:"center",gap:8,
+          padding:"5px 12px",borderRadius:20,background:"rgba(0,0,0,0.2)"}}>
+          <div style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.2)",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:12,fontWeight:800,color:"#FFFFFF"}}>
+            {(user?.name||"A")[0].toUpperCase()}
+          </div>
+          <span style={{fontSize:12,color:"rgba(255,255,255,0.85)",fontWeight:600}}>{user?.name||"Admin"}</span>
+          <span style={{fontSize:10,color:"rgba(255,255,255,0.45)",background:"rgba(255,255,255,0.1)",
+            padding:"2px 8px",borderRadius:10,textTransform:"capitalize"}}>{user?.role||""}</span>
+        </div>}
       </div>
     </div>
   );
@@ -2361,7 +2240,7 @@ export default function App(){
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}`}
       </style>
 
-      <TopBar liveCalls={liveCalls} revenue={revenue} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)}/>
+      <TopBar liveCalls={liveCalls} revenue={revenue} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)} user={user}/>
 
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         {/* Mobile Drawer */}
