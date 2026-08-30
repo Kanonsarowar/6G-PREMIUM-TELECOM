@@ -981,8 +981,7 @@ function DIDInventoryPage({token}){
   const downloadExcel=()=>{
     const rows=[["Number","Country","Tariff","Status","Created"]];
     dids.forEach(d=>rows.push([d.number,d.country_name||"—",d.rate||"—",d.status||"active",d.created_at||"—"]));
-    const csv=rows.map(r=>r.join(",")).join("
-");
+    const csv=rows.map(r=>r.join(",")).join("\n");
     const blob=new Blob([csv],{type:"text/csv"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
