@@ -1,0 +1,38 @@
+name: Deploy 6G Premium Telecom
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: 195.200.14.165
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            # Pull latest code
+            cd /root/6g-telecom-mono
+            git pull origin main
+
+            # Deploy Laravel API
+            cd /var/www/gulf-repo
+            git pull origin main
+            composer install --no-dev --optimize-autoloader
+            php artisan config:cache
+            php artisan route:cache
+
+            # Deploy NOC Dashboard
+            cd /var/www/noc-build
+            git pull origin main
+            npm install
+            npm run build
+            cp -r dist/* /var/www/telecom-dashboard/dist/
+
+            # Reload services
+            nginx -s reload
+            php-fpm8.2 -t && systemctl reload php8.2-fpm
