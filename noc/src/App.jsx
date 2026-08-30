@@ -87,6 +87,175 @@ const Card=({children,style={}})=>(
 function MobileDrawer({page,setPage,user,logout,onClose}){
   return(
     <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,
+        background:"rgba(0,0,0,0.5)",zIndex:200,backdropFilter:"blur(3px)"}}/>
+      <div style={{position:"fixed",top:0,left:0,height:"100%",width:280,
+        background:"#FFFFFF",zIndex:201,display:"flex",flexDirection:"column",
+        borderRight:"1px solid #E8EAF0",overflowY:"auto",
+        fontFamily:"'Nunito','Poppins',sans-serif",
+        boxShadow:"4px 0 20px rgba(0,0,0,0.15)"}}>
+        {/* Header */}
+        <div style={{padding:"18px 16px",borderBottom:"1px solid #F0F0F0",
+          display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:10,
+              background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
+              boxShadow:"0 4px 12px rgba(44,173,166,0.3)"}}>📡</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:900,color:"#1A1A1A"}}>
+                <span style={{color:"#2CADA6"}}>6G</span>
+                <span style={{color:"#F5A623"}}>STATS</span>
+              </div>
+              <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase"}}>NOC Platform</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"#F5F5F5",
+            border:"1px solid #E8E8E8",color:"#888",fontSize:13,cursor:"pointer",
+            borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        </div>
+        {/* Nav */}
+        <div style={{flex:1,padding:"12px 10px",overflowY:"auto"}}>
+          <div style={{height:1,background:"#F0F0F0",marginBottom:12}}/>
+          {getNavGroups(user?.role).map(g=>(
+            <div key={g.key} style={{marginBottom:8}}>
+              <div style={{fontSize:10,letterSpacing:"1.5px",color:"#AAAAAA",
+                textTransform:"uppercase",padding:"6px 8px 4px",fontWeight:700}}>{g.label}</div>
+              {g.items.map(n=>{
+                const active=page===n.id;
+                return(
+                  <button key={n.id} onClick={()=>{setPage(n.id);onClose();}}
+                    style={{display:"flex",alignItems:"center",gap:12,width:"100%",
+                      padding:"13px 16px",borderRadius:12,marginBottom:2,cursor:"pointer",
+                      background:active?"#2CADA6":"transparent",
+                      border:"none",
+                      boxShadow:active?"0 4px 12px rgba(44,173,166,0.3)":"none",
+                      color:active?"#FFFFFF":"#4A4A4A",
+                      fontSize:15,fontWeight:active?700:500,
+                      textAlign:"left",transition:"all 0.18s",
+                      fontFamily:"inherit"}}>
+                    <span style={{fontSize:18,width:22,textAlign:"center",opacity:active?1:0.7}}>{n.icon}</span>
+                    <span>{n.label}</span>
+                    {active&&<span style={{marginLeft:"auto",width:7,height:7,
+                      borderRadius:"50%",background:"rgba(255,255,255,0.8)"}}/>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        {/* User */}
+        <div style={{padding:"14px 12px",borderTop:"1px solid #F0F0F0"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{width:36,height:36,borderRadius:"50%",flexShrink:0,
+              background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:14,fontWeight:800,color:"#FFFFFF"}}>
+              {(user?.name||"A")[0].toUpperCase()}
+            </div>
+            <div>
+              <div style={{fontSize:13,color:"#1A1A1A",fontWeight:700}}>{user?.name||"Admin"}</div>
+              <div style={{fontSize:10,color:"#999"}}>{user?.role||""}</div>
+            </div>
+          </div>
+          <button onClick={logout} style={{width:"100%",padding:"10px",borderRadius:8,fontSize:13,
+            border:"1px solid #FFCDD2",background:"#FFF5F5",color:"#EF4444",
+            cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>Sign Out</button>
+        </div>
+      </div>
+    </>
+  );
+}
+// ── Desktop Sidebar ───────────────────────────────────────────────
+function DesktopSidebar({page,setPage,open,toggle,user,logout}){
+  return(
+    <div style={{width:open?280:64,background:"#FFFFFF",
+      borderRight:"1px solid #E8EAF0",
+      display:"flex",flexDirection:"column",flexShrink:0,
+      transition:"width 0.22s ease",overflow:"hidden",
+      fontFamily:"'Nunito','Poppins',sans-serif",
+      boxShadow:"2px 0 12px rgba(0,0,0,0.06)"}}>
+      {/* Logo */}
+      <div style={{padding:"18px 16px",borderBottom:"1px solid #F0F0F0",
+        display:"flex",alignItems:"center",gap:12,minHeight:68}}>
+        <div style={{width:36,height:36,borderRadius:10,flexShrink:0,
+          background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
+          boxShadow:"0 4px 12px rgba(44,173,166,0.3)"}}>📡</div>
+        {open&&<div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:15,fontWeight:900,color:"#1A1A1A",letterSpacing:"0.3px"}}>
+            <span style={{color:"#2CADA6"}}>6G</span>
+            <span style={{color:"#F5A623"}}>STATS</span>
+          </div>
+          <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>NOC Platform</div>
+        </div>}
+        <button onClick={toggle} style={{marginLeft:open?"0":"auto",
+          background:"#F5F5F5",border:"1px solid #E8E8E8",
+          color:"#888",cursor:"pointer",fontSize:10,borderRadius:6,
+          width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          {open?"◀":"▶"}
+        </button>
+      </div>
+      {/* Nav */}
+      <div style={{flex:1,padding:"12px 10px",overflowY:"auto"}}>
+        <div style={{height:1,background:"#F0F0F0",marginBottom:12}}/>
+        {getNavGroups(user?.role).map(g=>(
+          <div key={g.key} style={{marginBottom:8}}>
+            {open&&<div style={{fontSize:10,letterSpacing:"1.5px",color:"#AAAAAA",
+              textTransform:"uppercase",padding:"6px 8px 4px",fontWeight:700}}>{g.label}</div>}
+            {g.items.map(n=>{
+              const active=page===n.id;
+              return(
+                <button key={n.id} onClick={()=>setPage(n.id)}
+                  title={!open?n.label:undefined}
+                  style={{display:"flex",alignItems:"center",gap:12,width:"100%",
+                    padding:open?"12px 16px":"13px 0",
+                    justifyContent:open?"flex-start":"center",
+                    borderRadius:12,cursor:"pointer",marginBottom:2,
+                    background:active?"#2CADA6":"transparent",
+                    border:"none",
+                    boxShadow:active?"0 4px 12px rgba(44,173,166,0.3)":"none",
+                    color:active?"#FFFFFF":"#4A4A4A",
+                    fontSize:15,fontWeight:active?700:500,
+                    textAlign:"left",whiteSpace:"nowrap",transition:"all 0.18s"}}>
+                  <span style={{fontSize:18,width:22,textAlign:"center",flexShrink:0,
+                    opacity:active?1:0.7}}>{n.icon}</span>
+                  {open&&<span style={{fontSize:15,fontWeight:active?700:500}}>{n.label}</span>}
+                  {open&&active&&<span style={{marginLeft:"auto",width:7,height:7,
+                    borderRadius:"50%",background:"rgba(255,255,255,0.8)",flexShrink:0}}/>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      {/* User info */}
+      {open&&<div style={{padding:"14px 12px",borderTop:"1px solid #F0F0F0"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <div style={{width:34,height:34,borderRadius:"50%",flexShrink:0,
+            background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:13,fontWeight:800,color:"#FFFFFF"}}>
+            {(user?.name||"A")[0].toUpperCase()}
+          </div>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,color:"#1A1A1A",fontWeight:700,
+              whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.name||"Admin"}</div>
+            <div style={{fontSize:10,color:"#999",
+              whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.role||""}</div>
+          </div>
+        </div>
+        <button onClick={logout} style={{width:"100%",padding:"9px",borderRadius:8,fontSize:12,
+          border:"1px solid #FFCDD2",background:"#FFF5F5",color:"#EF4444",
+          cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>Sign Out</button>
+      </div>}
+    </div>
+  );
+}
+// ── Mobile Drawer ─────────────────────────────────────────────────
+function MobileDrawer({page,setPage,user,logout,onClose}){
+  return(
+    <>
       <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,backdropFilter:"blur(3px)"}}/>
       <div style={{position:"fixed",top:0,left:0,height:"100%",width:270,
         background:C.sidebarBg,zIndex:201,display:"flex",flexDirection:"column",
