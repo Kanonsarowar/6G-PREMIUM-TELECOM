@@ -1,0 +1,354 @@
+import { useState, useEffect, useCallback } from "react";
+
+const API = "http://195.200.14.165/api/v1";
+const C = {
+  bg:"#07090F", surface:"#0C1018", card:"#0F1520",
+  border:"rgba(255,255,255,0.07)", text:"#E2E8F0", muted:"#4B5563",
+  green:"#00FFB2", blue:"#38BDF8", purple:"#A78BFA",
+  yellow:"#FBBF24", red:"#F87171", orange:"#FB923C", cyan:"#06B6D4",
+};
+
+const apiFetch = async(path, token, opts={})=>{
+  const r = await fetch(`${API}${path}`,{
+    headers:{Authorization:`Bearer ${token}`,Accept:"application/json","Content-Type":"application/json"},
+    ...opts
+  });
+  return r.json();
+};
+
+const NAV = [
+  {id:"dashboard",    label:"Dashboard",     icon:"⬡", group:"ops"},
+  {id:"livecalls",    label:"Live Calls",    icon:"📡", group:"ops"},
+  {id:"suppliers",    label:"Suppliers",     icon:"🔒", group:"ops"},
+  {id:"didinventory", label:"DID Inventory", icon:"📦", group:"voice"},
+  {id:"ivr",          label:"IVR Library",   icon:"🎵", group:"voice"},
+  {id:"revenue",      label:"Revenue",       icon:"$",  group:"voice"},
+  {id:"cdr",          label:"CDR Analytics", icon:"≡",  group:"voice"},
+  {id:"customers",    label:"Customers",     icon:"👤", group:"system"},
+  {id:"settings",     label:"Settings",      icon:"⚙",  group:"system"},
+];
+
+export default function App() {
+  const [token,  setToken]  = useState(localStorage.getItem("noc_token")||"");
+  const [user,   setUser]   = useState(null);
+  const [page,   setPage]   = useState("dashboard");
+  const [email,  setEmail]  = useState("");
+  const [pass,   setPass]   = useState("");
+  const [error,  setError]  = useState("");
+  const [loading,setLoading]= useState(false);
+  const [sideOpen,setSideOpen]=useState(true);
+
+  useEffect(()=>{
+    if(token){
+      apiFetch("/auth/me",token).then(d=>{
+        const u=d.data||d;
+        if(u?.id) setUser(u);
+        else { localStorage.removeItem("noc_token"); setToken(""); }
+      }).catch(()=>{ localStorage.removeItem("noc_token"); setToken(""); });
+    }
+  },[token]);
+
+  const login = async()=>{
+    setLoading(true); setError("");
+    try {
+      const r = await fetch(`${API}/auth/login`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","Accept":"application/json"},
+        body:JSON.stringify({email,password:pass})
+      });
+      const d = await r.json();
+      if(d.token){ localStorage.setItem("noc_token",d.token); setToken(d.token); setUser(d.user); }
+      else setError(d.message||"Invalid credentials");
+    } catch(e){ setError("Connection error: "+e.message); }
+    setLoading(false);
+  };
+
+  const logout = ()=>{ localStorage.removeItem("noc_token"); setToken(""); setUser(null); };
+
+  if(!token) return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",
+      alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono',monospace",color:C.text}}>
+      <div style={{width:380,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:32}}>
+        <div style={{fontSize:22,fontWeight:900,color:C.green,marginBottom:4,textAlign:"center"}}>6G Premium Telecom</div>
+        <div style={{fontSize:11,color:C.muted,textAlign:"center",marginBottom:28}}>NOC Dashboard</div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:10,color:C.muted,marginBottom:5}}>Email</div>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@6g-premium-telecom.com"
+            onKeyDown={e=>e.key==="Enter"&&login()}
+            style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,
+              background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+        </div>
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,color:C.muted,marginBottom:5}}>Password</div>
+          <input type="password" value={pass} onChange={e=>setPass(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&login()}
+            style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,
+              background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+        </div>
+        {error&&<div style={{color:C.red,fontSize:11,marginBottom:10}}>{error}</div>}
+        <button onClick={login} disabled={loading}
+          style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
+            background:C.green,color:"#000",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+          {loading?"Logging in...":"Login"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderPage = ()=>{
+    switch(page){
+      case "livecalls":    return <LiveCallsPage token={token}/>;
+      case "customers":    return <CustomersPage token={token}/>;
+      case "cdr":          return <CDRPage token={token}/>;
+      case "settings":     return <SettingsPage user={user} logout={logout}/>;
+      default:             return <DashboardPage token={token}/>;
+    }
+  };
+
+  return (
+    <div style={{display:"flex",minHeight:"100vh",background:C.bg,
+      fontFamily:"'DM Mono',monospace",color:C.text}}>
+
+      {/* Sidebar */}
+      <div style={{width:sideOpen?200:52,background:C.surface,
+        borderRight:`1px solid ${C.border}`,flexShrink:0,
+        display:"flex",flexDirection:"column",transition:"width 0.2s"}}>
+        {/* Logo */}
+        <div style={{padding:"16px 12px",borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0}}/>
+          {sideOpen&&<span style={{fontSize:11,fontWeight:800,color:C.green}}>6G Premium</span>}
+          <button onClick={()=>setSideOpen(o=>!o)}
+            style={{marginLeft:"auto",background:"none",border:"none",
+              color:C.muted,cursor:"pointer",fontSize:14}}>
+            {sideOpen?"◀":"▶"}
+          </button>
+        </div>
+
+        {/* Nav */}
+        <div style={{flex:1,padding:"8px"}}>
+          {NAV.map(n=>{
+            const active = page===n.id;
+            return (
+              <button key={n.id} onClick={()=>setPage(n.id)}
+                style={{display:"flex",alignItems:"center",gap:8,width:"100%",
+                  padding:"9px 10px",borderRadius:8,marginBottom:2,cursor:"pointer",
+                  background:active?`${C.green}12`:"rgba(255,255,255,0.03)",
+                  border:active?`1px solid ${C.green}30`:"1px solid transparent",
+                  color:active?C.green:C.text,fontSize:12,fontWeight:active?700:500,textAlign:"left"}}>
+                <span style={{fontSize:14,flexShrink:0}}>{n.icon}</span>
+                {sideOpen&&<span>{n.label}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* User */}
+        {sideOpen&&<div style={{padding:"12px",borderTop:`1px solid ${C.border}`}}>
+          <div style={{fontSize:10,color:C.muted}}>{user?.name}</div>
+          <div style={{fontSize:9,color:C.muted}}>{user?.email}</div>
+          <button onClick={logout}
+            style={{marginTop:8,width:"100%",padding:"6px",borderRadius:6,fontSize:10,
+              border:`1px solid ${C.red}40`,background:`${C.red}10`,color:C.red,cursor:"pointer"}}>
+            Logout
+          </button>
+        </div>}
+      </div>
+
+      {/* Content */}
+      <div style={{flex:1,overflow:"auto"}}>
+        {renderPage()}
+      </div>
+    </div>
+  );
+}
+
+function DashboardPage({token}) {
+  const [stats, setStats] = useState({calls:0,revenue:0,dids:0,live:0});
+
+  useEffect(()=>{
+    apiFetch("/billing/current-revenue",token).then(d=>{
+      const s=d.data||{};
+      setStats(prev=>({...prev,calls:s.calls||0,revenue:parseFloat(s.revenue||0).toFixed(4)}));
+    }).catch(()=>{});
+    apiFetch("/dids",token).then(d=>setStats(prev=>({...prev,dids:(d.data||[]).length}))).catch(()=>{});
+    apiFetch("/live-calls",token).then(d=>setStats(prev=>({...prev,live:(d.data||d||[]).length}))).catch(()=>{});
+  },[token]);
+
+  return (
+    <div style={{padding:24}}>
+      <h1 style={{margin:"0 0 20px",fontSize:18,fontWeight:800,color:"#E2E8F0"}}>Dashboard</h1>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:24}}>
+        {[["Live Calls",stats.live,"#00FFB2"],["Total Calls",stats.calls,"#38BDF8"],
+          ["Revenue",`€${stats.revenue}`,"#FBBF24"],["DIDs",stats.dids,"#A78BFA"]].map(([l,v,c])=>(
+          <div key={l} style={{background:"#0F1520",border:"1px solid rgba(255,255,255,0.07)",
+            borderRadius:10,padding:16,borderLeft:`3px solid ${c}`}}>
+            <div style={{fontSize:10,color:"#4B5563",marginBottom:6,textTransform:"uppercase",letterSpacing:"1px"}}>{l}</div>
+            <div style={{fontSize:24,fontWeight:900,color:c,fontFamily:"monospace"}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:"#0F1520",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:20}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>System Status</div>
+        {[["API Server","Online","#00FFB2"],["Database","Connected","#00FFB2"],
+          ["Asterisk","Checking...","#FBBF24"]].map(([k,v,c])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",
+            borderBottom:"1px solid rgba(255,255,255,0.03)"}}>
+            <span style={{fontSize:11,color:"#4B5563"}}>{k}</span>
+            <span style={{fontSize:11,color:c,fontWeight:700}}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveCallsPage({token}) {
+  const [calls, setCalls] = useState([]);
+  useEffect(()=>{
+    const load=()=>apiFetch("/live-calls",token).then(d=>setCalls(d.data||d||[])).catch(()=>{});
+    load();
+    const t=setInterval(load,5000);
+    return()=>clearInterval(t);
+  },[token]);
+
+  return (
+    <div style={{padding:24}}>
+      <h1 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>Live Calls — {calls.length} active</h1>
+      {calls.length===0?<div style={{color:"#4B5563",textAlign:"center",padding:40}}>No active calls</div>
+      :calls.map((c,i)=>(
+        <div key={i} style={{background:"#0F1520",border:"1px solid rgba(0,255,178,0.2)",
+          borderRadius:8,padding:14,marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}>
+            <span style={{fontFamily:"monospace",color:"#00FFB2"}}>{c.src||"—"}</span>
+            <span style={{color:"#FBBF24"}}>{c.billsec||0}s</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CustomersPage({token}) {
+  const [customers, setCustomers] = useState([]);
+  const [form, setForm] = useState({name:"",email:"",password:""});
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{
+    apiFetch("/customers",token).then(d=>setCustomers(d.data||[])).catch(()=>{});
+  },[token]);
+
+  const create = async()=>{
+    setSaving(true);
+    const d = await apiFetch("/customers",token,{method:"POST",body:JSON.stringify(form)});
+    if(d.data){setMsg("✅ Created: ID "+d.client_id+" Pass: "+d.password); apiFetch("/customers",token).then(d=>setCustomers(d.data||[]));}
+    else setMsg("❌ "+(d.message||"Failed"));
+    setSaving(false);
+  };
+
+  const inp={width:"100%",padding:"8px 12px",borderRadius:6,border:"1px solid rgba(255,255,255,0.1)",
+    background:"rgba(255,255,255,0.05)",color:"#E2E8F0",fontSize:12,outline:"none",boxSizing:"border-box"};
+
+  return (
+    <div style={{padding:24}}>
+      <h1 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>Customers</h1>
+      <div style={{background:"#0F1520",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:16,marginBottom:20}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Add Customer</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+          {[["Name","name","John Doe"],["Email","email","john@example.com"],["Password","password","pass123"]].map(([l,k,ph])=>(
+            <div key={k}>
+              <div style={{fontSize:10,color:"#4B5563",marginBottom:4}}>{l}</div>
+              <input style={inp} value={form[k]} placeholder={ph} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
+            </div>
+          ))}
+        </div>
+        {msg&&<div style={{fontSize:11,color:"#00FFB2",marginBottom:8}}>{msg}</div>}
+        <button onClick={create} disabled={saving}
+          style={{padding:"8px 20px",borderRadius:6,border:"1px solid #00FFB240",
+            background:"#00FFB215",color:"#00FFB2",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          {saving?"Creating...":"+ Add Customer"}
+        </button>
+      </div>
+      <div style={{background:"#0F1520",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,overflow:"hidden"}}>
+        {customers.map((c,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 80px",
+            padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.03)",fontSize:12}}>
+            <span style={{fontFamily:"monospace",color:"#38BDF8"}}>{c.client_id}</span>
+            <span>{c.name}</span>
+            <span style={{color:"#4B5563"}}>{c.email}</span>
+            <span style={{color:c.role==="admin"?"#A78BFA":"#00FFB2"}}>{c.role}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CDRPage({token}) {
+  const [cdrs, setCdrs] = useState([]);
+  useEffect(()=>{
+    apiFetch("/cdr?per_page=50",token).then(d=>setCdrs(d.data||[])).catch(()=>{});
+  },[token]);
+
+  return (
+    <div style={{padding:24}}>
+      <h1 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>CDR Analytics</h1>
+      <div style={{background:"#0F1520",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 60px 80px 80px",
+          padding:"10px 16px",background:"rgba(255,255,255,0.02)",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+          {["From","DID","Dur","Revenue","Status"].map(h=>(
+            <div key={h} style={{fontSize:9,color:"#4B5563",fontWeight:700,textTransform:"uppercase"}}>{h}</div>
+          ))}
+        </div>
+        {cdrs.length===0?<div style={{padding:40,textAlign:"center",color:"#4B5563"}}>No records</div>
+        :cdrs.map((c,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 60px 80px 80px",
+            padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.03)",fontSize:11,alignItems:"center"}}>
+            <span style={{fontFamily:"monospace",color:"#38BDF8"}}>{c.src||"—"}</span>
+            <span style={{fontFamily:"monospace"}}>{c.did||"—"}</span>
+            <span>{c.billsec||0}s</span>
+            <span style={{color:"#FBBF24"}}>€{c.revenue||"0.00"}</span>
+            <span style={{color:c.disposition==="ANSWERED"?"#00FFB2":"#F87171",fontWeight:700,fontSize:9}}>
+              {c.disposition==="ANSWERED"?"OK":"FAIL"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SettingsPage({user, logout}) {
+  return (
+    <div style={{padding:24}}>
+      <h1 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>Settings</h1>
+      <div style={{background:"#0F1520",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:20,maxWidth:400}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Account Info</div>
+        {[["Name",user?.name],["Email",user?.email],["Role",user?.role],["Client ID",user?.client_id]].map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",
+            borderBottom:"1px solid rgba(255,255,255,0.03)"}}>
+            <span style={{fontSize:11,color:"#4B5563"}}>{k}</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}>{v||"—"}</span>
+          </div>
+        ))}
+        <div style={{marginTop:16}}>
+          <div style={{fontSize:11,color:"#4B5563",marginBottom:8}}>Server</div>
+          {[["API","http://195.200.14.165/api/v1"],["NOC","http://195.200.14.165:3000"],["Client Portal","http://195.200.14.165:3001"]].map(([k,v])=>(
+            <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",
+              borderBottom:"1px solid rgba(255,255,255,0.03)"}}>
+              <span style={{fontSize:10,color:"#4B5563"}}>{k}</span>
+              <span style={{fontSize:10,color:"#38BDF8",fontFamily:"monospace"}}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <button onClick={logout}
+          style={{marginTop:16,width:"100%",padding:"10px",borderRadius:8,
+            border:"1px solid #F8717140",background:"#F8717110",color:"#F87171",
+            fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          Logout
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,39 @@
+.interrogation-container {
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: 20px;
+}
+
+.active-calls {
+    background: #ffffff;
+    padding: 16px;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.call-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+}
+
+.call-item:hover {
+    background: #f5f5f5;
+}
+
+.interrogation-panel {
+    background: #ffffff;
+    padding: 16px;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.section {
+    margin-bottom: 20px;
+}
+
+pre {
+    background: #f5f5f5;
+    padding: 10px;
+    border-radius: 4px;
+}

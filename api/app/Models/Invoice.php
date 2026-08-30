@@ -1,0 +1,6 @@
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+class Invoice extends Model {
+    protected $fillable=['customer_id','number','period_start','period_end','total_amount','currency','status'];
+}

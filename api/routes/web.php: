@@ -1,0 +1,1 @@
+Route::get('/admin/dashboard', [\App\Http\Controllers\AdminDashboardController::class, 'index']);

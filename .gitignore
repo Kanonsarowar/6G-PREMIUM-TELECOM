@@ -1,0 +1,12 @@
+# Laravel
+api/vendor/
+api/node_modules/
+api/.env
+api/storage/logs/*.log
+
+# NOC Dashboard
+noc/node_modules/
+noc/dist/
+
+# Logs
+*.log

@@ -1,0 +1,4 @@
+import { createApp } from 'vue';
+import LiveInterrogation from './components/live/LiveInterrogation.js';
+
+createApp(LiveInterrogation).mount('#live-interrogation');
