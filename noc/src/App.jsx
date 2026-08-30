@@ -260,7 +260,7 @@ function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
   const [time,setTime]=useState(new Date().toLocaleTimeString());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
   return(
-    <div style={{height:64,background:"linear-gradient(90deg,#5B4FCF,#4B3FB5)",
+    <div style={{height:64,background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
       display:"flex",alignItems:"center",padding:"0 16px",gap:10,
       flexShrink:0,zIndex:100,boxShadow:"0 2px 12px rgba(75,63,181,0.3)"}}>
       {/* Hamburger */}
