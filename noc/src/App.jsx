@@ -2069,139 +2069,103 @@ export default function App(){
   );
 
   if(!token||!user)return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0D0520 0%,#1A0A3C 40%,#0F0A2E 70%,#1C0D4A 100%)",display:"flex",alignItems:"center",
-      justifyContent:"center",fontFamily:"'Inter','Plus Jakarta Sans',sans-serif",color:"#FFFFFF",padding:16,
-      position:"relative",overflow:"hidden"}}>
+    <div style={{minHeight:"100vh",background:"#F5F5F5",display:"flex",flexDirection:"column",
+      alignItems:"center",fontFamily:"'Nunito','Poppins',sans-serif",margin:0,padding:0}}>
       <style>{`
-        *{box-sizing:border-box;}
-        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-20px)}}
-        @keyframes glow{0%,100%{text-shadow:0 0 20px #00FFB2,0 0 40px #00FFB2}50%{text-shadow:0 0 40px #00FFB2,0 0 80px #00FFB2,0 0 120px #00FFB2}}
-        @keyframes rotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-        @keyframes pulse2{0%,100%{opacity:0.3;transform:scale(1)}50%{opacity:0.8;transform:scale(1.1)}}
-        @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(100vw)}}
-        @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-        .glow-text{animation:glow 2s ease-in-out infinite;}
-        .float-box{animation:float 3s ease-in-out infinite;}
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        .login-input{width:100%;padding:14px 16px;border:1.5px solid #E0E0E0;border-radius:10px;
+          font-size:15px;font-family:inherit;outline:none;background:#FFFFFF;color:#333;transition:border 0.2s;}
+        .login-input:focus{border-color:#2CADA6;box-shadow:0 0 0 3px rgba(44,173,166,0.12);}
+        .login-btn{width:100%;padding:15px;background:linear-gradient(135deg,#2CADA6,#38B7A8);
+          color:#FFFFFF;border:none;border-radius:10px;font-size:16px;font-weight:700;
+          cursor:pointer;font-family:inherit;letter-spacing:0.5px;transition:all 0.25s;}
+        .login-btn:hover{background:linear-gradient(135deg,#28A8A1,#2CADA6);box-shadow:0 4px 20px rgba(44,173,166,0.4);}
+        .login-btn:disabled{opacity:0.6;cursor:not-allowed;}
       `}</style>
-
-      {/* Animated background circles */}
-      {[...Array(6)].map((_,i)=>(
-        <div key={i} style={{position:"absolute",borderRadius:"50%",
-          width:`${150+i*80}px`,height:`${150+i*80}px`,
-          border:`1px solid rgba(127,119,221,${0.03+i*0.02})`,
-          top:"50%",left:"50%",
-          transform:"translate(-50%,-50%)",
-          animation:`rotate ${10+i*5}s linear infinite`}}/>
-      ))}
-
-      {/* Moving particles */}
-      {/* Aurora bars */}
-      {[...Array(3)].map((_,i)=>(
-        <div key={"aurora"+i} style={{position:"absolute",
-          width:"200%",height:`${60+i*40}px`,
-          background:`linear-gradient(90deg,transparent,rgba(127,119,221,${0.03+i*0.02}),rgba(0,128,255,${0.02+i*0.01}),transparent)`,
-          top:`${20+i*25}%`,left:"-50%",
-          animation:`slide ${8+i*3}s linear ${i*2}s infinite`,
-          transform:"rotate(-5deg)"}}/>
-      ))}
-      {[...Array(8)].map((_,i)=>(
-        <div key={i} style={{position:"absolute",
-          width:"2px",height:"2px",borderRadius:"50%",
-          background:i%2===0?"#7F77DD":"#38BDF8",
-          top:`${10+i*12}%`,left:"-10px",
-          animation:`slide ${3+i*0.5}s linear ${i*0.4}s infinite`,
-          boxShadow:`0 0 6px ${i%2===0?"#7F77DD":"#38BDF8"}`}}/>
-      ))}
-
-      {/* Grid background */}
-      <div style={{position:"absolute",inset:0,
-        backgroundImage:"linear-gradient(rgba(127,119,221,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(127,119,221,0.03) 1px,transparent 1px)",
-        backgroundSize:"40px 40px"}}/>
-
-      <div style={{width:"100%",maxWidth:420,position:"relative",zIndex:10}}>
-        {/* Logo */}
-        <div style={{textAlign:"center",marginBottom:32}} className="float-box">
-          <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
-            width:80,height:80,borderRadius:"50%",marginBottom:16,
-            background:"radial-gradient(circle,rgba(127,119,221,0.2),transparent)",
-            border:"2px solid rgba(127,119,221,0.4)",
-            boxShadow:"0 0 30px rgba(127,119,221,0.3)"}}>
-            <span style={{fontSize:32}}>📡</span>
+      {/* Header Banner */}
+      <div style={{width:"100%",background:"linear-gradient(135deg,#2CADA6 0%,#38B7A8 50%,#2CADA6 100%)",
+        padding:"22px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",
+        boxShadow:"0 4px 20px rgba(44,173,166,0.3)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:36,fontWeight:900,color:"#FFFFFF",letterSpacing:"-1px"}}>6G</span>
+          <span style={{fontSize:36,fontWeight:900,color:"#F5A623",letterSpacing:"-1px"}}>STATS</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <rect x="4" y="20" width="6" height="12" rx="2" fill="white" opacity="0.9"/>
+            <rect x="13" y="14" width="6" height="18" rx="2" fill="#F5A623"/>
+            <rect x="22" y="8" width="6" height="24" rx="2" fill="white" opacity="0.9"/>
+            <circle cx="29" cy="6" r="3" fill="#F5A623"/>
+          </svg>
+        </div>
+      </div>
+      {/* Main Content */}
+      <div style={{width:"100%",maxWidth:420,padding:"40px 24px 24px",flex:1}}>
+        {/* Heading */}
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
+            User name and password
           </div>
-          <div className="glow-text" style={{fontSize:32,fontWeight:900,
-            color:"#7F77DD",letterSpacing:"4px",marginBottom:4}}>
-            6G CALL STATS
-          </div>
-          <div style={{fontSize:11,color:"#38BDF8",letterSpacing:"3px",textTransform:"uppercase"}}>
-            6G PREMIUM TELECOM
-          </div>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:8}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:"#7F77DD",
-              animation:"pulse2 1.5s ease-in-out infinite",display:"inline-block"}}/>
-            <span style={{fontSize:9,color:"#7F77DD",letterSpacing:"2px"}}>LIVE MONITORING</span>
-            <span style={{width:6,height:6,borderRadius:"50%",background:"#7F77DD",
-              animation:"pulse2 1.5s ease-in-out infinite 0.5s",display:"inline-block"}}/>
+          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
+            needed!
           </div>
         </div>
-
-        {/* Login Card */}
-        <div style={{background:"rgba(15,21,32,0.9)",
-          border:"1px solid rgba(127,119,221,0.2)",borderRadius:16,padding:28,
-          backdropFilter:"blur(10px)",
-          boxShadow:"0 0 40px rgba(127,119,221,0.1),inset 0 1px 0 rgba(255,255,255,0.05)"}}>
-
-          <div style={{fontSize:13,fontWeight:700,color:"#94A3B8",
-            textAlign:"center",marginBottom:20,letterSpacing:"2px",textTransform:"uppercase"}}>
-            Secure Access
+        {/* Form */}
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {/* Username */}
+          <div>
+            <label style={{display:"block",fontSize:14,fontWeight:700,
+              color:"#444444",marginBottom:8}}>User</label>
+            <input className="login-input" value={username}
+              onChange={e=>setUsername(e.target.value)}
+              placeholder="Enter your username"
+              onKeyDown={e=>e.key==="Enter"&&login()}/>
           </div>
-
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:"#4B5563",marginBottom:5,letterSpacing:"1px",textTransform:"uppercase"}}>Username</div>
-            <input value={username} onChange={e=>setUsername(e.target.value)} placeholder=""
-              onKeyDown={e=>e.key==="Enter"&&login()}
-              style={{width:"100%",padding:"12px 16px",borderRadius:8,
-                border:"1px solid rgba(127,119,221,0.2)",
-                background:"rgba(127,119,221,0.03)",color:C.text,fontSize:14,
-                outline:"none",boxSizing:"border-box",
-                transition:"border 0.3s"}}
-              onFocus={e=>e.target.style.border="1px solid rgba(127,119,221,0.6)"}
-              onBlur={e=>e.target.style.border="1px solid rgba(127,119,221,0.2)"}/>
+          {/* Password */}
+          <div>
+            <label style={{display:"block",fontSize:14,fontWeight:700,
+              color:"#444444",marginBottom:8}}>Password</label>
+            <div style={{position:"relative"}}>
+              <input className="login-input" type={showPass?"text":"password"}
+                value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="Enter your password"
+                style={{paddingRight:44}}
+                onKeyDown={e=>e.key==="Enter"&&login()}/>
+              <button onClick={()=>setShowPass(!showPass)}
+                style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
+                  background:"none",border:"none",cursor:"pointer",fontSize:16,
+                  color:"#888",padding:4}}>
+                {showPass?"🙈":"👁"}
+              </button>
+            </div>
           </div>
-
-          <div style={{marginBottom:20}}>
-            <div style={{fontSize:10,color:"#4B5563",marginBottom:5,letterSpacing:"1px",textTransform:"uppercase"}}>Password</div>
-            <input type="password" value={pass} onChange={e=>setPass(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&login()}
-              style={{width:"100%",padding:"12px 16px",borderRadius:8,
-                border:"1px solid rgba(127,119,221,0.2)",
-                background:"rgba(127,119,221,0.03)",color:C.text,fontSize:14,
-                outline:"none",boxSizing:"border-box"}}
-              onFocus={e=>e.target.style.border="1px solid rgba(127,119,221,0.6)"}
-              onBlur={e=>e.target.style.border="1px solid rgba(127,119,221,0.2)"}/>
-          </div>
-
-          {error&&<div style={{color:C.red,fontSize:12,marginBottom:12,
-            padding:"8px 12px",borderRadius:6,background:"rgba(248,113,113,0.1)",
-            border:"1px solid rgba(248,113,113,0.2)"}}>{error}</div>}
-
-          <button onClick={login} disabled={loading}
-            style={{width:"100%",padding:"14px",borderRadius:8,border:"none",
-              background:loading?"rgba(127,119,221,0.3)":"linear-gradient(135deg,#00FFB2,#00DDDD)",
-              color:"#000",fontSize:14,fontWeight:900,cursor:"pointer",
-              letterSpacing:"2px",textTransform:"uppercase",
-              boxShadow:loading?"none":"0 0 20px rgba(127,119,221,0.4)",
-              transition:"all 0.3s"}}>
-            {loading?"AUTHENTICATING...":"ACCESS SYSTEM"}
+          {/* Error */}
+          {error&&<div style={{color:"#EF4444",fontSize:13,padding:"10px 14px",
+            borderRadius:8,background:"rgba(239,68,68,0.08)",
+            border:"1px solid rgba(239,68,68,0.2)",display:"flex",alignItems:"center",gap:8}}>
+            <span>⚠</span>{error}
+          </div>}
+          {/* Login Button */}
+          <button className={loading?"login-btn":"login-btn"} onClick={login} disabled={loading}>
+            {loading?"Logging in...":"login"}
           </button>
-
-          <div style={{textAlign:"center",marginTop:16}}>
-            <div style={{fontSize:8,color:"#1E293B",letterSpacing:"0.5px"}}>© 2026 6G Premium Telecom. All rights reserved.</div>
+          {/* Footer note */}
+          <div style={{textAlign:"center",marginTop:8}}>
+            <span style={{fontSize:12,color:"#999"}}>
+              Don't have an account?{" "}
+              <span style={{color:"#2CADA6",fontWeight:700,cursor:"pointer"}}>
+                Contact administration
+              </span>
+            </span>
           </div>
         </div>
       </div>
+      <div style={{padding:"16px",textAlign:"center"}}>
+        <span style={{fontSize:10,color:"#BBBBBB"}}>© 2026 6G Premium Telecom. All rights reserved.</span>
+      </div>
     </div>
   );
-
   const renderPage=()=>{
     switch(page){
       case "livecalls":    return <LiveCallsPage token={token}/>;
