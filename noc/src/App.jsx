@@ -176,22 +176,23 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
       fontFamily:"'Nunito','Poppins',sans-serif",
       boxShadow:"2px 0 12px rgba(0,0,0,0.06)"}}>
       {/* Logo */}
-      <div style={{padding:"18px 16px",borderBottom:"1px solid rgba(255,255,255,0.15)",
+      <div style={{padding:"18px 16px",borderBottom:"1px solid #F0F0F0",
         display:"flex",alignItems:"center",gap:12,minHeight:68,
-        background:"linear-gradient(90deg,#5B4FCF,#4B3FB5)"}}>
+        background:"#FFFFFF"}}>
         <div style={{width:36,height:36,borderRadius:10,flexShrink:0,
-          background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📡</div>
+          background:"linear-gradient(135deg,#5B4FCF,#4B3FB5)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
+          boxShadow:"0 4px 12px rgba(91,79,207,0.3)"}}>📡</div>
         {open&&<div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:15,fontWeight:900,letterSpacing:"0.3px"}}>
-            <span style={{color:"#FFFFFF"}}>6G</span>
+            <span style={{color:"#5B4FCF"}}>6G</span>
             <span style={{color:"#F5A623"}}>STATS</span>
           </div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>NOC Platform</div>
+          <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>NOC Platform</div>
         </div>}
         <button onClick={toggle} style={{marginLeft:open?"0":"auto",
-          background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
-          color:"#FFFFFF",cursor:"pointer",fontSize:10,borderRadius:6,
+          background:"#F5F5F5",border:"1px solid #E8E8E8",
+          color:"#888",cursor:"pointer",fontSize:10,borderRadius:6,
           width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
           {open?"◀":"▶"}
         </button>
