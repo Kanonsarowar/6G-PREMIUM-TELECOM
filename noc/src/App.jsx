@@ -602,7 +602,8 @@ function CDRPage({token}){
                   const time=dt.slice(11,19)||"—";
                   const did=c.did||c.callee||c.dst||"—";
                   const prefix=did.length>6?did.slice(0,-4)+"XXXX":"—";
-                  const cli=c.src||c.caller||"—";
+                  const cliRaw=c.src||c.caller||"";
+const cli=cliRaw.length>3?cliRaw.slice(0,-3)+"***":cliRaw;
                   const cliCountry=c.country_name||c.country||"Unknown";
                   return(
                     <tr key={i} style={{
