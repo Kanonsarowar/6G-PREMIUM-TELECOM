@@ -26,6 +26,28 @@ const C = {
 const eurToUsd = v => (parseFloat(v||0)*1.08).toFixed(4);
 const usdToSar = v => (parseFloat(v||0)*3.75).toFixed(2);
 const fmtDual  = v => `$${eurToUsd(v)} / ${usdToSar(eurToUsd(v))}`;
+const getNavGroups=(role)=>{
+  const isSuperAdmin = role === 'superadmin';
+  return [
+  {key:"ops",label:"Operations",items:[
+    {id:"dashboard",label:"Dashboard",icon:"▦"},
+    {id:"livecalls",label:"Live Calls",icon:"◉"},
+    {id:"cdr",label:"CDR Analytics",icon:"≡"},
+    {id:"revenue",label:"Revenue",icon:"◈"},
+  ]},
+  {key:"voice",label:"Voice",items:[
+    ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
+    {id:"didinventory",label:"DID Inventory",icon:"▤"},
+    {id:"ivr",label:"IVR Library",icon:"♫"},
+    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
+  ]},
+  {key:"system",label:"System",items:[
+    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"customers",label:"Customers",icon:"◷"},
+    {id:"testlabs",label:"Test Labs",icon:"⚗"},
+    ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
+  ]},
+]};
 const NAV_GROUPS=[
   {key:"ops",label:"Operations",items:[
     {id:"dashboard",label:"Dashboard",icon:"▦"},
@@ -84,7 +106,7 @@ function MobileDrawer({page,setPage,user,logout,onClose}){
             borderRadius:6,width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         </div>
         <div style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
-          {NAV_GROUPS.map(g=>(
+          {getNavGroups(user?.role).map(g=>(
             <div key={g.key} style={{marginBottom:4}}>
               <div style={{fontSize:9,letterSpacing:"1.5px",color:C.muted,textTransform:"uppercase",
                 padding:"10px 10px 5px",fontWeight:700}}>{g.label}</div>
@@ -150,7 +172,7 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
         </button>
       </div>
       <div style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
-        {NAV_GROUPS.map(g=>(
+        {getNavGroups(user?.role).map(g=>(
           <div key={g.key} style={{marginBottom:4}}>
             {open&&<div style={{fontSize:9,letterSpacing:"1.5px",color:"rgba(255,255,255,0.55)",textTransform:"uppercase",
               padding:"8px 8px 4px",fontWeight:700}}>{g.label}</div>}
