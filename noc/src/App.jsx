@@ -2013,6 +2013,7 @@ export default function App(){
   const [sideOpen,setSideOpen]=useState(true);
   const [drawerOpen,setDrawerOpen]=useState(false);
   const [ready,setReady]=useState(false);
+  const [showPass,setShowPass]=useState(false);
   const [liveCalls,setLiveCalls]=useState(0);
   const [revenue,setRevenue]=useState("0.0000");
   const [isMobile,setIsMobile]=useState(window.innerWidth<768);
@@ -2068,8 +2069,8 @@ export default function App(){
   );
 
   if(!token||!user)return(
-    <div style={{minHeight:"100vh",background:"#F4F6FA",display:"flex",alignItems:"center",
-      justifyContent:"center",fontFamily:"monospace",color:C.text,padding:16,
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0D0520 0%,#1A0A3C 40%,#0F0A2E 70%,#1C0D4A 100%)",display:"flex",alignItems:"center",
+      justifyContent:"center",fontFamily:"'Inter','Plus Jakarta Sans',sans-serif",color:"#FFFFFF",padding:16,
       position:"relative",overflow:"hidden"}}>
       <style>{`
         *{box-sizing:border-box;}
