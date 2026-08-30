@@ -514,31 +514,42 @@ function CDRPage({token}){
   const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState("");
   const [filter,setFilter]=useState("all");
-  useEffect(()=>{apiFetch("/cdr?per_page=200",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
+  useEffect(()=>{
+    apiFetch("/cdr?per_page=200",token).then(d=>{
+      setCdrs(d.data||[]);
+      setLoading(false);
+    });
+  },[token]);
   const filtered=cdrs.filter(c=>{
-    const matchSearch=!search||(c.src||"").includes(search)||(c.did||"").includes(search)||(c.caller||"").includes(search);
-    const matchFilter=filter==="all"||(filter==="answered"&&c.disposition==="ANSWERED")||(filter==="failed"&&c.disposition!=="ANSWERED");
+    const matchSearch=!search||
+      (c.src||c.caller||"").includes(search)||
+      (c.did||c.callee||"").includes(search)||
+      (c.trunk_name||"").toLowerCase().includes(search.toLowerCase());
+    const matchFilter=filter==="all"||
+      (filter==="answered"&&c.disposition==="ANSWERED")||
+      (filter==="failed"&&c.disposition!=="ANSWERED");
     return matchSearch&&matchFilter;
   });
   const totalRev=filtered.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
   const totalDur=filtered.reduce((a,c)=>a+parseInt(c.billsec||c.duration||0),0);
   const answered=filtered.filter(c=>c.disposition==="ANSWERED").length;
   return(
-    <div style={{padding:16}}>
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
       {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>CDR Analytics</div>
-        <span style={{fontSize:11,color:C.muted}}>{filtered.length} records</span>
+        <span style={{fontSize:11,color:C.muted,background:"#F0F0F0",padding:"4px 10px",borderRadius:20}}>{filtered.length} records</span>
       </div>
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+      {/* Stats Row */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:14}}>
         {[
-          {label:"Total Calls",value:filtered.length,color:"#2CADA6"},
-          {label:"Answered",value:answered,color:"#10B981"},
-          {label:"Revenue",value:"€"+totalRev.toFixed(4),color:"#F5A623"},
+          {label:"Total Calls",value:filtered.length,color:"#2CADA6",icon:"📞"},
+          {label:"Answered",value:answered,color:"#10B981",icon:"✅"},
+          {label:"Failed",value:filtered.length-answered,color:"#EF4444",icon:"❌"},
+          {label:"Revenue",value:"€"+totalRev.toFixed(4),color:"#F5A623",icon:"💰"},
         ].map((s,i)=>(
-          <Card key={i} style={{padding:"12px 14px",textAlign:"center"}}>
-            <div style={{fontSize:18,fontWeight:800,color:s.color}}>{s.value}</div>
+          <Card key={i} style={{padding:"10px 12px",textAlign:"center"}}>
+            <div style={{fontSize:16,fontWeight:800,color:s.color}}>{s.value}</div>
             <div style={{fontSize:10,color:C.muted,marginTop:2}}>{s.label}</div>
           </Card>
         ))}
@@ -546,86 +557,122 @@ function CDRPage({token}){
       {/* Search + Filter */}
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <input value={search} onChange={e=>setSearch(e.target.value)}
-          placeholder="Search caller, DID..."
-          style={{flex:1,padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-            background:"#FFFFFF",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+          placeholder="Search caller, DID, supplier..."
+          style={{flex:1,padding:"9px 12px",borderRadius:8,
+            border:`1px solid ${C.border}`,background:"#FFFFFF",
+            color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
         <select value={filter} onChange={e=>setFilter(e.target.value)}
           style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
             background:"#FFFFFF",color:C.text,fontSize:13,outline:"none",cursor:"pointer"}}>
-          <option value="all">All</option>
+          <option value="all">All Status</option>
           <option value="answered">Answered</option>
           <option value="failed">Failed</option>
         </select>
       </div>
       {/* Table */}
-      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-      :filtered.length===0?<Card style={{padding:40,textAlign:"center"}}>
+      {loading
+        ?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
+        :filtered.length===0
+        ?<Card style={{padding:40,textAlign:"center"}}>
           <div style={{fontSize:32,marginBottom:8}}>📋</div>
-          <div style={{color:C.muted,fontSize:13}}>No CDR records found</div>
+          <div style={{color:C.muted,fontSize:13}}>No CDR records yet</div>
+          <div style={{color:C.muted,fontSize:11,marginTop:4}}>Records appear after real calls</div>
         </Card>
-      :<Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-            <thead>
-              <tr style={{background:"#F8F9FA"}}>
-                {["DATE/TIME","CALLER","DID","DURATION","STATUS","REVENUE","SUPPLIER"].map((h,i)=>(
-                  <th key={i} style={{fontSize:11,color:"#9A9A9A",fontWeight:600,
-                    letterSpacing:"0.5px",padding:"12px 14px",textAlign:"left",
-                    borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c,i)=>{
-                const ok=c.disposition==="ANSWERED";
-                return(
-                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`,
-                    background:i%2===0?"#FFFFFF":"#FAFAFA"}}>
-                    <td style={{padding:"10px 14px",fontSize:12,color:C.muted,whiteSpace:"nowrap"}}>
-                      {(c.call_start||c.created_at||"—").slice(0,16)}
-                    </td>
-                    <td style={{padding:"10px 14px",fontSize:13,fontWeight:600,
-                      color:"#1A1A1A",fontFamily:"monospace"}}>
-                      {c.src||c.caller||"—"}
-                    </td>
-                    <td style={{padding:"10px 14px",fontSize:13,
-                      color:"#2CADA6",fontFamily:"monospace",fontWeight:600}}>
-                      {c.did||c.callee||c.dst||"—"}
-                    </td>
-                    <td style={{padding:"10px 14px",fontSize:13,color:"#333"}}>
-                      {c.billsec||c.duration||0}s
-                    </td>
-                    <td style={{padding:"10px 14px"}}>
-                      <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-                        background:ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-                        color:ok?"#10B981":"#EF4444"}}>
-                        {ok?"ANSWERED":"FAILED"}
-                      </span>
-                    </td>
-                    <td style={{padding:"10px 14px",fontSize:13,
-                      color:"#F5A623",fontWeight:700,fontFamily:"monospace"}}>
-                      €{parseFloat(c.revenue||0).toFixed(4)}
-                    </td>
-                    <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>
-                      {c.trunk_name||"WTP"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,
-          display:"flex",justifyContent:"space-between",alignItems:"center",
-          background:"#F8F9FA"}}>
-          <span style={{fontSize:12,color:C.muted}}>{filtered.length} records · {Math.floor(totalDur/60)}m {totalDur%60}s total</span>
-          <span style={{fontSize:12,color:"#F5A623",fontWeight:700}}>Total: €{totalRev.toFixed(4)}</span>
-        </div>
-      </Card>}
+        :<Card style={{padding:0,overflow:"hidden"}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+              <thead>
+                <tr style={{background:"#2CADA6",position:"sticky",top:0}}>
+                  {["User","DDI Range","DDI","CLI","CLI Detail","Duration","Date","Time"].map((h,i)=>(
+                    <th key={i} style={{
+                      fontSize:11,color:"#FFFFFF",fontWeight:700,
+                      letterSpacing:"0.5px",padding:"12px 14px",
+                      textAlign:"left",whiteSpace:"nowrap",
+                      borderRight:"1px solid rgba(255,255,255,0.15)"}}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c,i)=>{
+                  const ok=c.disposition==="ANSWERED";
+                  const dt=(c.call_start||c.created_at||"");
+                  const date=dt.slice(0,10);
+                  const time=dt.slice(11,19)||"—";
+                  const did=c.did||c.callee||c.dst||"—";
+                  const prefix=did.length>6?did.slice(0,-4)+"XXXX":"—";
+                  const cli=c.src||c.caller||"—";
+                  const cliCountry=c.country_name||c.country||"Unknown";
+                  return(
+                    <tr key={i} style={{
+                      borderBottom:`1px solid ${C.border}`,
+                      background:i%2===0?"#FFFFFF":"#F9FAFB",
+                      transition:"background 0.15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#F0FDF4"}
+                      onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"#FFFFFF":"#F9FAFB"}>
+                      {/* User */}
+                      <td style={{padding:"10px 14px",fontSize:12,fontWeight:600,color:"#2CADA6"}}>
+                        {c.trunk_name||"WTP"}
+                      </td>
+                      {/* DDI Range */}
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#555",fontFamily:"monospace"}}>
+                        {prefix}
+                      </td>
+                      {/* DDI */}
+                      <td style={{padding:"10px 14px",fontSize:12,
+                        color:"#1A1A1A",fontFamily:"monospace",fontWeight:600}}>
+                        {did}
+                      </td>
+                      {/* CLI */}
+                      <td style={{padding:"10px 14px",fontSize:12,
+                        fontFamily:"monospace",color:"#333"}}>
+                        {cli}
+                      </td>
+                      {/* CLI Detail */}
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#555"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,
+                          background:ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                          color:ok?"#10B981":"#EF4444",fontWeight:600}}>
+                          {ok?"ANSWERED":"FAILED"}
+                        </span>
+                      </td>
+                      {/* Duration */}
+                      <td style={{padding:"10px 14px",fontSize:12,
+                        color:"#333",fontFamily:"monospace"}}>
+                        {c.billsec||c.duration||0}s
+                      </td>
+                      {/* Date */}
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#555",whiteSpace:"nowrap"}}>
+                        {date}
+                      </td>
+                      {/* Time */}
+                      <td style={{padding:"10px 14px",fontSize:12,
+                        color:"#555",fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                        {time}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* Footer */}
+          <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,
+            display:"flex",justifyContent:"space-between",alignItems:"center",
+            background:"#F8F9FA",flexWrap:"wrap",gap:8}}>
+            <span style={{fontSize:12,color:C.muted}}>
+              {filtered.length} records · {Math.floor(totalDur/60)}m {totalDur%60}s total duration
+            </span>
+            <span style={{fontSize:13,color:"#F5A623",fontWeight:700}}>
+              Total Revenue: €{totalRev.toFixed(4)}
+            </span>
+          </div>
+        </Card>
+      }
     </div>
   );
 }
-
 // ── Revenue ───────────────────────────────────────────────────────
 function RevenuePage({token}){
   const [data,setData]=useState({usd:{calls:0,minutes:0,revenue:0},eur:{calls:0,minutes:0,revenue:0},total_calls:0,total_minutes:0});
