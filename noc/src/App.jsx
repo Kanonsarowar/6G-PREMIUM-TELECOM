@@ -1447,6 +1447,8 @@ function CustomersPage({token}){
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
   const [genSaving,setGenSaving]=useState(false);
+  const [invoices,setInvoices]=useState([]);
+  const [supInvoices,setSupInvoices]=useState([]);
   const [tab,setTab]=useState("number");
   const [number,setNumber]=useState("");
   const [cdrSearch,setCdrSearch]=useState("");
