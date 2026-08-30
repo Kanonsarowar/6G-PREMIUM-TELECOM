@@ -176,10 +176,16 @@ Route::middleware('auth:sanctum')->group(function() {
 
     Route::post('/v1/system/exec', function(Request $r) {
         $allowed = [
-            'Reload Asterisk'  => "asterisk -rx 'core reload'",
-            'Reload PJSIP'     => "asterisk -rx 'module reload res_pjsip.so'",
-            'Restart Asterisk' => "systemctl restart asterisk",
-            'Restart Server'   => "systemctl restart php8.3-fpm nginx",
+            'Reload Asterisk'      => "asterisk -rx 'core reload'",
+            '⟳ Reload Asterisk'   => "asterisk -rx 'core reload'",
+            'Reload PJSIP'         => "asterisk -rx 'module reload res_pjsip.so'",
+            '⟳ Reload PJSIP'      => "asterisk -rx 'module reload res_pjsip.so'",
+            'Restart Asterisk'     => "systemctl restart asterisk",
+            '↻ Restart Asterisk'  => "systemctl restart asterisk",
+            'Restart Server'       => "systemctl restart php8.3-fpm nginx",
+            '↻ Restart Server'    => "systemctl restart php8.3-fpm nginx",
+            '▶ Restart Nginx'     => "systemctl restart nginx",
+            '⏻ Turn Off'          => "systemctl poweroff",
         ];
         $cmd = $r->cmd;
         if(!isset($allowed[$cmd])) return response()->json(['error'=>'Not allowed'],403);
