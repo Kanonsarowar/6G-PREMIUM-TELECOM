@@ -1446,6 +1446,7 @@ function CustomersPage({token}){
 
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
+  const [genSaving,setGenSaving]=useState(false);
   const [tab,setTab]=useState("number");
   const [number,setNumber]=useState("");
   const [cdrSearch,setCdrSearch]=useState("");
