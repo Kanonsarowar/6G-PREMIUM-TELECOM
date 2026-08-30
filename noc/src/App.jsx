@@ -875,1452 +875,193 @@ function SuppliersPage({token}){
 
 // ── DID Inventory ─────────────────────────────────────────────────
 function DIDInventoryPage({token}){
+  const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [expanded,setExpanded]=useState({});
   const [search,setSearch]=useState("");
-  const [showImport,setShowImport]=useState(false);
-  const [showAddNum,setShowAddNum]=useState(false);
-  const [suppliers,setSuppliers]=useState([]);
-  const [saving,setSaving]=useState(false);
-  const [importMsg,setImportMsg]=useState("");
-  const [form,setForm]=useState({range_start:"",range_end:"",country_code:"IT",country_name:"Italy",
-    supplier:"world-premium",trunk_id:"1",tariff:"0.0630",selling_price:"0.0700",payment_terms:"Monthly"});
-  const [addNumForm,setAddNumForm]=useState({number:"",country_code:"IT",country_name:"Italy",
-    trunk_id:"1",tariff:"0.0630",selling_price:"0.0700",payment_terms:"Monthly"});
 
-  const loadDids=useCallback(()=>{
-    apiFetch("/dids",token).then(d=>{setDids(d.data||[]);setLoading(false);});
-  },[token]);
-
-  useEffect(()=>{
-    loadDids();
-    apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));
-  },[token]);
-
-  const filtered=dids.filter(d=>!search||(d.number||"").includes(search)||(d.country_name||"").toLowerCase().includes(search.toLowerCase()));
-
-  const sel={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none"};
-  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
-
-  const COUNTRIES=[["IT","Italy"],["IE","Ireland"],["FR","France"],["DE","Germany"],["GB","UK"],["US","USA"],["SA","Saudi Arabia"]];
-
-  return(
-    <div style={{padding:16}}>
-      <div style={{fontSize:16,fontWeight:800,marginBottom:12}}>DID Inventory</div>
-
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        {[["Total",dids.length,C.blue],["Available",dids.filter(d=>d.lifecycle_status==="available").length,C.green],
-          ["Assigned",dids.filter(d=>d.lifecycle_status==="assigned").length,C.yellow],
-          ["Countries",[...new Set(dids.map(d=>d.country_code))].length,C.purple]].map(([l,v,c])=>(
-          <Card key={l} style={{padding:10,textAlign:"center"}}>
-            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:2}}>{l}</div>
-            <div style={{fontSize:18,fontWeight:900,color:c,fontFamily:"monospace"}}>{v}</div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Search + Buttons */}
-      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search number or country..."
-          style={{...inp}}/>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>{setShowImport(o=>!o);setShowAddNum(false);}}
-            style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.green}40`,
-              background:`${C.green}15`,color:C.green,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            + Import Range
-          </button>
-          <button onClick={()=>{setShowAddNum(o=>!o);setShowImport(false);}}
-            style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.blue}40`,
-              background:`${C.blue}15`,color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            + Add Number
-          </button>
-        </div>
-      </div>
-
-      {/* Import Range Form */}
-      {showImport&&(
-        <Card style={{padding:16,marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>📥 Import Range</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Range Start *</div>
-              <input style={inp} value={form.range_start} placeholder="393199050000"
-                onChange={e=>setForm(f=>({...f,range_start:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Range End *</div>
-              <input style={inp} value={form.range_end} placeholder="393199059999"
-                onChange={e=>setForm(f=>({...f,range_end:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Country</div>
-              <select style={sel} value={form.country_code} onChange={e=>{
-                const m=Object.fromEntries(COUNTRIES);
-                setForm(f=>({...f,country_code:e.target.value,country_name:m[e.target.value]||e.target.value}));
-              }}>
-                {COUNTRIES.map(([c,n])=><option key={c} value={c}>{n}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Supplier</div>
-              <select style={sel} value={form.trunk_id} onChange={e=>{
-                const s=suppliers.find(x=>String(x.id)===e.target.value);
-                setForm(f=>({...f,trunk_id:e.target.value,supplier:s?.name||""}));
-              }}>
-                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-              </select>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Tariff/min</div>
-                <input style={inp} value={form.tariff} placeholder="0.0630"
-                  onChange={e=>setForm(f=>({...f,tariff:e.target.value}))}/>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Sell Price</div>
-                <input style={inp} value={form.selling_price} placeholder="0.0700"
-                  onChange={e=>setForm(f=>({...f,selling_price:e.target.value}))}/>
-              </div>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Payment Terms</div>
-              <select style={sel} value={form.payment_terms} onChange={e=>setForm(f=>({...f,payment_terms:e.target.value}))}>
-                <option value="Daily">Daily</option>
-                <option value="Weekly">Weekly</option>
-                <option value="Monthly">Monthly</option>
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Currency</div>
-              <select style={sel} value={form.currency||"USD"} onChange={e=>setForm(f=>({...f,currency:e.target.value}))}>
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="SAR">SAR (﷼)</option>
-              </select>
-            </div>
-          </div>
-          {form.range_start&&form.range_end&&(
-            <div style={{padding:"8px 12px",borderRadius:8,background:`${C.green}08`,
-              border:`1px solid ${C.green}20`,fontSize:11,color:C.green,marginBottom:10}}>
-              {Math.max(0,parseInt(form.range_end||0)-parseInt(form.range_start||0)+1).toLocaleString()} numbers
-            </div>
-          )}
-          {importMsg&&<div style={{fontSize:11,color:C.green,marginBottom:10}}>{importMsg}</div>}
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setShowImport(false)}
-              style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.border}`,
-                background:"transparent",color:C.muted,fontSize:12,cursor:"pointer"}}>Cancel</button>
-            <button disabled={saving} onClick={async()=>{
-              if(!form.range_start||!form.range_end){setImportMsg("❌ Enter range");return;}
-              setSaving(true);setImportMsg("Importing...");
-              const d=await apiFetch("/did-ranges/import-range",token,{method:"POST",body:JSON.stringify(form)});
-              if(d.success){setImportMsg(`✅ ${d.message}`);loadDids();}
-              else setImportMsg("❌ "+(d.error||"Failed"));
-              setSaving(false);
-            }}
-              style={{flex:2,padding:"10px",borderRadius:8,border:`1px solid ${C.cyan}40`,
-                background:`${C.cyan}15`,color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-              {saving?"Importing...":"📥 Import"}
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* Add Number Form */}
-      {showAddNum&&(
-        <Card style={{padding:16,marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>📱 Add Number</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Number *</div>
-              <input style={inp} value={addNumForm.number} placeholder="+393199052100"
-                onChange={e=>setAddNumForm(f=>({...f,number:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Country</div>
-              <select style={sel} value={addNumForm.country_code} onChange={e=>{
-                const m=Object.fromEntries(COUNTRIES);
-                setAddNumForm(f=>({...f,country_code:e.target.value,country_name:m[e.target.value]||e.target.value}));
-              }}>
-                {COUNTRIES.map(([c,n])=><option key={c} value={c}>{n}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Supplier</div>
-              <select style={sel} value={addNumForm.trunk_id}
-                onChange={e=>setAddNumForm(f=>({...f,trunk_id:e.target.value}))}>
-                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-              </select>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Tariff</div>
-                <input style={inp} value={addNumForm.tariff} placeholder="0.0630"
-                  onChange={e=>setAddNumForm(f=>({...f,tariff:e.target.value}))}/>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Payment</div>
-                <select style={sel} value={addNumForm.payment_terms}
-                  onChange={e=>setAddNumForm(f=>({...f,payment_terms:e.target.value}))}>
-                  <option value="Daily">Daily</option>
-                  <option value="Weekly">Weekly</option>
-                  <option value="Monthly">Monthly</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setShowAddNum(false)}
-              style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.border}`,
-                background:"transparent",color:C.muted,fontSize:12,cursor:"pointer"}}>Cancel</button>
-            <button onClick={async()=>{
-              if(!addNumForm.number)return;
-              const num=addNumForm.number.startsWith("+")?addNumForm.number:"+"+addNumForm.number;
-              const d=await apiFetch("/dids/add",token,{method:"POST",body:JSON.stringify({
-                ...addNumForm,number:num,e164_number:num,
-                prefix:(num.replace("+","")).slice(0,-4),
-                lifecycle_status:"available",status:"active",
-                ivr_context:"custom/telephone-convo"})});
-              if(d.success){loadDids();setShowAddNum(false);}
-            }}
-              style={{flex:2,padding:"10px",borderRadius:8,border:`1px solid ${C.blue}40`,
-                background:`${C.blue}15`,color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-              + Add Number
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* Numbers List */}
-      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-      :filtered.length===0?<Card style={{padding:40,textAlign:"center"}}>
-        <div style={{fontSize:32,marginBottom:8}}>📦</div>
-        <div style={{color:C.muted}}>No DIDs found</div>
-      </Card>
-      :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {filtered.map((d,i)=>(
-          <Card key={i} style={{padding:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <span style={{fontSize:14,fontWeight:800,color:C.green,fontFamily:"monospace"}}>{d.number}</span>
-              <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,fontWeight:700,
-                background:d.status==="active"?`${C.green}15`:`${C.red}15`,
-                color:d.status==="active"?C.green:C.red}}>
-                {(d.status||"active").toUpperCase()}
-              </span>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:10}}>
-              <span style={{color:C.muted}}>Country: <span style={{color:C.text}}>{d.country_name||"—"}</span></span>
-              <span style={{color:C.muted}}>Tariff: <span style={{color:C.text}}>€{d.tariff||0}</span></span>
-              <span style={{color:C.muted}}>IVR: <span style={{color:C.cyan}}>{(d.ivr_context||"—").replace("custom/","")}</span></span>
-              <span style={{color:C.muted}}>Status: <span style={{color:C.text}}>{d.lifecycle_status||"available"}</span></span>
-            </div>
-          </Card>
-        ))}
-      </div>}
-    </div>
-  );
-}
-
-// ── IVR Page ──────────────────────────────────────────────────────
-function IVRPage({token,setPage}){
-  const [ivrs,setIvrs]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showUpload,setShowUpload]=useState(false);
-  const [uploadForm,setUploadForm]=useState({name:"",display_name:""});
-  const [file,setFile]=useState(null);
-  const [uploading,setUploading]=useState(false);
-  const [uploadMsg,setUploadMsg]=useState("");
-
-  const load=useCallback(()=>{
-    apiFetch("/ivr-lib/audio",token).then(d=>{setIvrs(d.data||[]);setLoading(false);});
-  },[token]);
-
-  useEffect(()=>{load();},[load]);
-
-  const upload=async()=>{
-    if(!file||!uploadForm.name){setUploadMsg("❌ Name and file required");return;}
-    setUploading(true);setUploadMsg("Uploading...");
-    const fd=new FormData();
-    fd.append("audio",file);
-    fd.append("name",uploadForm.name.replace(/\s+/g,"-").toLowerCase());
-    fd.append("display_name",uploadForm.display_name||uploadForm.name);
-    try{
-      const r=await fetch(`${API}/ivr-lib/upload`,{
-        method:"POST",
-        headers:{Authorization:`Bearer ${token}`},
-        body:fd
-      });
-      const d=await r.json();
-      if(d.success){setUploadMsg("✅ Uploaded: "+d.name);load();setShowUpload(false);setFile(null);setUploadForm({name:"",display_name:""});}
-      else setUploadMsg("❌ "+(d.message||"Failed"));
-    }catch(e){setUploadMsg("❌ "+e.message);}
-    setUploading(false);
-  };
-
-  const del=async(id)=>{
-    if(!window.confirm("Delete this IVR?")) return;
-    await apiFetch(`/ivr-lib/${id}`,token,{method:"DELETE"});
-    load();
-  };
-
-  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
-
-  return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:16,fontWeight:800}}>🎵 IVR Library</div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setPage&&setPage("connectivr")}
-            style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.green}40`,
-              background:`${C.green}15`,color:C.green,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            🔗 Connect IVR
-          </button>
-          <button onClick={()=>setShowUpload(o=>!o)}
-            style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.purple}40`,
-              background:`${C.purple}15`,color:C.purple,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            + Upload
-          </button>
-        </div>
-      </div>
-
-      {/* Upload Form */}
-      {showUpload&&(
-        <Card style={{padding:16,marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Upload IVR Audio</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>IVR Name * (no spaces)</div>
-              <input style={inp} value={uploadForm.name} placeholder="telephone-convo"
-                onChange={e=>setUploadForm(f=>({...f,name:e.target.value.replace(/\s+/g,"-").toLowerCase()}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Display Name</div>
-              <input style={inp} value={uploadForm.display_name} placeholder="Telephone Convo"
-                onChange={e=>setUploadForm(f=>({...f,display_name:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Audio File (wav/mp3/ogg)</div>
-              <input type="file" accept=".wav,.mp3,.ogg,.slin"
-                onChange={e=>setFile(e.target.files[0])}
-                style={{...inp,padding:"6px"}}/>
-              {file&&<div style={{fontSize:10,color:C.green,marginTop:4}}>✅ {file.name} ({(file.size/1024).toFixed(0)}KB)</div>}
-            </div>
-            <div style={{padding:"10px 12px",borderRadius:8,background:`${C.blue}08`,
-              border:`1px solid ${C.blue}20`,fontSize:10,color:C.blue}}>
-              Audio will be converted to 8kHz mono SLIN format for Asterisk
-            </div>
-          </div>
-          {uploadMsg&&<div style={{fontSize:11,color:uploadMsg.startsWith("✅")?C.green:C.red,marginBottom:8}}>{uploadMsg}</div>}
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setShowUpload(false)}
-              style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.border}`,
-                background:"transparent",color:C.muted,fontSize:12,cursor:"pointer"}}>Cancel</button>
-            <button onClick={upload} disabled={uploading}
-              style={{flex:2,padding:"10px",borderRadius:8,border:`1px solid ${C.purple}40`,
-                background:`${C.purple}15`,color:C.purple,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-              {uploading?"Uploading...":"⬆ Upload IVR"}
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* IVR List */}
-      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-      :ivrs.length===0?<Card style={{padding:60,textAlign:"center"}}>
-        <div style={{fontSize:40,marginBottom:8}}>🎵</div>
-        <div style={{color:C.muted,marginBottom:12}}>No IVR files yet</div>
-        <button onClick={()=>setShowUpload(true)}
-          style={{padding:"10px 20px",borderRadius:8,border:`1px solid ${C.purple}40`,
-            background:`${C.purple}15`,color:C.purple,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-          + Upload First IVR
-        </button>
-      </Card>
-      :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {ivrs.map((ivr,i)=>(
-          <Card key={i} style={{padding:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{fontSize:28,flexShrink:0}}>🎵</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{ivr.display_name||ivr.title||ivr.name}</div>
-                <div style={{fontSize:10,color:C.purple,fontFamily:"monospace",marginBottom:4}}>custom/{ivr.name}</div>
-                <div style={{display:"flex",gap:8}}>
-                  <span style={{fontSize:9,padding:"2px 8px",borderRadius:20,
-                    background:`${C.green}15`,color:C.green,fontWeight:700}}>ACTIVE</span>
-                  <span style={{fontSize:9,color:C.muted}}>{ivr.audio_file||ivr.name+".slin"}</span>
-                </div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
-                <button onClick={()=>setPage&&setPage("connectivr")}
-                  style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.green}40`,
-                    background:`${C.green}10`,color:C.green,fontSize:10,fontWeight:700,cursor:"pointer"}}>
-                  🔗 Connect
-                </button>
-                <button onClick={()=>del(ivr.id)}
-                  style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.red}40`,
-                    background:`${C.red}10`,color:C.red,fontSize:10,cursor:"pointer"}}>
-                  Del
-                </button>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>}
-    </div>
-  );
-}
-
-// ── Connect IVR Step Indicator ───────────────────────────────────
-function IVRStep({n,current,label}){
-  return(
-    <div style={{flex:1,textAlign:"center"}}>
-      <div style={{width:32,height:32,borderRadius:"50%",margin:"0 auto 4px",display:"flex",alignItems:"center",
-        justifyContent:"center",fontSize:13,fontWeight:800,
-        background:current>n?C.green:current===n?`${C.green}25`:"rgba(255,255,255,0.06)",
-        color:current>n?"#000":current===n?C.green:C.muted,
-        border:`2px solid ${current>=n?C.green:C.border}`}}>{n}</div>
-      <div style={{fontSize:9,color:current===n?C.green:C.muted,textTransform:"uppercase",letterSpacing:"1px"}}>{label}</div>
-    </div>
-  );
-}
-
-// ── Connect IVR ─────────────────────────────────────────────────
-function ConnectIVRPage({token}){
-  const [step,setStep]=useState(1);
-  const [ranges,setRanges]=useState([]);
-  const [ivrs,setIvrs]=useState([]);
-  const [range,setRange]=useState("ALL");
-  const [ivr,setIvr]=useState("");
-  const [applying,setApplying]=useState(false);
-  const [msg,setMsg]=useState("");
-
-  useEffect(()=>{
-    apiFetch("/did-ranges",token).then(d=>setRanges(d.data||[]));
-    apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
-  },[token]);
-
-  const sel={width:"100%",padding:"10px 12px",borderRadius:8,
-    border:`1px solid ${C.border}`,background:"rgba(255,255,255,0.05)",
-    color:C.text,fontSize:13,outline:"none"};
-
-  const apply=async()=>{
-    setApplying(true);setMsg("");
-    const ivrCtx=ivr.startsWith("custom/")?ivr:`custom/${ivr}`;
-    if(range==="ALL"){
-      await apiFetch("/did-ranges/bulk-ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
-    } else {
-      await apiFetch(`/did-ranges/${range}/ivr`,token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
-    }
-    setMsg("✅ IVR applied successfully!");
-    setApplying(false);
-    setStep(1);setIvr("");
-  };
-
-  return(
-    <div style={{padding:16}}>
-      <div style={{fontSize:16,fontWeight:800,marginBottom:4}}>🔗 Connect IVR</div>
-      <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Assign IVR audio to DID ranges</div>
-
-      <Card style={{padding:20,maxWidth:520,margin:"0 auto"}}>
-        {/* Step indicators */}
-        <div style={{display:"flex",gap:8,marginBottom:24}}>
-          {[["1","Range"],["2","IVR"],["3","Apply"]].map(([n,label])=>(
-            <div key={n} style={{flex:1,textAlign:"center"}}>
-              <div style={{width:32,height:32,borderRadius:"50%",margin:"0 auto 4px",
-                display:"flex",alignItems:"center",justifyContent:"center",
-                fontSize:13,fontWeight:800,
-                background:parseInt(step)>parseInt(n)?C.green:parseInt(step)===parseInt(n)?`${C.green}25`:"rgba(255,255,255,0.06)",
-                color:parseInt(step)>parseInt(n)?"#000":parseInt(step)===parseInt(n)?C.green:C.muted,
-                border:`2px solid ${parseInt(step)>=parseInt(n)?C.green:C.border}`}}>{n}</div>
-              <div style={{fontSize:9,color:parseInt(step)===parseInt(n)?C.green:C.muted,
-                textTransform:"uppercase",letterSpacing:"1px"}}>{label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Step 1 - Select Range */}
-        {step===1&&(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Select Range</div>
-              <select style={sel} value={range} onChange={e=>setRange(e.target.value)}>
-                <option value="ALL">ALL RANGES ({ranges.length} ranges)</option>
-                {ranges.map(r=>(
-                  <option key={r.id} value={r.id}>{r.country_name} — {r.batch_name} ({r.total_count} numbers)</option>
-                ))}
-              </select>
-            </div>
-            <div style={{padding:"10px 12px",borderRadius:8,background:`${C.blue}08`,
-              border:`1px solid ${C.blue}20`,fontSize:11,color:C.blue}}>
-              {range==="ALL"?`Will update all ${ranges.length} ranges`:`Selected range ID: ${range}`}
-            </div>
-            <button onClick={()=>setStep(2)}
-              style={{padding:"12px",borderRadius:8,border:`1px solid ${C.green}40`,
-                background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              Next → Select IVR
-            </button>
-          </div>
-        )}
-
-        {/* Step 2 - Select IVR */}
-        {step===2&&(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Select IVR Audio</div>
-              <select style={sel} value={ivr} onChange={e=>setIvr(e.target.value)}>
-                <option value="">-- Select IVR --</option>
-                {ivrs.map(f=>(
-                  <option key={f.id} value={`custom/${f.name}`}>{f.display_name||f.name}</option>
-                ))}
-              </select>
-            </div>
-            {ivr&&<div style={{padding:"10px 12px",borderRadius:8,background:`${C.purple}08`,
-              border:`1px solid ${C.purple}20`,fontSize:11,color:C.purple}}>
-              Selected: {ivr.replace("custom/","")}
-            </div>}
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setStep(1)}
-                style={{flex:1,padding:"12px",borderRadius:8,border:`1px solid ${C.border}`,
-                  background:"transparent",color:C.muted,fontSize:13,cursor:"pointer"}}>Back</button>
-              <button onClick={()=>setStep(3)} disabled={!ivr}
-                style={{flex:2,padding:"12px",borderRadius:8,border:`1px solid ${C.green}40`,
-                  background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                Next → Review
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3 - Apply */}
-        {step===3&&(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{background:`${C.green}05`,border:`1px solid ${C.green}20`,
-              borderRadius:10,padding:16}}>
-              <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:12}}>Ready to Apply</div>
-              {[["Range",range==="ALL"?"All Ranges":`Range ID: ${range}`],
-                ["IVR",ivr.replace("custom/","")]].map(([k,v])=>(
-                <div key={k} style={{display:"flex",justifyContent:"space-between",
-                  padding:"6px 0",borderBottom:`1px solid rgba(255,255,255,0.05)`}}>
-                  <span style={{fontSize:11,color:C.muted}}>{k}</span>
-                  <span style={{fontSize:11,color:C.text,fontWeight:600}}>{v}</span>
-                </div>
-              ))}
-            </div>
-            {msg&&<div style={{padding:"10px 12px",borderRadius:8,background:`${C.green}10`,
-              border:`1px solid ${C.green}30`,fontSize:12,color:C.green}}>{msg}</div>}
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setStep(2)}
-                style={{flex:1,padding:"12px",borderRadius:8,border:`1px solid ${C.border}`,
-                  background:"transparent",color:C.muted,fontSize:13,cursor:"pointer"}}>Back</button>
-              <button onClick={apply} disabled={applying}
-                style={{flex:2,padding:"12px",borderRadius:8,border:`1px solid ${C.green}40`,
-                  background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                {applying?"Applying...":"✅ Apply IVR"}
-              </button>
-            </div>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-
-// ── Customers ─────────────────────────────────────────────────────
-function CustomersPage({token}){
-  const [customers,setCustomers]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [form,setForm]=useState({name:"",email:"",password:""});
-  const [msg,setMsg]=useState("");
-  const [saving,setSaving]=useState(false);
-  const load=useCallback(()=>{apiFetch("/customers",token).then(d=>{setCustomers(d.data||[]);setLoading(false);});},[token]);
-  useEffect(()=>{load();},[load]);
-  const create=async()=>{
-    setSaving(true);
-    const d=await apiFetch("/customers",token,{method:"POST",body:JSON.stringify(form)});
-    if(d.data){setMsg(`✅ Created — ID: ${d.client_id}`);load();setForm({name:"",email:"",password:""});}
-    else setMsg("❌ "+(d.message||"Failed"));
-    setSaving(false);
-  };
-  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
-  return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:16,fontWeight:800}}>Customers</div>
-        <button onClick={()=>setShowAdd(o=>!o)}
-          style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.blue}40`,
-            background:`${C.blue}15`,color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-          + Add
-        </button>
-      </div>
-      {showAdd&&(
-        <Card style={{padding:16,marginBottom:16}}>
-          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
-            {[["Name","name","John Doe"],["Email","email","john@example.com"],["Password","password","pass123"]].map(([l,k,ph])=>(
-              <div key={k}>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{l}</div>
-                <input style={inp} type={k==="password"?"password":"text"} value={form[k]} placeholder={ph}
-                  onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
-              </div>
-            ))}
-          </div>
-          {msg&&<div style={{fontSize:11,color:C.green,marginBottom:8}}>{msg}</div>}
-          <button onClick={create} disabled={saving}
-            style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.green}40`,
-              background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            {saving?"Creating...":"+ Create Customer"}
-          </button>
-        </Card>
-      )}
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-        :customers.map((c,i)=>(
-          <Card key={i} style={{padding:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <span style={{fontSize:13,fontWeight:700,color:C.blue,fontFamily:"monospace"}}>{c.client_id}</span>
-              <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,fontWeight:700,
-                background:c.role==="admin"?`${C.purple}15`:`${C.green}15`,
-                color:c.role==="admin"?C.purple:C.green}}>{c.role}</span>
-            </div>
-            <div style={{fontSize:12,color:C.text,marginBottom:2}}>{c.name}</div>
-            <div style={{fontSize:10,color:C.muted}}>{c.email}</div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Test Labs ─────────────────────────────────────────────────────
-function TestLabsPage({token}){
-  const [genSaving,setGenSaving]=useState(false);
-  const [tab,setTab]=useState("number");
-  const [number,setNumber]=useState("");
-  const [cdrSearch,setCdrSearch]=useState("");
-  const [result,setResult]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const [liveCalls,setLiveCalls]=useState([]);
-  const inp={width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10};
-  const testNumber=async()=>{
-    setLoading(true);setResult(null);
-    const d=await apiFetch(`/dids?number=${encodeURIComponent(number)}`,token);
-    setResult({type:"number",did:(d.data||[]).find(x=>x.number===number),number});
-    setLoading(false);
-  };
-  const testCdr=async()=>{
-    setLoading(true);setResult(null);
-    const d=await apiFetch(`/cdr?search=${encodeURIComponent(cdrSearch)}`,token);
-    setResult({type:"cdr",records:d.data||[]});
-    setLoading(false);
-  };
-  const testLive=async()=>{
-    setLoading(true);
-    const d=await apiFetch("/live-calls",token);
-    setLiveCalls(d.data||d||[]);setResult({type:"live"});
-    setLoading(false);
-  };
-  return(
-    <div style={{padding:16}}>
-      <div style={{fontSize:16,fontWeight:800,marginBottom:16}}>🧪 Test Labs</div>
-      <div style={{display:"flex",gap:4,marginBottom:16,background:C.surface,padding:4,
-        borderRadius:10,border:`1px solid ${C.border}`}}>
-        {[["number","📱 Number"],["cdr","📋 CDR"],["live","📡 Live"]].map(([k,l])=>(
-          <button key={k} onClick={()=>{setTab(k);setResult(null);}}
-            style={{flex:1,padding:"9px 6px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",
-              border:"none",background:tab===k?`${C.green}20`:"transparent",color:tab===k?C.green:C.muted}}>
-            {l}
-          </button>
-        ))}
-      </div>
-      <Card style={{padding:16}}>
-        {tab==="number"&&(
-          <div>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Test DID Number</div>
-            <input style={inp} value={number} placeholder="+393199052100"
-              onChange={e=>setNumber(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testNumber()}/>
-            <button onClick={testNumber} disabled={loading}
-              style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.green}40`,
-                background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-              {loading?"Testing...":"Test Number"}
-            </button>
-            {result?.type==="number"&&(
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {[["Number",result.number],["Found",result.did?"✅ YES":"❌ NO"],
-                  ["Status",result.did?.status||"—"],["IVR",result.did?.ivr_context||"—"]].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",
-                    borderRadius:6,background:"rgba(255,255,255,0.02)"}}>
-                    <span style={{fontSize:11,color:C.muted}}>{k}</span>
-                    <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {tab==="cdr"&&(
-          <div>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>CDR Lookup</div>
-            <input style={inp} value={cdrSearch} placeholder="Phone or DID..."
-              onChange={e=>setCdrSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testCdr()}/>
-            <button onClick={testCdr} disabled={loading}
-              style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.blue}40`,
-                background:`${C.blue}15`,color:C.blue,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-              {loading?"Searching...":"Search CDR"}
-            </button>
-            {result?.type==="cdr"&&(
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:8}}>{result.records.length} records</div>
-                {result.records.slice(0,5).map((c,i)=>(
-                  <div key={i} style={{padding:"8px 10px",borderRadius:6,background:"rgba(255,255,255,0.02)",
-                    border:`1px solid ${C.border}`,marginBottom:4,fontSize:11}}>
-                    <span style={{color:C.blue,fontFamily:"monospace"}}>{c.src}</span>
-                    <span style={{color:C.muted,margin:"0 6px"}}>→</span>
-                    <span>{c.did}</span>
-                    <span style={{float:"right",color:c.disposition==="ANSWERED"?C.green:C.red,fontWeight:700}}>
-                      {c.disposition}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {tab==="live"&&(
-          <div>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Live Monitor</div>
-            <button onClick={testLive} disabled={loading}
-              style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.purple}40`,
-                background:`${C.purple}15`,color:C.purple,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-              {loading?"Checking...":"Check Live Calls"}
-            </button>
-            {result?.type==="live"&&(
-              <div style={{padding:"10px 12px",borderRadius:8,textAlign:"center",
-                background:liveCalls.length>0?`${C.green}08`:`${C.orange}08`,
-                border:`1px solid ${liveCalls.length>0?C.green:C.orange}30`,
-                fontSize:13,fontWeight:700,color:liveCalls.length>0?C.green:C.orange}}>
-                {liveCalls.length>0?`${liveCalls.length} active call(s)`:"No active calls"}
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
-      {/* Invoices Section */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"16px 0 8px"}}>
-        <div style={{fontSize:11,fontWeight:700}}>Weekly Invoices</div>
-        <button disabled={genSaving} onClick={async()=>{
-          setGenSaving(true);
-          const d=await apiFetch("/invoices/generate-weekly",token,{method:"POST"});
-          if(d.success){
-            alert(d.message);
-            apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
-    apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
-          }
-          setGenSaving(false);
-        }}
-          style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.cyan}40`,
-            background:`${C.cyan}15`,color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          {genSaving?"Generating...":"⚡ Generate Now"}
-        </button>
-      </div>
-      <Card style={{overflow:"hidden",marginBottom:8}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 60px 70px 80px 60px 70px",
-          padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderBottom:`1px solid ${C.border}`}}>
-          {["Invoice #","Cur","Calls","Amount","Status","Period"].map(h=>(
-            <div key={h} style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</div>
-          ))}
-        </div>
-        {invoices.length===0
-          ?<div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>
-            No invoices yet — auto-generated every Sunday 00:01 UTC
-          </div>
-          :invoices.slice(0,10).map((inv,i)=>(
-            <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 60px 70px 80px 60px 70px",
-              padding:"10px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`,alignItems:"center"}}>
-              <span style={{fontSize:10,fontFamily:"monospace",color:C.blue}}>{inv.invoice_number}</span>
-              <span style={{fontSize:10,padding:"2px 6px",borderRadius:10,fontWeight:700,
-                background:inv.currency==="USD"?`${C.yellow}15`:`${C.blue}15`,
-                color:inv.currency==="USD"?C.yellow:C.blue}}>{inv.currency}</span>
-              <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{inv.total_calls}</span>
-              <span style={{fontSize:11,fontWeight:700,color:inv.currency==="USD"?C.yellow:C.green,fontFamily:"monospace"}}>
-                {inv.currency==="USD"?"$":"€"}{parseFloat(inv.total_amount||0).toFixed(4)}
-              </span>
-              <button onClick={async()=>{
-                const newStatus=inv.status==="paid"?"unpaid":"paid";
-                await apiFetch(`/invoices/${inv.id}/status`,token,{method:"PUT",body:JSON.stringify({status:newStatus})});
-                apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
-    apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
-              }}
-                style={{fontSize:9,padding:"2px 8px",borderRadius:10,cursor:"pointer",fontWeight:700,
-                  background:inv.status==="paid"?`${C.green}15`:`${C.orange}15`,
-                  color:inv.status==="paid"?C.green:C.orange,
-                  border:`1px solid ${inv.status==="paid"?C.green:C.orange}30`}}>
-                {(inv.status||"unpaid").toUpperCase()}
-              </button>
-              <span style={{fontSize:9,color:C.muted}}>{(inv.period_start||"").slice(5)}</span>
-            </div>
-          ))
-        }
-      </Card>
-    </div>
-  );
-}
-
-// ── Settings ──────────────────────────────────────────────────────
-function SettingsPage({user,logout}){
-  const handleExec=async(cmd)=>{
-    if(!window.confirm(`Run: ${cmd}?`)) return;
-    const t=localStorage.getItem("noc_token");
-    const r=await fetch(`${API}/system/exec`,{method:"POST",
-      headers:{Authorization:`Bearer ${t}`,Accept:"application/json","Content-Type":"application/json"},
-      body:JSON.stringify({cmd})});
-    const d=await r.json();
-    alert(d.output||d.message||"Done");
-  };
-  return(
-    <div style={{padding:16}}>
-      <div style={{fontSize:16,fontWeight:800,marginBottom:16}}>⚙ Settings</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        {[["⟳ Reload Asterisk",C.green],["⟳ Reload PJSIP",C.blue],
-          ["↻ Restart Asterisk",C.yellow],["↻ Restart Server",C.orange],
-          ["⏻ Turn Off",C.red],["▶ Restart Nginx",C.cyan]].map(([l,col])=>(
-          <button key={l} onClick={()=>handleExec(l)}
-            style={{padding:"12px",borderRadius:8,border:`1px solid ${col}40`,
-              background:`${col}12`,color:col,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            {l}
-          </button>
-        ))}
-      </div>
-      <Card style={{padding:14,marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Account</div>
-        {[["Name",user?.name],["Email",user?.email],["Role",user?.role],["Client ID",user?.client_id]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v||"—"}</span>
-          </div>
-        ))}
-      </Card>
-      <Card style={{padding:14,marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Server Info</div>
-        {[["IP","195.200.14.165"],["OS","Ubuntu 24.04"],["PHP","8.3-FPM"],
-          ["Asterisk","20.6.0"],["NOC","http://195.200.14.165/noc/"]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.green,fontFamily:"monospace"}}>{v}</span>
-          </div>
-        ))}
-      </Card>
-      <Card style={{padding:14}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Asterisk Config</div>
-        {[["SIP Port","5060 UDP"],["Codecs","G.729, alaw, ulaw"],
-          ["Context","from-carrier"],["AGI","did_router.php"],
-          ["IVR","custom/6g-premium-telecom"],["RTP","10000-20000"]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v}</span>
-          </div>
-        ))}
-      </Card>
-    </div>
-  );
-}
-
-
-function RoutePrefixPage({token}){
-  const [prefixes,setPrefixes]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [suppliers,setSuppliers]=useState([]);
-  const [ivrs,setIvrs]=useState([]);
-  const [saving,setSaving]=useState(false);
-  const [form,setForm]=useState({prefix:"",country_code:"IT",country_name:"Italy",
-    ivr_context:"custom/telephone-convo",trunk_id:"1",supplier_name:"",priority:"1",notes:""});
-
-  const load=useCallback(()=>{
-    apiFetch("/route-prefixes",token).then(d=>{setPrefixes(d.data||[]);setLoading(false);});
-  },[token]);
-
-  useEffect(()=>{
-    load();
-    apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));
-    apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
-  },[token]);
-
-  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
-  const sel={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none"};
-
-  const COUNTRIES=[["IT","Italy"],["IE","Ireland"],["FR","France"],["DE","Germany"],
-    ["GB","UK"],["US","USA"],["SA","Saudi Arabia"],["AE","UAE"]];
-
-  const add=async()=>{
-    setSaving(true);
-    const s=suppliers.find(x=>String(x.id)===String(form.trunk_id));
-    const d=await apiFetch("/route-prefixes",token,{method:"POST",
-      body:JSON.stringify({...form,supplier_name:s?.name||""})});
-    if(d.success){load();setShowAdd(false);setForm({prefix:"",country_code:"IT",country_name:"Italy",
-      ivr_context:"custom/telephone-convo",trunk_id:"1",supplier_name:"",priority:"1",notes:""});}
-    setSaving(false);
-  };
-
-  const del=async(id)=>{
-    if(!window.confirm("Delete this prefix route?")) return;
-    await apiFetch(`/route-prefixes/${id}`,token,{method:"DELETE"});
-    load();
-  };
-
-  return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-        <div style={{fontSize:16,fontWeight:800}}>🔀 Route Prefix</div>
-        <button onClick={()=>setShowAdd(o=>!o)}
-          style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.green}40`,
-            background:`${C.green}15`,color:C.green,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-          + Add Prefix
-        </button>
-      </div>
-      <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
-        Route calls by number prefix → assign IVR per prefix
-      </div>
-
-      {showAdd&&(
-        <Card style={{padding:16,marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>New Prefix Route</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Prefix * (e.g. 39319905)</div>
-              <input style={inp} value={form.prefix} placeholder="39319905"
-                onChange={e=>setForm(f=>({...f,prefix:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Country</div>
-              <select style={sel} value={form.country_code} onChange={e=>{
-                const m=Object.fromEntries(COUNTRIES);
-                setForm(f=>({...f,country_code:e.target.value,country_name:m[e.target.value]||e.target.value}));
-              }}>
-                {COUNTRIES.map(([c,n])=><option key={c} value={c}>{n}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>IVR</div>
-              <select style={sel} value={form.ivr_context}
-                onChange={e=>setForm(f=>({...f,ivr_context:e.target.value}))}>
-                <option value="custom/telephone-convo">telephone-convo (Default)</option>
-                {ivrs.map(f=><option key={f.id} value={`custom/${f.name}`}>{f.display_name||f.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Supplier</div>
-              <select style={sel} value={form.trunk_id}
-                onChange={e=>setForm(f=>({...f,trunk_id:e.target.value}))}>
-                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-              </select>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Priority</div>
-                <input style={inp} type="number" value={form.priority} placeholder="1"
-                  onChange={e=>setForm(f=>({...f,priority:e.target.value}))}/>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Notes</div>
-                <input style={inp} value={form.notes} placeholder="Optional"
-                  onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
-              </div>
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setShowAdd(false)}
-              style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.border}`,
-                background:"transparent",color:C.muted,fontSize:12,cursor:"pointer"}}>Cancel</button>
-            <button onClick={add} disabled={saving}
-              style={{flex:2,padding:"10px",borderRadius:8,border:`1px solid ${C.green}40`,
-                background:`${C.green}15`,color:C.green,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-              {saving?"Saving...":"+ Add Route"}
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* How it works */}
-      <Card style={{padding:12,marginBottom:12,background:`${C.blue}05`,border:`1px solid ${C.blue}20`}}>
-        <div style={{fontSize:10,color:C.blue,fontWeight:700,marginBottom:6}}>How it works</div>
-        <div style={{fontSize:10,color:C.muted,lineHeight:1.6}}>
-          Incoming call → match prefix → assign IVR<br/>
-          Example: <span style={{color:C.text,fontFamily:"monospace"}}>+39319905XXXX</span> → prefix <span style={{color:C.green,fontFamily:"monospace"}}>39319905</span> → telephone-convo IVR
-        </div>
-      </Card>
-
-      {/* Prefix List */}
-      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-      :prefixes.length===0?<Card style={{padding:40,textAlign:"center"}}>
-        <div style={{fontSize:32,marginBottom:8}}>🔀</div>
-        <div style={{color:C.muted,fontSize:12}}>No prefix routes configured</div>
-      </Card>
-      :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {prefixes.map((p,i)=>(
-          <Card key={i} style={{padding:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                  <span style={{fontSize:15,fontWeight:900,color:C.green,fontFamily:"monospace"}}>+{p.prefix}</span>
-                  <span style={{fontSize:9,padding:"2px 6px",borderRadius:10,
-                    background:`${C.blue}15`,color:C.blue,fontWeight:700}}>{p.country_code}</span>
-                  <span style={{fontSize:9,padding:"2px 6px",borderRadius:10,
-                    background:`${C.purple}15`,color:C.purple}}>P{p.priority}</span>
-                </div>
-                <div style={{fontSize:10,color:C.cyan}}>
-                  IVR: {(p.ivr_context||"").replace("custom/","")}
-                </div>
-              </div>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                <span style={{fontSize:9,padding:"3px 8px",borderRadius:10,fontWeight:700,
-                  background:p.is_active?`${C.green}15`:`${C.red}15`,
-                  color:p.is_active?C.green:C.red}}>
-                  {p.is_active?"ON":"OFF"}
-                </span>
-                <button onClick={()=>del(p.id)}
-                  style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.red}40`,
-                    background:`${C.red}10`,color:C.red,fontSize:10,cursor:"pointer"}}>Del</button>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:12,fontSize:10,color:C.muted}}>
-              <span>Supplier: <span style={{color:C.text}}>{p.supplier_name||"—"}</span></span>
-              <span>Country: <span style={{color:C.text}}>{p.country_name||"—"}</span></span>
-              {p.notes&&<span>Note: <span style={{color:C.text}}>{p.notes}</span></span>}
-            </div>
-          </Card>
-        ))}
-      </div>}
-    </div>
-  );
-}
-
-
-// ── SIP Monitor Page ─────────────────────────────────────────────
-function SIPMonitorPage({token}){
-  const [activity,setActivity]=useState([]);
-  const [channels,setChannels]=useState([]);
-  const [pjsip,setPjsip]=useState([]);
-  const [log,setLog]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [autoRefresh,setAutoRefresh]=useState(true);
-  const [tab,setTab]=useState("activity");
-  const [timestamp,setTimestamp]=useState("");
-  const logRef=useRef(null);
-
-  const load=useCallback(()=>{
-    apiFetch("/sip/activity",token).then(d=>{
-      setActivity(d.activity||[]);
-      setChannels(d.channels||[]);
-      setPjsip(d.pjsip||[]);
-      setTimestamp(d.timestamp||"");
+  const load=()=>{
+    Promise.all([
+      apiFetch("/did-ranges",token),
+      apiFetch("/dids",token),
+    ]).then(([r,d])=>{
+      setRanges(r.data||[]);
+      setDids(d.data||[]);
       setLoading(false);
     });
-  },[token]);
+  };
+  useEffect(()=>{load();},[token]);
 
-  const loadLog=useCallback(()=>{
-    apiFetch("/sip/log",token).then(d=>{
-      setLog(d.data||[]);
-      setTimeout(()=>{
-        if(logRef.current) logRef.current.scrollTop=logRef.current.scrollHeight;
-      },100);
-    });
-  },[token]);
+  const toggle=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
 
-  useEffect(()=>{
+  const deleteRange=async(id,e)=>{
+    e.stopPropagation();
+    if(!window.confirm("Delete this number block?")) return;
+    await apiFetch("/did-ranges/"+id,token,{method:"DELETE"});
     load();
-    loadLog();
-  },[load,loadLog]);
-
-  useEffect(()=>{
-    if(!autoRefresh) return;
-    const t=setInterval(()=>{load();if(tab==="log")loadLog();},3000);
-    return()=>clearInterval(t);
-  },[autoRefresh,load,loadLog,tab]);
-
-  const getColor=(line)=>{
-    if(line.includes("INVITE")) return C.green;
-    if(line.includes("AGI")) return C.blue;
-    if(line.includes("ANSWER")) return C.cyan;
-    if(line.includes("HANGUP")||line.includes("ERROR")) return C.red;
-    if(line.includes("CDR")) return C.yellow;
-    if(line.includes("did_router")) return C.purple;
-    return C.muted;
   };
 
+  const getNumbers=(r)=>dids.filter(d=>{
+    const n=(d.number||"").replace("+","");
+    return n.startsWith(r.prefix||"") ||
+      (n>=(r.range_start||"") && n<=(r.range_end||""));
+  });
+
+  const getCurrencySymbol=(cur)=>cur==="EUR"?"€":cur==="SAR"?"﷼":"$";
+
+  const filtered=search
+    ?ranges.filter(r=>(r.prefix||"").includes(search)||
+      (r.country_name||"").toLowerCase().includes(search.toLowerCase())||
+      (r.batch_name||"").toLowerCase().includes(search.toLowerCase()))
+    :ranges;
+
+  const totalDids=dids.length;
+
+  const thS={fontSize:11,color:"#9A9A9A",fontWeight:600,letterSpacing:"0.5px",
+    padding:"12px 14px",textAlign:"left",whiteSpace:"nowrap",
+    borderBottom:"1px solid #EEEEEE",background:"#F8F9FA"};
+
   return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div>
-          <div style={{fontSize:16,fontWeight:800}}>📶 SIP Monitor</div>
-          <div style={{fontSize:9,color:C.muted}}>Live SIP activity · AGI routing · Asterisk log</div>
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{width:8,height:8,borderRadius:"50%",
-              background:autoRefresh?C.green:C.muted,display:"inline-block"}}/>
-            <span style={{fontSize:10,color:autoRefresh?C.green:C.muted}}>
-              {autoRefresh?"LIVE":"PAUSED"}
-            </span>
-          </div>
-          <button onClick={()=>setAutoRefresh(o=>!o)}
-            style={{padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-              border:`1px solid ${autoRefresh?C.red:C.green}40`,
-              background:autoRefresh?`${C.red}10`:`${C.green}10`,
-              color:autoRefresh?C.red:C.green}}>
-            {autoRefresh?"⏸ Pause":"▶ Resume"}
-          </button>
-          <button onClick={()=>{load();loadLog();}}
-            style={{padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-              border:`1px solid ${C.blue}40`,background:`${C.blue}10`,color:C.blue}}>
-            ⟳ Refresh
-          </button>
-        </div>
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Numbers</div>
+        <span style={{fontSize:11,color:"#999",background:"#F0F0F0",
+          padding:"4px 12px",borderRadius:20}}>{totalDids} numbers</span>
       </div>
-
-      {/* Status Cards */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <Card style={{padding:12,border:`1px solid ${C.green}20`,background:`${C.green}05`}}>
-          <div style={{fontSize:9,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"1px"}}>Active Channels</div>
-          <div style={{fontSize:24,fontWeight:900,color:C.green,fontFamily:"monospace"}}>
-            {channels.filter(c=>c.includes("active channel")).map(c=>c.match(/(\d+) active/)?.[1]||"0").join("")||"0"}
+      {/* Search */}
+      <input value={search} onChange={e=>setSearch(e.target.value)}
+        placeholder="Search prefix, country, batch..."
+        style={{width:"100%",padding:"10px 14px",borderRadius:10,
+          border:"1px solid #E0E0E0",background:"#FFFFFF",
+          color:"#333",fontSize:13,outline:"none",
+          boxSizing:"border-box",marginBottom:14}}/>
+      {/* Table */}
+      {loading
+        ?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+        :<div style={{background:"#FFFFFF",borderRadius:14,overflow:"hidden",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
+              <thead>
+                <tr>
+                  <th style={thS}>NUMBERS</th>
+                  <th style={thS}>COUNTRY</th>
+                  <th style={thS}>TARIFF</th>
+                  <th style={thS}>PAYMENT TERMS</th>
+                  <th style={{...thS,textAlign:"center"}}>DEL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length===0
+                  ?<tr><td colSpan={5} style={{padding:40,textAlign:"center",color:"#999"}}>
+                    No number blocks found
+                  </td></tr>
+                  :filtered.map((r,ri)=>{
+                    const nums=getNumbers(r);
+                    const isExp=expanded[r.id];
+                    const sym=getCurrencySymbol(r.currency);
+                    return(
+                      <React.Fragment key={r.id}>
+                        {/* Group Row */}
+                        <tr onClick={()=>toggle(r.id)}
+                          style={{borderBottom:"1px solid #F0F0F0",
+                            background:isExp?"#F8F0FF":"#FFFFFF",
+                            cursor:"pointer",transition:"background 0.15s"}}
+                          onMouseEnter={e=>!isExp&&(e.currentTarget.style.background="#F9F9F9")}
+                          onMouseLeave={e=>!isExp&&(e.currentTarget.style.background="#FFFFFF")}>
+                          <td style={{padding:"13px 14px"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:10}}>
+                              <div style={{width:28,height:28,borderRadius:"50%",
+                                background:"#6B2FBF",color:"#FFFFFF",
+                                display:"flex",alignItems:"center",justifyContent:"center",
+                                fontSize:16,fontWeight:700,flexShrink:0,
+                                boxShadow:"0 2px 8px rgba(107,47,191,0.3)"}}>
+                                {isExp?"−":"+"}
+                              </div>
+                              <div>
+                                <span style={{fontSize:13,fontWeight:700,color:"#1A1A1A",fontFamily:"monospace"}}>
+                                  {r.prefix||r.range_start}
+                                </span>
+                                <span style={{fontSize:12,color:"#AAAAAA",marginLeft:6}}>
+                                  ({r.total_count||nums.length} numbers)
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{padding:"13px 14px",fontSize:13,fontWeight:600,color:"#333"}}>
+                            {(r.country_name||"—").replace("ITLAY","Italy")}
+                          </td>
+                          <td style={{padding:"13px 14px",fontSize:13,color:"#333",fontFamily:"monospace"}}>
+                            {sym}{parseFloat(r.rate||0).toFixed(3)}
+                          </td>
+                          <td style={{padding:"13px 14px",fontSize:13,color:"#555"}}>
+                            {r.payment_terms||"Weekly"}
+                          </td>
+                          <td style={{padding:"13px 14px",textAlign:"center"}}>
+                            <button onClick={(e)=>deleteRange(r.id,e)}
+                              style={{background:"none",border:"none",cursor:"pointer",
+                                fontSize:18,color:"#9B59B6",padding:4}}>🗑</button>
+                          </td>
+                        </tr>
+                        {/* Expanded Sub-rows */}
+                        {isExp&&(
+                          nums.length===0
+                          ?<tr style={{background:"#FAF5FF"}}>
+                            <td colSpan={5} style={{padding:"10px 14px 10px 52px",
+                              fontSize:12,color:"#999",fontStyle:"italic"}}>
+                              No individual numbers loaded for this range
+                            </td>
+                          </tr>
+                          :nums.map((d,di)=>(
+                            <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",
+                              borderBottom:"1px solid #EEE8FF"}}>
+                              <td colSpan={5} style={{padding:"8px 14px 8px 52px"}}>
+                                <span style={{fontSize:12,fontFamily:"monospace",
+                                  color:di%2===0?"#10B981":"#555",fontWeight:500}}>
+                                  {d.number}
+                                </span>
+                                <span style={{fontSize:11,color:"#AAAAAA",marginLeft:12}}>
+                                  {(d.created_at||"").slice(0,19)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
           </div>
-        </Card>
-        <Card style={{padding:12,border:`1px solid ${C.blue}20`,background:`${C.blue}05`}}>
-          <div style={{fontSize:9,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"1px"}}>PJSIP Status</div>
-          <div style={{fontSize:13,fontWeight:700,color:pjsip.some(l=>l.includes("Avail"))?C.green:C.orange}}>
-            {pjsip.some(l=>l.includes("Avail"))?"AVAILABLE":"UNAVAILABLE"}
+          {/* Footer */}
+          <div style={{padding:"14px 16px",borderTop:"1px solid #EEEEEE",
+            display:"flex",gap:10,background:"#F8F9FA",flexWrap:"wrap"}}>
+            <button style={{padding:"10px 24px",borderRadius:20,border:"none",
+              background:"#6B2FBF",color:"#FFFFFF",fontSize:13,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit"}}>
+              SAVE CHANGES
+            </button>
+            <button onClick={()=>{
+              const rows=[["Number","Country","Tariff","Currency","Payment Terms","Batch"]];
+              dids.forEach(d=>rows.push([d.number,d.country_name||"",d.rate||"",d.currency||"",d.payment_terms||"",d.batch_name||""]));
+              const csv=rows.map(r=>r.join(",")).join("\n");
+              const blob=new Blob([csv],{type:"text/csv"});
+              const url=URL.createObjectURL(blob);
+              const a=document.createElement("a");
+              a.href=url;a.download="numbers.csv";a.click();
+            }} style={{padding:"10px 24px",borderRadius:20,
+              border:"2px solid #6B2FBF",background:"#FFFFFF",
+              color:"#6B2FBF",fontSize:13,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit"}}>
+              DOWNLOAD EXCEL
+            </button>
           </div>
-        </Card>
-      </div>
-
-      {/* Tabs */}
-      <div style={{display:"flex",gap:4,marginBottom:12,background:C.surface,padding:4,
-        borderRadius:10,border:`1px solid ${C.border}`}}>
-        {[["activity","⚡ Activity"],["channels","📞 Channels"],["log","📋 Full Log"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setTab(k)}
-            style={{flex:1,padding:"8px 6px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-              border:"none",background:tab===k?`${C.green}20`:"transparent",color:tab===k?C.green:C.muted}}>
-            {l}
-          </button>
-        ))}
-      </div>
-
-      {/* Activity Tab */}
-      {tab==="activity"&&(
-        <Card style={{overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,
-            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:11,fontWeight:700}}>SIP/AGI Activity</span>
-            <span style={{fontSize:9,color:C.muted}}>{timestamp}</span>
-          </div>
-          <div style={{maxHeight:400,overflowY:"auto",padding:"8px 0"}} ref={logRef}>
-            {loading?<div style={{padding:20,textAlign:"center",color:C.muted}}>Loading...</div>
-            :activity.length===0?<div style={{padding:40,textAlign:"center",color:C.muted}}>
-              <div style={{fontSize:24,marginBottom:8}}>📡</div>
-              No SIP activity yet — waiting for calls
-            </div>
-            :activity.map((line,i)=>(
-              <div key={i} style={{padding:"4px 12px",fontFamily:"monospace",fontSize:10,
-                color:getColor(line),borderBottom:`1px solid rgba(255,255,255,0.02)`,
-                wordBreak:"break-all"}}>
-                {line}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Channels Tab */}
-      {tab==="channels"&&(
-        <Card style={{overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,fontWeight:700}}>Active Channels</span>
-          </div>
-          <div style={{padding:12}}>
-            {channels.length===0?<div style={{textAlign:"center",padding:20,color:C.muted}}>No active channels</div>
-            :channels.map((ch,i)=>(
-              <div key={i} style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,
-                color:C.text,borderBottom:`1px solid ${C.border}`}}>
-                {ch}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Full Log Tab */}
-      {tab==="log"&&(
-        <Card style={{overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,
-            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:11,fontWeight:700}}>Asterisk Full Log</span>
-            <span style={{fontSize:9,color:C.muted}}>{log.length} lines</span>
-          </div>
-          <div ref={logRef} style={{maxHeight:450,overflowY:"auto",padding:"8px 0",
-            background:"rgba(0,0,0,0.3)"}}>
-            {log.map((line,i)=>(
-              <div key={i} style={{padding:"2px 12px",fontFamily:"monospace",fontSize:9,
-                color:getColor(line),wordBreak:"break-all",lineHeight:1.6}}>
-                {line}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Call Flow Reference */}
-      <Card style={{padding:14,marginTop:12,background:`${C.blue}05`,border:`1px solid ${C.blue}20`}}>
-        <div style={{fontSize:10,fontWeight:700,color:C.blue,marginBottom:8}}>Expected Call Flow</div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {[
-            ["1","Supplier IP sends INVITE",C.green],
-            ["2","PJSIP matches IP → STANDARD endpoint",C.blue],
-            ["3","Routes to from-carrier context",C.cyan],
-            ["4","AGI did_router.php looks up DID",C.purple],
-            ["5","Sets IVR_CONTEXT variable",C.yellow],
-            ["6","Answer() + Playback(IVR)",C.green],
-            ["7","CDR saved on Hangup",C.orange],
-          ].map(([n,text,color])=>(
-            <div key={n} style={{display:"flex",alignItems:"center",gap:8,fontSize:10}}>
-              <span style={{width:18,height:18,borderRadius:"50%",background:`${color}20`,
-                color,fontSize:9,fontWeight:700,display:"flex",alignItems:"center",
-                justifyContent:"center",flexShrink:0}}>{n}</span>
-              <span style={{color:C.muted}}>{text}</span>
-            </div>
-          ))}
         </div>
-      </Card>
+      }
     </div>
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────
-export default function App(){
-  const [token,setToken]=useState(localStorage.getItem("noc_token")||"");
-  const [user,setUser]=useState(null);
-  const [page,setPage]=useState("dashboard");
-  const [username,setUsername]=useState("");
-  const [pass,setPass]=useState("");
-  const [error,setError]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [sideOpen,setSideOpen]=useState(true);
-  const [drawerOpen,setDrawerOpen]=useState(false);
-  const [ready,setReady]=useState(false);
-  const [showPass,setShowPass]=useState(false);
-  const [liveCalls,setLiveCalls]=useState(0);
-  const [revenue,setRevenue]=useState("0.0000");
-  const [isMobile,setIsMobile]=useState(window.innerWidth<768);
-
-  useEffect(()=>{
-    const check=()=>setIsMobile(window.innerWidth<768);
-    window.addEventListener('resize',check);
-    return()=>window.removeEventListener('resize',check);
-  },[]);
-
-  useEffect(()=>{
-    const t=localStorage.getItem("noc_token");
-    if(!t){setReady(true);return;}
-    apiFetch("/auth/me",t).then(d=>{
-      const u=d.data||d;
-      if(u?.id){setToken(t);setUser(u);}
-      else{localStorage.removeItem("noc_token");setToken("");setUser(null);}
-      setReady(true);
-    }).catch(()=>{
-      localStorage.removeItem("noc_token");
-      setToken("");setUser(null);
-      setReady(true);
-    });
-  },[]);
-
-  useEffect(()=>{
-    if(!token)return;
-    const loadStats=()=>{
-      apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
-      apiFetch("/billing/current-revenue",token).then(d=>setRevenue(parseFloat((d.data||{}).revenue||0).toFixed(4)));
-    };
-    loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
-  },[token]);
-
-  const login=async()=>{
-    setLoading(true);setError("");
-    try{
-      const r=await fetch(`${API}/auth/login`,{method:"POST",
-        headers:{"Content-Type":"application/json",Accept:"application/json"},
-        body:JSON.stringify({username,email:username,password:pass})});
-      const d=await r.json();
-      if(d.token){localStorage.setItem("noc_token",d.token);setToken(d.token);setUser(d.user);}
-      else setError(d.message||"Invalid credentials");
-    }catch(e){setError("Connection error");}
-    setLoading(false);
-  };
-
-  const logout=()=>{localStorage.removeItem("noc_token");setToken("");setUser(null);};
-
-  if(!ready)return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",
-      justifyContent:"center",color:C.muted,fontFamily:"monospace"}}>Loading...</div>
-  );
-
-  if(!token||!user)return(
-    <div style={{minHeight:"100vh",background:"#F5F5F5",display:"flex",flexDirection:"column",
-      alignItems:"center",fontFamily:"'Nunito','Poppins',sans-serif",margin:0,padding:0}}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        .login-input{width:100%;padding:14px 16px;border:1.5px solid #E0E0E0;border-radius:10px;
-          font-size:15px;font-family:inherit;outline:none;background:#FFFFFF;color:#333;transition:border 0.2s;}
-        .login-input:focus{border-color:#2CADA6;box-shadow:0 0 0 3px rgba(44,173,166,0.12);}
-        .login-btn{width:100%;padding:15px;background:linear-gradient(135deg,#2CADA6,#38B7A8);
-          color:#FFFFFF;border:none;border-radius:10px;font-size:16px;font-weight:700;
-          cursor:pointer;font-family:inherit;letter-spacing:0.5px;transition:all 0.25s;}
-        .login-btn:hover{background:linear-gradient(135deg,#28A8A1,#2CADA6);box-shadow:0 4px 20px rgba(44,173,166,0.4);}
-        .login-btn:disabled{opacity:0.6;cursor:not-allowed;}
-      `}</style>
-      {/* Header Banner */}
-      <div style={{width:"100%",background:"linear-gradient(135deg,#2CADA6 0%,#38B7A8 50%,#2CADA6 100%)",
-        padding:"22px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",
-        boxShadow:"0 4px 20px rgba(44,173,166,0.3)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:4}}>
-          <span style={{fontSize:36,fontWeight:900,color:"#FFFFFF",letterSpacing:"-1px"}}>6G</span>
-          <span style={{fontSize:36,fontWeight:900,color:"#F5A623",letterSpacing:"-1px"}}>STATS</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:3}}>
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-            <rect x="4" y="20" width="6" height="12" rx="2" fill="white" opacity="0.9"/>
-            <rect x="13" y="14" width="6" height="18" rx="2" fill="#F5A623"/>
-            <rect x="22" y="8" width="6" height="24" rx="2" fill="white" opacity="0.9"/>
-            <circle cx="29" cy="6" r="3" fill="#F5A623"/>
-          </svg>
-        </div>
-      </div>
-      {/* Main Content */}
-      <div style={{width:"100%",maxWidth:420,padding:"40px 24px 24px",flex:1}}>
-        {/* Heading */}
-        <div style={{textAlign:"center",marginBottom:36}}>
-          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
-            User name and password
-          </div>
-          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
-            needed!
-          </div>
-        </div>
-        {/* Form */}
-        <div style={{display:"flex",flexDirection:"column",gap:20}}>
-          {/* Username */}
-          <div>
-            <label style={{display:"block",fontSize:14,fontWeight:700,
-              color:"#444444",marginBottom:8}}>User</label>
-            <input className="login-input" value={username}
-              onChange={e=>setUsername(e.target.value)}
-              placeholder="Enter your username"
-              onKeyDown={e=>e.key==="Enter"&&login()}/>
-          </div>
-          {/* Password */}
-          <div>
-            <label style={{display:"block",fontSize:14,fontWeight:700,
-              color:"#444444",marginBottom:8}}>Password</label>
-            <div style={{position:"relative"}}>
-              <input className="login-input" type={showPass?"text":"password"}
-                value={pass} onChange={e=>setPass(e.target.value)}
-                placeholder="Enter your password"
-                style={{paddingRight:44}}
-                onKeyDown={e=>e.key==="Enter"&&login()}/>
-              <button onClick={()=>setShowPass(!showPass)}
-                style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
-                  background:"none",border:"none",cursor:"pointer",fontSize:16,
-                  color:"#888",padding:4}}>
-                {showPass?"🙈":"👁"}
-              </button>
-            </div>
-          </div>
-          {/* Error */}
-          {error&&<div style={{color:"#EF4444",fontSize:13,padding:"10px 14px",
-            borderRadius:8,background:"rgba(239,68,68,0.08)",
-            border:"1px solid rgba(239,68,68,0.2)",display:"flex",alignItems:"center",gap:8}}>
-            <span>⚠</span>{error}
-          </div>}
-          {/* Login Button */}
-          <button className={loading?"login-btn":"login-btn"} onClick={login} disabled={loading}>
-            {loading?"Logging in...":"login"}
-          </button>
-          {/* Footer note */}
-          <div style={{textAlign:"center",marginTop:8}}>
-            <span style={{fontSize:12,color:"#999"}}>
-              Don't have an account?{" "}
-              <span style={{color:"#2CADA6",fontWeight:700,cursor:"pointer"}}>
-                Contact administration
-              </span>
-            </span>
-          </div>
-        </div>
-      </div>
-      <div style={{padding:"16px",textAlign:"center"}}>
-        <span style={{fontSize:10,color:"#BBBBBB"}}>© 2026 6G Premium Telecom. All rights reserved.</span>
-      </div>
-    </div>
-  );
-  const renderPage=()=>{
-    switch(page){
-      case "livecalls":    return <LiveCallsPage token={token}/>;
-      case "cdr":          return <CDRPage token={token}/>;
-      case "revenue":      return <RevenuePage token={token}/>;
-      case "suppliers":    return <SuppliersPage token={token}/>;
-      case "didinventory": return <DIDInventoryPage token={token}/>;
-      case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
-      case "connectivr":   return <ConnectIVRPage token={token}/>;
-      case "routeprefix":  return <RoutePrefixPage token={token}/>;
-      case "customers":    return <CustomersPage token={token}/>;
-      case "testlabs":     return <TestLabsPage token={token}/>;
-      case "sipmonitor":   return <SIPMonitorPage token={token}/>;
-      case "settings":     return <SettingsPage user={user} logout={logout}/>;
-      default:             return <DashboardPage token={token}/>;
-    }
-  };
-
-  return(
-    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg,
-      fontFamily:"monospace",color:C.text,overflow:"hidden"}}>
-      <style>{`*{box-sizing:border-box;}body{margin:0;overflow:hidden;}
-        ::-webkit-scrollbar{width:4px;height:4px;}
-        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}`}
-      </style>
-
-      <TopBar liveCalls={liveCalls} revenue={revenue} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)} user={user}/>
-
-      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-        {/* Mobile Drawer */}
-        {isMobile&&drawerOpen&&(
-          <MobileDrawer page={page} setPage={setPage} user={user} logout={logout} onClose={()=>setDrawerOpen(false)}/>
-        )}
-
-        {/* Desktop Sidebar */}
-        {!isMobile&&(
-          <DesktopSidebar page={page} setPage={setPage} open={sideOpen}
-            toggle={()=>setSideOpen(o=>!o)} user={user} logout={logout}/>
-        )}
-
-        {/* Main Content */}
-        <div style={{flex:1,overflowY:"auto",width:"100%",minWidth:0,display:"flex",flexDirection:"column"}}>
-          <div style={{flex:1}}><ErrorBoundary>{renderPage()}</ErrorBoundary></div>
-          <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`,
-            background:C.surface,textAlign:"center",flexShrink:0}}>
-            <span style={{fontSize:10,color:C.muted}}>
-              6G Premium Telecom NOC · Developed by{" "}
-              <span style={{color:C.green,fontWeight:700}}>KanonSarowar</span>
-              {" "}· © {new Date().getFullYear()}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
