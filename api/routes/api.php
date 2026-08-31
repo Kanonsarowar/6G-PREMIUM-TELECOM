@@ -1588,3 +1588,14 @@ Route::delete('/v1/audit-logs/clear', function(Request $r) {
     $deleted = DB::table('audit_logs')->where('created_at','<',now()->subDays($days))->delete();
     return response()->json(['success'=>true,'deleted'=>$deleted,'message'=>"$deleted logs older than $days days deleted"]);
 });
+
+// Unassign DIDs from reseller
+Route::post('/v1/dids/bulk-unassign', function(Request $r) {
+    $ids = $r->ids ?? [];
+    if(empty($ids)) return response()->json(['error'=>'No IDs provided'],400);
+    $updated = DB::table('dids')->whereIn('id',$ids)->update([
+        'customer_id' => null,
+        'updated_at'  => now(),
+    ]);
+    return response()->json(['success'=>true,'updated'=>$updated,'message'=>$updated.' DIDs unassigned and returned to panel']);
+});
