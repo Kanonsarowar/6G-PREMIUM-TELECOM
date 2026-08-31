@@ -1821,12 +1821,10 @@ function DIDInventoryPage({token}){
                     return(
                       <React.Fragment key={r.id}>
                         {/* Parent Row */}
-                        <tr style={{borderBottom:"1px solid #E8E8E8",
-                          background:isExp?"#F9F5FF":"#FFF",
-                          cursor:"pointer"}}
+                        <tr style={{borderBottom:"1px solid #E8E8E8",background:isExp?"#F9F5FF":"#FFF",cursor:"pointer"}}
                           onClick={(e)=>toggleRow(r.id,e)}>
                           {/* NUMBERS */}
-                          <td style={{padding:"10px 10px",verticalAlign:"middle"}}>
+                          <td style={{padding:"6px 10px",verticalAlign:"middle"}}>
                             <div style={{display:"flex",alignItems:"center",gap:7}}>
                               <div style={{width:20,height:20,borderRadius:"50%",
                                 background:"#642A91",color:"#FFF",
@@ -1845,30 +1843,28 @@ function DIDInventoryPage({token}){
                             </div>
                           </td>
                           {/* COUNTRY */}
-                          <td style={{padding:"10px 10px",fontSize:12,color:"#333",fontWeight:600,verticalAlign:"middle"}}>
+                          <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600,verticalAlign:"middle"}}>
                             {(r.country_name||"—").replace("ITLAY","Italy")}
                             {r.has_rules&&<span style={{color:"#642A91"}}>*</span>}
                           </td>
 
                           {/* TARIFF */}
-                          <td style={{padding:"10px 10px",fontSize:12,color:"#333",
-                            fontFamily:"monospace",textAlign:"center",verticalAlign:"middle"}}>
+                          <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontFamily:"monospace",textAlign:"center",verticalAlign:"middle"}}>
                             {tariff}
                           </td>
                           {/* PAYMENT TERMS */}
-                          <td style={{padding:"10px 10px",fontSize:11,color:"#555",
-                            textAlign:"center",verticalAlign:"middle"}}>
+                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",textAlign:"center",verticalAlign:"middle"}}>
                             {r.payment_terms||"Weekly"}
                           </td>
                           {/* SUPPLIER */}
-                          <td style={{padding:"10px 10px",fontSize:12,color:"#642A91",
+                          <td style={{padding:"6px 10px",fontSize:12,color:"#642A91",
                             fontWeight:600,verticalAlign:"middle",maxWidth:100,
                             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
                             title={supplier}>
                             {supplier}
                           </td>
                           {/* DEL */}
-                          <td style={{padding:"10px 10px",textAlign:"center",verticalAlign:"middle"}}>
+                          <td style={{padding:"6px 10px",textAlign:"center",verticalAlign:"middle"}}>
                             <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}>
                               {assigningRange===r.id
                                 ?<select autoFocus
@@ -1918,7 +1914,7 @@ function DIDInventoryPage({token}){
                             <tr key={d.id} style={{
                               background:di%2===0?"#FAFBFF":"#F5F3FF",
                               borderBottom:"1px solid #EEE8FF"}}>
-                              <td colSpan={4} style={{padding:"6px 10px 6px 38px"}}>
+                              <td colSpan={4} style={{padding:"4px 10px 4px 38px"}}>
                                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",
                                     color:"#1A1A1A",fontWeight:500}}>{d.number}</span>
