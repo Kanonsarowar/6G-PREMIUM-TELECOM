@@ -1523,8 +1523,8 @@ function DIDInventoryPage({token}){
           <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
         </div>
         <button onClick={downloadExcel}
-          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #642A91",
-            background:"#FFF",color:"#642A91",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
+            background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
           ⬇ Export
         </button>
       </div>
@@ -1535,7 +1535,7 @@ function DIDInventoryPage({token}){
           {[["numbers","📋 Numbers"],["bulk","⚡ Bulk Manager"],["upload","⬆ Upload CSV"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)}
               style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:12,
-                background:tab===t?"#642A91":"#F0F0F0",
+                background:tab===t?"#2CADA6":"#F0F0F0",
                 color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
                 cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
               {l}
@@ -1564,7 +1564,7 @@ function DIDInventoryPage({token}){
                   placeholder="Search by number, country or prefix..."
                   style={{...inp,flex:1,height:34}}/>
                 <button onClick={()=>setSearch(searchInput)}
-                  style={{padding:"0 16px",background:"#642A91",color:"#FFF",border:"none",
+                  style={{padding:"0 16px",background:"#2CADA6",color:"#FFF",border:"none",
                     borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer",height:34,flexShrink:0}}>
                   SEARCH
                 </button>
@@ -1602,7 +1602,7 @@ function DIDInventoryPage({token}){
                             <td style={{padding:"6px 10px"}}>
                               <div style={{display:"flex",alignItems:"center",gap:7}}>
                                 <div style={{width:20,height:20,borderRadius:"50%",
-                                  background:"#642A91",color:"#FFF",
+                                  background:"#2CADA6",color:"#FFF",
                                   display:"flex",alignItems:"center",justifyContent:"center",
                                   fontSize:13,fontWeight:700,flexShrink:0}}>
                                   {isExp?"−":"+"}
@@ -1618,11 +1618,11 @@ function DIDInventoryPage({token}){
                             <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
                             <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{sym}{parseFloat(r.rate||0).toFixed(3)}</td>
                             <td style={{padding:"4px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#642A91",fontWeight:600}}>{r.supplier_name||"—"}</td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
                             <td style={{padding:"4px 10px",textAlign:"center"}}>
                               <button onClick={(e)=>deleteRange(r.id,e)}
                                 style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 6px"}}>🗑</button>
+                                  cursor:"pointer",fontSize:12,color:"#2CADA6",padding:"2px 6px"}}>🗑</button>
                             </td>
                           </tr>
                           {isExp&&(nums.length===0
@@ -1637,7 +1637,7 @@ function DIDInventoryPage({token}){
                                 <td style={{padding:"3px 10px",textAlign:"center"}}>
                                   <button onClick={(e)=>deleteDid(d.id,e)}
                                     style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                      cursor:"pointer",fontSize:11,color:"#642A91",padding:"1px 5px"}}>🗑</button>
+                                      cursor:"pointer",fontSize:11,color:"#2CADA6",padding:"1px 5px"}}>🗑</button>
                                 </td>
                               </tr>
                             ))
@@ -1663,11 +1663,11 @@ function DIDInventoryPage({token}){
                               {currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}
                             </td>
                             <td style={{padding:"4px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#642A91",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
                             <td style={{padding:"4px 10px",textAlign:"center"}}>
                               <button onClick={(e)=>deleteDid(d.id,e)}
                                 style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 6px"}}>🗑</button>
+                                  cursor:"pointer",fontSize:12,color:"#2CADA6",padding:"2px 6px"}}>🗑</button>
                             </td>
                           </tr>
                         ))}
@@ -1705,14 +1705,14 @@ function DIDInventoryPage({token}){
                 )}
                 <button onClick={applyBulk} disabled={saving||selected.size===0}
                   style={{padding:"9px 18px",borderRadius:20,border:"none",
-                    background:bulkAction==="delete"?"#EF4444":"#642A91",
+                    background:bulkAction==="delete"?"#EF4444":"#2CADA6",
                     color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
                   {saving?"Applying...":"Apply"}
                 </button>
               </div>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={selectAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #642A91",
-                  background:"#FFF",color:"#642A91",fontSize:11,fontWeight:700,cursor:"pointer"}}>Select All</button>
+                <button onClick={selectAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #2CADA6",
+                  background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Select All</button>
                 <button onClick={clearAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
                   background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>Clear</button>
                 <span style={{fontSize:11,color:"#999",alignSelf:"center"}}>{dids.length} total DIDs</span>
@@ -1727,7 +1727,7 @@ function DIDInventoryPage({token}){
                       <th style={{...thS,width:40}}><input type="checkbox"
                         checked={selected.size===dids.length&&dids.length>0}
                         onChange={e=>e.target.checked?selectAll():clearAll()}
-                        style={{accentColor:"#642A91"}}/></th>
+                        style={{accentColor:"#2CADA6"}}/></th>
                       {["Number","Country","Tariff","Supplier","Status"].map((h,i)=>(
                         <th key={i} style={thS}>{h}</th>
                       ))}
@@ -1740,12 +1740,12 @@ function DIDInventoryPage({token}){
                         cursor:"pointer"}} onClick={()=>toggleSelect(d.id)}>
                         <td style={{padding:"8px 12px"}}>
                           <input type="checkbox" checked={selected.has(d.id)} onChange={()=>toggleSelect(d.id)}
-                            style={{accentColor:"#642A91"}}/>
+                            style={{accentColor:"#2CADA6"}}/>
                         </td>
                         <td style={{padding:"4px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                         <td style={{padding:"4px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
                         <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
-                        <td style={{padding:"4px 10px",fontSize:12,color:"#642A91",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                        <td style={{padding:"4px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
                         <td style={{padding:"8px 12px"}}>
                           <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
                             background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
@@ -1799,7 +1799,7 @@ function DIDInventoryPage({token}){
             </div>
             <button onClick={uploadCSV} disabled={uploading||!uploadFile}
               style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
-                background:uploading?"#999":"#642A91",color:"#FFF",fontSize:14,
+                background:uploading?"#999":"#2CADA6",color:"#FFF",fontSize:14,
                 fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
               {uploading?"Uploading...":"⬆ Upload & Import"}
             </button>
@@ -1812,13 +1812,13 @@ function DIDInventoryPage({token}){
         borderTop:"1px solid #DDD",padding:"10px 16px",display:"flex",gap:10,
         boxShadow:"0 -2px 8px rgba(0,0,0,0.08)",zIndex:50}}>
         <button style={{padding:"9px 20px",borderRadius:4,border:"none",
-          background:"#642A91",color:"#FFF",fontSize:12,fontWeight:600,
+          background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:600,
           cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px"}}>
           SAVE CHANGES
         </button>
         <button onClick={downloadExcel}
-          style={{padding:"9px 20px",borderRadius:4,border:"2px solid #642A91",
-            background:"#FFF",color:"#642A91",fontSize:12,fontWeight:600,
+          style={{padding:"9px 20px",borderRadius:4,border:"2px solid #2CADA6",
+            background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:600,
             cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px"}}>
           DOWNLOAD EXCEL
         </button>
