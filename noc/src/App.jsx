@@ -1843,6 +1843,7 @@ function DIDInventoryPage({token}){
             </div>
           </div>
         )}
+      </div>
       {/* Sticky Bottom */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#FFF",
         borderTop:"1px solid #DDD",padding:"10px 16px",display:"flex",gap:10,
