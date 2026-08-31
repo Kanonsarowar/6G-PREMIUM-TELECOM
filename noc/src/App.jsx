@@ -907,23 +907,31 @@ function SuppliersPage({token}){
                 </div>
                 {/* Multiple IPs */}
                 <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>SIP IP Address(es)</div>
-                  {(form.host||"").split(",").filter(Boolean).concat([""]).map((ip,idx,arr)=>(
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>SIP IP Address(es)</div>
+                  {(form.host||"").split(",").map((ip,idx)=>(
                     <div key={idx} style={{display:"flex",gap:6,marginBottom:6}}>
-                      <input style={{...inp,flex:1}} value={ip} placeholder={idx===0?"Primary IP e.g. 1.2.3.4":"Additional IP"}
+                      <input style={{...inp,flex:1}} value={ip.trim()}
+                        placeholder={idx===0?"e.g. 1.2.3.4":"Additional IP"}
                         onChange={e=>{
-                          const ips=[...(form.host||"").split(",").filter(Boolean).concat([""])];
+                          const ips=(form.host||"").split(",");
                           ips[idx]=e.target.value;
-                          setForm(f=>({...f,host:ips.filter(Boolean).join(",")}));
+                          setForm(f=>({...f,host:ips.join(",")}));
                         }}/>
                       {idx>0&&<button onClick={()=>{
-                        const ips=(form.host||"").split(",").filter(Boolean);
+                        const ips=(form.host||"").split(",");
                         ips.splice(idx,1);
                         setForm(f=>({...f,host:ips.join(",")}));
-                      }} style={{padding:"0 10px",borderRadius:8,border:"1px solid #EF4444",
-                        background:"#FFF5F5",color:"#EF4444",cursor:"pointer",fontSize:16}}>×</button>}
+                      }} style={{width:34,height:36,borderRadius:8,border:"1px solid #EF4444",
+                        background:"#FFF5F5",color:"#EF4444",cursor:"pointer",fontSize:18,
+                        display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>}
                     </div>
                   ))}
+                  <button onClick={()=>setForm(f=>({...f,host:(f.host?f.host+",":"")}))}
+                    style={{padding:"6px 14px",borderRadius:20,border:"1px dashed #2CADA6",
+                      background:"rgba(44,173,166,0.05)",color:"#2CADA6",fontSize:12,
+                      fontWeight:600,cursor:"pointer",marginTop:2,fontFamily:"inherit"}}>
+                    + Add Another IP
+                  </button>
                 </div>
                 {/* Port + Transport */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
