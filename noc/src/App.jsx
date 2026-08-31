@@ -1865,39 +1865,13 @@ function DIDInventoryPage({token}){
                           </td>
                           {/* DEL */}
                           <td style={{padding:"6px 10px",textAlign:"center",verticalAlign:"middle"}}>
-                            <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}>
-                              {assigningRange===r.id
-                                ?<select autoFocus
-                                  style={{fontSize:10,padding:"2px 4px",border:"1px solid #642A91",
-                                    borderRadius:3,outline:"none",cursor:"pointer"}}
-                                  defaultValue=""
-                                  onChange={async(e)=>{
-                                    if(!e.target.value){setAssigningRange(null);return;}
-                                    await apiFetch("/dids/bulk-supplier",token,{method:"POST",
-                                      body:JSON.stringify({ids:nums.map(d=>d.id),trunk_id:e.target.value})});
-                                    setAssigningRange(null);load();
-                                  }}
-                                  onClick={e=>e.stopPropagation()}
-                                  onBlur={()=>setAssigningRange(null)}>
-                                  <option value="">Cancel</option>
-                                  {resellers.map(res=><option key={res.id} value={res.id}>{res.name}</option>)}
-                                </select>
-                                :<button onClick={e=>{e.stopPropagation();setAssigningRange(r.id);}}
-                                  title="Assign Reseller"
-                                  style={{background:"none",border:"1px solid #642A91",borderRadius:3,
-                                    cursor:"pointer",fontSize:10,color:"#642A91",padding:"2px 5px",
-                                    fontWeight:600,lineHeight:1}}>
-                                  👤
-                                </button>
-                              }
-                              <button onClick={(e)=>deleteRange(r.id,e)}
-                                title="Delete block"
-                                style={{background:"none",border:"1px solid #999",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 5px",
-                                  lineHeight:1}}>
-                                🗑
-                              </button>
-                            </div>
+                            <button onClick={(e)=>deleteRange(r.id,e)}
+                              title="Delete block"
+                              style={{background:"none",border:"1px solid #CCC",borderRadius:3,
+                                cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 6px",
+                                lineHeight:1}}>
+                              🗑
+                            </button>
                           </td>
                         </tr>
                         {/* Child Rows */}
