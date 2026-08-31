@@ -1764,49 +1764,85 @@ function DIDInventoryPage({token}){
 
         {/* ── UPLOAD CSV TAB ── */}
         {tab==="upload"&&(
-          <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Upload CSV File</div>
-            <div style={{background:"#F8F9FA",border:"2px dashed #E0E0E0",borderRadius:10,
-              padding:30,textAlign:"center",marginBottom:14,cursor:"pointer"}}
-              onClick={()=>document.getElementById("csv-upload-main").click()}>
-              <div style={{fontSize:28,marginBottom:8}}>📂</div>
-              <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
-                {uploadFile?uploadFile.name:"Click to select CSV file"}
-              </div>
-              <div style={{fontSize:11,color:"#999"}}>One phone number per line — E.164 format (+393199052141)</div>
-              <input id="csv-upload-main" type="file" accept=".csv,.txt" style={{display:"none"}}
-                onChange={e=>setUploadFile(e.target.files[0])}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-              <div>
-                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Assign to Supplier</div>
-                <select style={{...inp,width:"100%"}} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
-                  <option value="">Auto-detect</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+          <div style={{fontFamily:"inherit"}}>
+            <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>Upload Supplier DID List</div>
+              <div style={{fontSize:12,color:"#999",marginBottom:20}}>Select supplier then upload their CSV file</div>
+              <div style={{marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
+                  <div style={{fontSize:12,fontWeight:700,color:"#333"}}>Select Supplier</div>
+                </div>
+                <select style={{width:"100%",padding:"11px 12px",border:"1px solid #E0E0E0",borderRadius:8,fontSize:14,outline:"none",cursor:"pointer",background:"#FFF",color:"#333",fontFamily:"inherit"}}
+                  value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
+                  <option value="">--- Choose Supplier ---</option>
+                  {suppliers.map(s=>(<option key={s.id} value={s.id}>{s.nickname||s.name}</option>))}
                 </select>
               </div>
-              <div>
-                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                <select style={{...inp,width:"100%"}} value={uploadCurrency} onChange={e=>setUploadCurrency(e.target.value)}>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="USD">USD ($)</option>
-                </select>
+              <div style={{marginBottom:20}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:uploadTrunk?"#2CADA6":"#CCC",color:"#FFF",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
+                  <div style={{fontSize:12,fontWeight:700,color:uploadTrunk?"#333":"#999"}}>Upload CSV File</div>
+                </div>
+                <div onClick={()=>uploadTrunk&&document.getElementById("csv-sync-input").click()}
+                  onDragOver={e=>e.preventDefault()}
+                  onDrop={e=>{e.preventDefault();if(uploadTrunk)setUploadFile(e.dataTransfer.files[0]);}}
+                  style={{background:uploadFile?"rgba(44,173,166,0.05)":"#F8F9FA",
+                    border:"2px dashed "+(uploadFile?"#2CADA6":"#E0E0E0"),
+                    borderRadius:10,padding:32,textAlign:"center",
+                    cursor:uploadTrunk?"pointer":"not-allowed",opacity:uploadTrunk?1:0.5}}>
+                  <div style={{fontSize:32,marginBottom:8}}>{uploadFile?"✅":"📂"}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
+                    {uploadFile?uploadFile.name:"Drop file here or tap to browse"}
+                  </div>
+                  <div style={{fontSize:11,color:"#999"}}>Any CSV format — server auto-detects numbers</div>
+                  <input id="csv-sync-input" type="file" accept=".csv,.txt" style={{display:"none"}}
+                    onChange={e=>setUploadFile(e.target.files[0])} disabled={!uploadTrunk}/>
+                </div>
               </div>
-              <div>
-                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Default Rate/min</div>
-                <input style={{...inp,width:"100%"}} value={uploadRate} onChange={e=>setUploadRate(e.target.value)} placeholder="0.070"/>
-              </div>
+              <button onClick={async()=>{
+                if(!uploadFile||!uploadTrunk) return;
+                setUploading(true);setResult(null);
+                const fd=new FormData();
+                fd.append("file",uploadFile);
+                fd.append("trunk_id",uploadTrunk);
+                fd.append("rate","0.07");
+                fd.append("currency","EUR");
+                const res=await fetch("https://6g-premium-telecom.com/api/v1/dids/smart-sync",{
+                  method:"POST",headers:{Authorization:"Bearer "+token},body:fd
+                });
+                const d=await res.json();
+                setResult(d);setUploading(false);
+                if(d.success){setUploadFile(null);load();}
+              }} disabled={uploading||!uploadFile||!uploadTrunk}
+                style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
+                  background:uploading||!uploadFile||!uploadTrunk?"#CCC":"#2CADA6",
+                  color:"#FFF",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                {uploading?"Syncing...":"Sync Numbers"}
+              </button>
+              {result&&(
+                <div style={{marginTop:14,padding:"14px 16px",borderRadius:10,
+                  background:result.success?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
+                  border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
+                  <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444",marginBottom:8}}>
+                    {result.success?"Sync Complete":"Sync Failed"}
+                  </div>
+                  {result.success&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+                      {[["Added",result.added,"#10B981"],["Removed",result.removed,"#EF4444"],["Unchanged",result.unchanged,"#999"]].map(([l,v,c],i)=>(
+                        <div key={i} style={{background:"#FFF",borderRadius:8,padding:"8px",textAlign:"center"}}>
+                          <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
+                          <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{l}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{fontSize:12,color:"#555"}}>{result.message||result.error}</div>
+                </div>
+              )}
             </div>
-            <button onClick={uploadCSV} disabled={uploading||!uploadFile}
-              style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
-                background:uploading?"#999":"#2CADA6",color:"#FFF",fontSize:14,
-                fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-              {uploading?"Uploading...":"⬆ Upload & Import"}
-            </button>
           </div>
         )}
-      </div>
-
       {/* Sticky Bottom */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#FFF",
         borderTop:"1px solid #DDD",padding:"10px 16px",display:"flex",gap:10,
