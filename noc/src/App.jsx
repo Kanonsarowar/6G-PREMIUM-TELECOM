@@ -42,6 +42,7 @@ const getNavGroups=(role)=>{
     {id:"didperformance",label:"DID Report",icon:"📈"},
     {id:"bulkdid",label:"Bulk Manager",icon:"⚡"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
+    {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
   {key:"system",label:"System",items:[
@@ -65,6 +66,7 @@ const NAV_GROUPS=[
     {id:"didperformance",label:"DID Report",icon:"📈"},
     {id:"bulkdid",label:"Bulk Manager",icon:"⚡"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
+    {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
   {key:"system",label:"System",items:[
@@ -1762,6 +1764,204 @@ function DIDInventoryPage({token}){
     </div>
   );
 }
+// ── IVR Audio Manager ─────────────────────────────────────────────
+function IVRAudioManagerPage({token}){
+  const [ivrs,setIvrs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [uploading,setUploading]=useState(false);
+  const [selected,setSelected]=useState(null);
+  const [editing,setEditing]=useState(false);
+  const [editName,setEditName]=useState("");
+  const [result,setResult]=useState(null);
+  const [playing,setPlaying]=useState(null);
+  const audioRef=React.useRef(null);
+
+  const load=()=>{
+    apiFetch("/ivr-lib/stats",token).then(d=>{setIvrs(d.data||[]);setLoading(false);});
+  };
+  useEffect(()=>{load();},[token]);
+
+  const upload=async(file)=>{
+    if(!file) return;
+    setUploading(true);setResult(null);
+    const fd=new FormData();
+    fd.append("audio",file);
+    fd.append("name",file.name.replace(/\.[^.]+$/,"").replace(/[^a-z0-9-]/gi,"-").toLowerCase());
+    fd.append("display_name",file.name.replace(/\.[^.]+$/,""));
+    const r=await fetch("https://6g-premium-telecom.com/api/v1/ivr-lib/upload",{
+      method:"POST",headers:{Authorization:"Bearer "+token},body:fd
+    });
+    const d=await r.json();
+    setResult(d);setUploading(false);load();
+  };
+
+  const deleteIvr=async(id)=>{
+    if(!window.confirm("Delete this IVR audio?")) return;
+    await apiFetch("/ivr-lib/"+id,token,{method:"DELETE"});
+    setSelected(null);load();
+  };
+
+  const saveEdit=async()=>{
+    await apiFetch("/ivr-lib/"+selected.id,token,{method:"PUT",body:JSON.stringify({display_name:editName,is_active:selected.is_active})});
+    setEditing(false);load();
+  };
+
+  const togglePlay=(ivr)=>{
+    if(playing===ivr.id){
+      audioRef.current?.pause();setPlaying(null);
+    } else {
+      setPlaying(ivr.id);
+      if(audioRef.current){
+        audioRef.current.src="https://6g-premium-telecom.com/api/v1/ivr-lib/preview/"+ivr.id+"?token="+token;
+        audioRef.current.play().catch(()=>setPlaying(null));
+      }
+    }
+  };
+
+  const fmtSize=(bytes)=>{
+    if(!bytes) return "—";
+    if(bytes>1024*1024) return (bytes/1024/1024).toFixed(1)+"MB";
+    return (bytes/1024).toFixed(0)+"KB";
+  };
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      <audio ref={audioRef} onEnded={()=>setPlaying(null)} style={{display:"none"}}/>
+
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>IVR Audio Manager</div>
+        <label style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#2CADA6",
+          color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          {uploading?"Uploading...":"⬆ Upload Audio"}
+          <input type="file" accept=".wav,.mp3,.ogg" style={{display:"none"}}
+            onChange={e=>upload(e.target.files[0])} disabled={uploading}/>
+        </label>
+      </div>
+
+      {/* Result */}
+      {result&&(
+        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
+          <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444"}}>
+            {result.success?"✅ Upload Successful":"❌ Upload Failed"}
+          </div>
+          <div style={{fontSize:12,color:"#333",marginTop:2}}>{result.message||result.error}</div>
+        </div>
+      )}
+
+      {/* Upload Zone */}
+      <div style={{background:"#F8F9FA",border:"2px dashed #E0E0E0",borderRadius:12,
+        padding:24,textAlign:"center",marginBottom:16,cursor:"pointer"}}
+        onDragOver={e=>e.preventDefault()}
+        onDrop={e=>{e.preventDefault();upload(e.dataTransfer.files[0]);}}>
+        <div style={{fontSize:28,marginBottom:8}}>🎵</div>
+        <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
+          Drag & drop audio file here
+        </div>
+        <div style={{fontSize:11,color:"#999"}}>Supported: WAV, MP3, OGG · Auto-converts to 8kHz mono for Asterisk</div>
+      </div>
+
+      {/* Stats Row */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {label:"Total IVRs",value:ivrs.length,color:"#2CADA6"},
+          {label:"Active",value:ivrs.filter(i=>i.is_active).length,color:"#10B981"},
+          {label:"Total Calls",value:ivrs.reduce((a,i)=>a+i.calls_count,0),color:"#8B5CF6"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
+            <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+            <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* IVR List */}
+      {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {ivrs.length===0
+          ?<div style={{background:"#FFF",borderRadius:14,padding:40,textAlign:"center",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:32,marginBottom:8}}>🎵</div>
+            <div style={{color:"#999",fontSize:13}}>No IVR files yet — upload your first audio</div>
+          </div>
+          :ivrs.map((ivr,i)=>(
+            <div key={ivr.id} style={{background:"#FFF",borderRadius:14,padding:16,
+              boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
+              border:selected?.id===ivr.id?"2px solid #2CADA6":"2px solid transparent"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                {/* Play Button */}
+                <button onClick={()=>togglePlay(ivr)}
+                  style={{width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,
+                    background:playing===ivr.id?"#EF4444":"#2CADA6",
+                    color:"#FFF",fontSize:18,cursor:"pointer",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {playing===ivr.id?"⏸":"▶"}
+                </button>
+                {/* Info */}
+                <div style={{flex:1,minWidth:0}} onClick={()=>setSelected(ivr===selected?null:ivr)}>
+                  {editing&&selected?.id===ivr.id
+                    ?<input value={editName} onChange={e=>setEditName(e.target.value)}
+                      style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid #2CADA6",
+                        fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box"}}
+                      onClick={e=>e.stopPropagation()}/>
+                    :<div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {ivr.display_name||ivr.name}
+                    </div>
+                  }
+                  <div style={{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,color:"#999"}}>📱 {ivr.dids_count} DIDs</span>
+                    <span style={{fontSize:11,color:"#999"}}>📞 {ivr.calls_count} calls</span>
+                    <span style={{fontSize:11,color:"#F5A623"}}>€{ivr.revenue}</span>
+                    <span style={{fontSize:11,color:"#999"}}>{fmtSize(ivr.file_size)}</span>
+                    {!ivr.file_exists&&<span style={{fontSize:11,color:"#EF4444"}}>⚠ File missing</span>}
+                  </div>
+                </div>
+                {/* Status + Actions */}
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                  <span style={{padding:"3px 10px",borderRadius:10,fontSize:11,fontWeight:700,
+                    background:ivr.is_active?"rgba(16,185,129,0.1)":"rgba(107,114,128,0.1)",
+                    color:ivr.is_active?"#10B981":"#6B7280"}}>
+                    {ivr.is_active?"Active":"Inactive"}
+                  </span>
+                  {selected?.id===ivr.id&&(
+                    editing
+                    ?<>
+                      <button onClick={saveEdit}
+                        style={{padding:"5px 12px",borderRadius:20,border:"none",
+                          background:"#10B981",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>Save</button>
+                      <button onClick={()=>setEditing(false)}
+                        style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
+                          background:"#FFF",color:"#666",fontSize:11,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+                    </>
+                    :<>
+                      <button onClick={()=>{setEditing(true);setEditName(ivr.display_name||ivr.name);}}
+                        style={{padding:"5px 12px",borderRadius:20,border:"1px solid #2CADA6",
+                          background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Edit</button>
+                      <button onClick={()=>deleteIvr(ivr.id)}
+                        style={{padding:"5px 12px",borderRadius:20,border:"1px solid #EF4444",
+                          background:"#FFF",color:"#EF4444",fontSize:11,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {/* Audio Progress Bar */}
+              {playing===ivr.id&&(
+                <div style={{marginTop:12,height:4,background:"#F0F0F0",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{height:"100%",background:"#2CADA6",width:"50%",
+                    animation:"progress 2s linear infinite"}}/>
+                </div>
+              )}
+            </div>
+          ))
+        }
+      </div>}
+    </div>
+  );
+}
 // ── IVR Page ──────────────────────────────────────────────────────
 function IVRPage({token,setPage}){
   const [ivrs,setIvrs]=useState([]);
@@ -2980,7 +3180,7 @@ export default function App(){
       "revenue":"revenue",
       "suppliers":"suppliers",
       "numbers":"didinventory","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance","bulk-did":"bulkdid","bulk-manager":"bulkdid",
-      "ivr":"ivr","ivr-library":"ivr",
+      "ivr":"ivr","ivraudio":"audio-manager","ivr-library":"ivr","audio-manager":"ivraudio","ivr-audio":"ivraudio",
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
       "customers":"customers",
@@ -2995,7 +3195,7 @@ export default function App(){
     const urlMap={
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
       "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
-      "ivr":"ivr","connectivr":"connect-ivr","routeprefix":"route-prefix",
+      "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","testlabs":"test-number",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings",
     };
@@ -3173,6 +3373,7 @@ export default function App(){
       case "didperformance":return <DIDPerformancePage token={token}/>;
       case "bulkdid":       return <BulkDIDPage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
+      case "ivraudio":      return <IVRAudioManagerPage token={token}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
       case "customers":    return <CustomersPage token={token}/>;

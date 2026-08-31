@@ -1291,3 +1291,63 @@ Route::get('/v1/dids/export-csv', function() {
     return response($csv,200,['Content-Type'=>'text/csv',
         'Content-Disposition'=>'attachment; filename="dids-export-'.date('Y-m-d').'.csv"']);
 });
+
+// ── IVR Audio Manager ──────────────────────────────────────────
+Route::get('/v1/ivr-lib/preview/{id}', function($id) {
+    $ivr = DB::table('ivrs')->find($id);
+    if(!$ivr) return response()->json(['error'=>'Not found'],404);
+    $paths = [
+        "/usr/share/asterisk/sounds/custom/{$ivr->name}.wav",
+        "/usr/share/asterisk/sounds/custom/{$ivr->name}.mp3",
+        "/usr/share/asterisk/sounds/custom/{$ivr->audio_file}",
+    ];
+    foreach($paths as $path){
+        if(file_exists($path)){
+            $ext = pathinfo($path, PATHINFO_EXTENSION);
+            $mime = $ext==='mp3'?'audio/mpeg':'audio/wav';
+            return response()->file($path,['Content-Type'=>$mime,'Accept-Ranges'=>'bytes']);
+        }
+    }
+    return response()->json(['error'=>'Audio file not found on disk'],404);
+});
+
+Route::put('/v1/ivr-lib/{id}', function(Request $r, $id) {
+    DB::table('ivrs')->where('id',$id)->update([
+        'display_name' => $r->display_name,
+        'is_active'    => $r->is_active ?? 1,
+        'updated_at'   => now(),
+    ]);
+    return response()->json(['success'=>true,'data'=>DB::table('ivrs')->find($id)]);
+});
+
+Route::get('/v1/ivr-lib/stats', function() {
+    $ivrs = DB::table('ivrs')->get();
+    $stats = $ivrs->map(function($ivr){
+        $dids = DB::table('dids')->where('ivr_context','custom/'.$ivr->name)->count();
+        $calls = DB::table('cdrs')->where('ivr_context','custom/'.$ivr->name)->count();
+        $revenue = DB::table('cdrs')->where('ivr_context','custom/'.$ivr->name)->sum('revenue');
+        $paths = [
+            "/usr/share/asterisk/sounds/custom/{$ivr->name}.wav",
+            "/usr/share/asterisk/sounds/custom/{$ivr->name}.mp3",
+            "/usr/share/asterisk/sounds/custom/{$ivr->name}.slin",
+        ];
+        $fileSize = 0;
+        $fileExists = false;
+        foreach($paths as $p){
+            if(file_exists($p)){$fileExists=true;$fileSize=filesize($p);break;}
+        }
+        return [
+            'id'           => $ivr->id,
+            'name'         => $ivr->name,
+            'display_name' => $ivr->display_name??$ivr->name,
+            'is_active'    => $ivr->is_active,
+            'dids_count'   => $dids,
+            'calls_count'  => $calls,
+            'revenue'      => round($revenue,4),
+            'file_exists'  => $fileExists,
+            'file_size'    => $fileSize,
+            'created_at'   => $ivr->created_at,
+        ];
+    });
+    return response()->json(['data'=>$stats]);
+});
