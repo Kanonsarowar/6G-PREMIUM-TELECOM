@@ -786,93 +786,195 @@ function RevenuePage({token}){
 function SuppliersPage({token}){
   const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [form,setForm]=useState({name:"",host:"",port:"5060",transport:"udp",notes:""});
+  const [selected,setSelected]=useState(null);
+  const [editing,setEditing]=useState(false);
+  const [form,setForm]=useState({
+    name:"",nickname:"",host:"",port:"5060",transport:"udp",
+    codecs:"ulaw,alaw,g729",panel_url:"",panel_user:"",
+    panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""
+  });
   const [saving,setSaving]=useState(false);
-  const load=useCallback(()=>{
+
+  const load=()=>{
     apiFetch("/suppliers",token).then(d=>{setSuppliers(d.data||[]);setLoading(false);});
-  },[token]);
-  useEffect(()=>{load();},[load]);
-  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
-  const add=async()=>{
+  };
+  useEffect(()=>{load();},[token]);
+
+  const save=async()=>{
     setSaving(true);
-    const d=await apiFetch("/suppliers",token,{method:"POST",body:JSON.stringify(form)});
-    if(d.success){load();setShowAdd(false);setForm({name:"",host:"",port:"5060",transport:"udp",notes:""});}
+    if(editing&&selected){
+      await apiFetch("/suppliers/"+selected.id,token,{method:"PUT",body:JSON.stringify(form)});
+    } else {
+      await apiFetch("/suppliers",token,{method:"POST",body:JSON.stringify(form)});
+    }
+    load();setEditing(false);setSelected(null);
+    setForm({name:"",nickname:"",host:"",port:"5060",transport:"udp",
+      codecs:"ulaw,alaw,g729",panel_url:"",panel_user:"",
+      panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""});
     setSaving(false);
   };
+
+  const del=async(id)=>{
+    if(!window.confirm("Delete this supplier?")) return;
+    await apiFetch("/suppliers/"+id,token,{method:"DELETE"});
+    load();setSelected(null);
+  };
+
+  const selectSupplier=(s)=>{
+    setSelected(s);setEditing(false);
+    setForm({
+      name:s.name||"",nickname:s.nickname||"",host:s.host||"",
+      port:s.port||"5060",transport:s.transport||"udp",
+      codecs:s.codecs||"ulaw,alaw,g729",
+      panel_url:s.panel_url||"",panel_user:s.panel_user||"",
+      panel_password:s.panel_password||"",team_link:s.team_link||"",
+      sales_person:s.sales_person||"",whatsapp:s.whatsapp||"",
+      notes:s.notes||""
+    });
+  };
+
+  const inp={width:"100%",padding:"9px 12px",borderRadius:8,
+    border:"1px solid #E0E0E0",background:"#FFFFFF",
+    color:"#333",fontSize:13,outline:"none",boxSizing:"border-box",
+    fontFamily:"inherit"};
+
+  const Field=({label,k,ph,type="text"})=>(
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>{label}</div>
+      <input type={type} style={inp} value={form[k]||""} placeholder={ph||""}
+        onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
+    </div>
+  );
+
   return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:16,fontWeight:800}}>Suppliers</div>
-        <button onClick={()=>setShowAdd(o=>!o)}
-          style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.green}40`,
-            background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Suppliers</div>
+        <button onClick={()=>{setSelected(null);setEditing(true);setForm({name:"",nickname:"",host:"",port:"5060",transport:"udp",codecs:"ulaw,alaw,g729",panel_url:"",panel_user:"",panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""}); }}
+          style={{padding:"9px 18px",borderRadius:20,border:"none",
+            background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
           + Add Supplier
         </button>
       </div>
 
-      {showAdd&&(
-        <Card style={{padding:16,marginBottom:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>New Supplier</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
-            {[["Supplier Name","name","world-premium"],["SIP IP(s)","host","52.28.165.40"],
-              ["Port","port","5060"],["Notes","notes","Notes..."]].map(([l,k,ph])=>(
-              <div key={k}>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{l}</div>
-                <input style={inp} value={form[k]} placeholder={ph}
-                  onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        {/* Supplier List */}
+        <div style={{flex:"0 0 auto",width:180}}>
+          {loading?<div style={{color:"#999",fontSize:13}}>Loading...</div>
+          :suppliers.map((s,i)=>(
+            <div key={s.id} onClick={()=>selectSupplier(s)}
+              style={{padding:"10px 14px",borderRadius:10,marginBottom:6,cursor:"pointer",
+                background:selected?.id===s.id?"#2CADA6":"#FFFFFF",
+                color:selected?.id===s.id?"#FFFFFF":"#333",
+                boxShadow:"0 2px 6px rgba(0,0,0,0.06)",
+                fontWeight:selected?.id===s.id?700:500,fontSize:13,
+                border:selected?.id===s.id?"none":"1px solid #EEEEEE"}}>
+              <div style={{fontWeight:700}}>{s.nickname||s.name}</div>
+              <div style={{fontSize:10,opacity:0.7,marginTop:2}}>
+                {s.is_active?"● Active":"○ Inactive"}
               </div>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setShowAdd(false)}
-              style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${C.border}`,
-                background:"transparent",color:C.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>
-            <button onClick={add} disabled={saving}
-              style={{flex:2,padding:"10px",borderRadius:8,border:`1px solid ${C.green}40`,
-                background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              {saving?"Adding...":"Add Supplier"}
-            </button>
-          </div>
-        </Card>
-      )}
+            </div>
+          ))}
+        </div>
 
-      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {suppliers.map((s,i)=>(
-          <Card key={i} style={{padding:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-              <div>
-                <div style={{fontSize:14,fontWeight:800,color:C.text}}>{s.nickname||s.name}</div>
-                {s.notes&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{s.notes.slice(0,50)}</div>}
+        {/* Detail Panel */}
+        {(selected||editing)&&(
+          <div style={{flex:1,background:"#FFFFFF",borderRadius:14,padding:18,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",minWidth:260}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#1A1A1A"}}>
+                {editing&&!selected?"New Supplier":editing?"Edit: "+(selected?.nickname||selected?.name):selected?.nickname||selected?.name}
               </div>
-              <span style={{fontSize:10,padding:"3px 10px",borderRadius:20,fontWeight:700,flexShrink:0,
-                background:s.is_active?`${C.green}15`:`${C.red}15`,
-                color:s.is_active?C.green:C.red}}>
-                {s.is_active?"ACTIVE":"OFF"}
-              </span>
+              <div style={{display:"flex",gap:8}}>
+                {selected&&!editing&&(
+                  <>
+                    <button onClick={()=>setEditing(true)}
+                      style={{padding:"6px 14px",borderRadius:20,border:"1px solid #2CADA6",
+                        background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>Edit</button>
+                    <button onClick={()=>del(selected.id)}
+                      style={{padding:"6px 14px",borderRadius:20,border:"1px solid #EF4444",
+                        background:"#FFF",color:"#EF4444",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                  </>
+                )}
+              </div>
             </div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-              {(s.host||"").split(",").map((ip,j)=>(
-                <span key={j} style={{fontSize:10,padding:"2px 8px",borderRadius:6,fontFamily:"monospace",
-                  background:"rgba(56,189,248,0.1)",color:C.blue,border:`1px solid ${C.blue}20`}}>
-                  {ip.trim()}
-                </span>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:12,fontSize:10,color:C.muted}}>
-              <span>Port: <span style={{color:C.text}}>{s.port||5060}</span></span>
-              <span>Transport: <span style={{color:C.text}}>{(s.transport||"udp").toUpperCase()}</span></span>
-              <span style={{padding:"2px 8px",borderRadius:20,background:`${C.cyan}15`,color:C.cyan,fontWeight:700}}>IP-ONLY</span>
-            </div>
-          </Card>
-        ))}
-      </div>}
+
+            {editing?(
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <Field label="Code Name" k="name" ph="tokyo"/>
+                  <Field label="Display Name" k="nickname" ph="Tokyo"/>
+                  <Field label="SIP IP" k="host" ph="1.2.3.4"/>
+                  <Field label="Port" k="port" ph="5060"/>
+                  <Field label="Codecs" k="codecs" ph="ulaw,alaw,g729"/>
+                  <Field label="Transport" k="transport" ph="udp"/>
+                </div>
+                <div style={{borderTop:"1px solid #F0F0F0",paddingTop:12,marginTop:4,marginBottom:4}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#2CADA6",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>Server Info</div>
+                  <Field label="Panel URL" k="panel_url" ph="https://panel.supplier.com"/>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <Field label="User" k="panel_user" ph="username"/>
+                    <Field label="Password" k="panel_password" ph="password" type="password"/>
+                  </div>
+                  <Field label="Team Link" k="team_link" ph="https://t.me/supplier"/>
+                  <Field label="Sales Person" k="sales_person" ph="John Smith"/>
+                  <Field label="WhatsApp" k="whatsapp" ph="+1234567890"/>
+                  <Field label="Notes" k="notes" ph="Additional notes..."/>
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <button onClick={()=>{setEditing(false);if(!selected)setSelected(null);}}
+                    style={{flex:1,padding:"10px",borderRadius:10,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                  <button onClick={save} disabled={saving}
+                    style={{flex:2,padding:"10px",borderRadius:10,border:"none",
+                      background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                    {saving?"Saving...":"Save Changes"}
+                  </button>
+                </div>
+              </>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[
+                  ["SIP IP",selected?.host||"—"],
+                  ["Port",selected?.port||"5060"],
+                  ["Codecs",selected?.codecs||"—"],
+                  ["Transport",(selected?.transport||"udp").toUpperCase()],
+                ].map(([k,v])=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",
+                    padding:"8px 0",borderBottom:"1px solid #F5F5F5"}}>
+                    <span style={{fontSize:12,color:"#999"}}>{k}</span>
+                    <span style={{fontSize:12,color:"#333",fontWeight:600,fontFamily:"monospace"}}>{v}</span>
+                  </div>
+                ))}
+                <div style={{borderTop:"1px solid #F0F0F0",paddingTop:10,marginTop:4}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#2CADA6",marginBottom:8,textTransform:"uppercase"}}>Server Info</div>
+                  {[
+                    ["Panel",selected?.panel_url||"—"],
+                    ["User",selected?.panel_user||"—"],
+                    ["Password",selected?.panel_password?"••••••":"—"],
+                    ["Team Link",selected?.team_link||"—"],
+                    ["Sales Person",selected?.sales_person||"—"],
+                    ["WhatsApp",selected?.whatsapp||"—"],
+                  ].map(([k,v])=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",
+                      padding:"7px 0",borderBottom:"1px solid #F5F5F5"}}>
+                      <span style={{fontSize:12,color:"#999"}}>{k}</span>
+                      <span style={{fontSize:12,color:"#333",fontWeight:500}}>{v}</span>
+                    </div>
+                  ))}
+                  {selected?.notes&&(
+                    <div style={{marginTop:8,padding:"8px 10px",background:"#F8F9FA",
+                      borderRadius:8,fontSize:12,color:"#555"}}>{selected.notes}</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
 // ── DID Inventory ─────────────────────────────────────────────────
 function DIDInventoryPage({token}){
   const [ranges,setRanges]=useState([]);
