@@ -1599,3 +1599,161 @@ Route::post('/v1/dids/bulk-unassign', function(Request $r) {
     ]);
     return response()->json(['success'=>true,'updated'=>$updated,'message'=>$updated.' DIDs unassigned and returned to panel']);
 });
+
+// ── Smart CSV Sync ─────────────────────────────────────────────
+Route::post('/v1/dids/smart-sync', function(Request $r) {
+    if(!$r->hasFile('file')) return response()->json(['error'=>'No file uploaded'],400);
+    $trunkId = $r->trunk_id;
+    if(!$trunkId) return response()->json(['error'=>'No supplier selected'],400);
+
+    $trunk = DB::table('trunks')->find($trunkId);
+    $content = file_get_contents($r->file('file')->getRealPath());
+    $lines = array_filter(array_map('trim', explode("\n", str_replace("\r","",$content))));
+
+    // Detect separator
+    $firstLine = array_values($lines)[0] ?? '';
+    $sep = substr_count($firstLine,';') > substr_count($firstLine,',') ? ';' : ',';
+
+    // Find number column from header
+    $numberCol = 0;
+    $rateCol = null;
+    $currencyCol = null;
+    $prefixCol = null;
+    $headers = str_getcsv($firstLine, $sep);
+    foreach($headers as $i=>$h){
+        $h = strtolower(trim(str_replace(['"',"'"],'',$h)));
+        if(in_array($h,['number','did','ddi','msisdn','phone','num','e164','destination','tn','cli'])) $numberCol=$i;
+        if(in_array($h,['payout','rate','tariff','price','cost','buy_rate'])) $rateCol=$i;
+        if(in_array($h,['currency','cur','currency_code'])) $currencyCol=$i;
+        if(in_array($h,['prefix','prefix_code'])) $prefixCol=$i;
+    }
+
+    // Parse all numbers from CSV
+    $csvNumbers = [];
+    $csvRates = [];
+    $csvPrefixes = [];
+    foreach($lines as $lineIdx=>$line){
+        if($lineIdx===0) continue; // skip header
+        $cols = str_getcsv($line, $sep);
+        $raw = trim(str_replace(['"',"'",' '],'',$cols[$numberCol]??''));
+        $num = preg_replace('/[^0-9+]/','',$raw);
+        if(!$num) continue;
+        if(!str_starts_with($num,'+')) $num='+'.$num;
+        if(strlen($num)<8) continue;
+        if(!in_array($num,$csvNumbers)){
+            $csvNumbers[] = $num;
+            // Store rate from CSV
+            if($rateCol!==null){
+                $rate = str_replace(',','.',trim(str_replace(['"',"'"],'',$cols[$rateCol]??'0')));
+                $csvRates[$num] = floatval($rate);
+            }
+            // Store currency from CSV
+            if($currencyCol!==null){
+                $csvCurrencies[$num] = trim(str_replace(['"',"'"],'',$cols[$currencyCol]??'EUR'));
+            }
+            // Store prefix from CSV
+            if($prefixCol!==null){
+                $prefix = preg_replace('/[^0-9]/','',$cols[$prefixCol]??'');
+                if($prefix) $csvPrefixes[$num] = $prefix;
+            }
+        }
+    }
+
+    // Get existing DIDs for this supplier
+    $existingDids = DB::table('dids')->where('trunk_id',$trunkId)->get()->keyBy('id');
+    $existingNumbers = $existingDids->pluck('number')->toArray();
+
+    // New numbers to add
+    $toAdd = array_diff($csvNumbers, $existingNumbers);
+    // Numbers to remove (in DB but not in new CSV)
+    $toRemove = array_diff($existingNumbers, $csvNumbers);
+
+    $prefixMap = [
+        '39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
+        '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
+        '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'593'=>['EC','Ecuador'],
+        '998'=>['UZ','Uzbekistan'],'995'=>['GE','Georgia'],
+        '88'=>['SAT','Satellite'],'882'=>['SAT','Satellite'],
+        '220'=>['GM','Gambia'],'248'=>['SC','Seychelles'],
+        '269'=>['KM','Comoros'],'370'=>['LT','Lithuania'],
+    ];
+
+    $added=0; $removed=0;
+
+    // Add new numbers
+    foreach($toAdd as $num){
+        $stripped = ltrim($num,'+');
+        $cc='XX'; $cn='Unknown'; $detectedPrefix='';
+        foreach([3,2,1] as $len){
+            $p=substr($stripped,0,$len);
+            if(isset($prefixMap[$p])){$cc=$prefixMap[$p][0];$cn=$prefixMap[$p][1];$detectedPrefix=$p;break;}
+        }
+        $finalPrefix = $csvPrefixes[$num] ?? $detectedPrefix;
+        DB::table('dids')->insert([
+            'number'        => $num,
+            'trunk_id'      => $trunkId,
+            'prefix'        => $finalPrefix,
+            'country_name'  => $cn,
+            'country_code'  => $cc,
+            'tariff'        => $csvRates[$num] ?? ($r->rate??0.07),
+            'selling_price' => $csvRates[$num] ?? ($r->rate??0.07),
+            'currency'      => $csvCurrencies[$num] ?? ($r->currency??'EUR'),
+            'payment_terms' => 'Weekly',
+            'status'        => 'active',
+            'ivr_context'   => 'custom/6g-premium-telecom',
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+        $added++;
+    }
+
+    // Remove numbers not in CSV anymore
+    if(!empty($toRemove)){
+        $idsToRemove = $existingDids->filter(fn($d)=>in_array($d->number,$toRemove))->keys()->toArray();
+        DB::table('dids')->whereIn('id',$idsToRemove)->delete();
+        $removed = count($idsToRemove);
+    }
+
+    // Auto create/update ranges
+    $allDids = DB::table('dids')->where('trunk_id',$trunkId)->get();
+    $rangeGroups = [];
+    foreach($allDids as $d){
+        $p = $d->prefix ?? substr(ltrim($d->number,'+'),0,4);
+        if(!$p) continue;
+        if(!isset($rangeGroups[$p])){
+            $rangeGroups[$p]=['numbers'=>[],'country_name'=>$d->country_name,
+                'country_code'=>$d->country_code,'rate'=>$d->tariff,'currency'=>$d->currency];
+        }
+        $rangeGroups[$p]['numbers'][] = ltrim($d->number,'+');
+    }
+    foreach($rangeGroups as $prefix=>$g){
+        sort($g['numbers']);
+        $start=reset($g['numbers']); $end=end($g['numbers']); $count=count($g['numbers']);
+        $existing=DB::table('did_ranges')->where('prefix',$prefix)->first();
+        if($existing){
+            DB::table('did_ranges')->where('id',$existing->id)->update([
+                'range_start'=>$start,'range_end'=>$end,'total_count'=>$count,
+                'supplier_name'=>$trunk->nickname??$trunk->name,'updated_at'=>now()
+            ]);
+        } else {
+            DB::table('did_ranges')->insert([
+                'batch_name'=>$g['country_name'].' '.$prefix,'prefix'=>$prefix,
+                'range_start'=>$start,'range_end'=>$end,'country_code'=>$g['country_code'],
+                'country_name'=>$g['country_name'],'rate'=>$g['rate'],'selling_price'=>$g['rate'],
+                'currency'=>$g['currency'],'payment_terms'=>'Weekly','total_count'=>$count,
+                'supplier_name'=>$trunk->nickname??$trunk->name,'created_at'=>now(),'updated_at'=>now()
+            ]);
+        }
+    }
+
+    return response()->json([
+        'success'   => true,
+        'added'     => $added,
+        'removed'   => $removed,
+        'unchanged' => count($csvNumbers)-count($toAdd),
+        'total_csv' => count($csvNumbers),
+        'total_db'  => DB::table('dids')->where('trunk_id',$trunkId)->count(),
+        'supplier'  => $trunk->nickname??$trunk->name,
+        'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNumbers)-count($toAdd))." unchanged",
+    ]);
+});
