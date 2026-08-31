@@ -904,10 +904,69 @@ function SuppliersPage({token}){
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <Field label="Code Name" k="name" ph="tokyo"/>
                   <Field label="Display Name" k="nickname" ph="Tokyo"/>
-                  <Field label="SIP IP" k="host" ph="1.2.3.4"/>
-                  <Field label="Port" k="port" ph="5060"/>
-                  <Field label="Codecs" k="codecs" ph="ulaw,alaw,g729"/>
-                  <Field label="Transport" k="transport" ph="udp"/>
+                </div>
+                {/* Multiple IPs */}
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>SIP IP Address(es)</div>
+                  {(form.host||"").split(",").filter(Boolean).concat([""]).map((ip,idx,arr)=>(
+                    <div key={idx} style={{display:"flex",gap:6,marginBottom:6}}>
+                      <input style={{...inp,flex:1}} value={ip} placeholder={idx===0?"Primary IP e.g. 1.2.3.4":"Additional IP"}
+                        onChange={e=>{
+                          const ips=[...(form.host||"").split(",").filter(Boolean).concat([""])];
+                          ips[idx]=e.target.value;
+                          setForm(f=>({...f,host:ips.filter(Boolean).join(",")}));
+                        }}/>
+                      {idx>0&&<button onClick={()=>{
+                        const ips=(form.host||"").split(",").filter(Boolean);
+                        ips.splice(idx,1);
+                        setForm(f=>({...f,host:ips.join(",")}));
+                      }} style={{padding:"0 10px",borderRadius:8,border:"1px solid #EF4444",
+                        background:"#FFF5F5",color:"#EF4444",cursor:"pointer",fontSize:16}}>×</button>}
+                    </div>
+                  ))}
+                </div>
+                {/* Port + Transport */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Port</div>
+                    <input style={inp} value={form.port||"5060"} placeholder="5060"
+                      onChange={e=>setForm(f=>({...f,port:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Transport</div>
+                    <select style={{...inp,cursor:"pointer"}} value={form.transport||"udp"}
+                      onChange={e=>setForm(f=>({...f,transport:e.target.value}))}>
+                      <option value="udp">UDP</option>
+                      <option value="tcp">TCP</option>
+                      <option value="tls">TLS</option>
+                      <option value="ws">WebSocket</option>
+                    </select>
+                  </div>
+                </div>
+                {/* Codec checkboxes */}
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Codecs Supported</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {["ulaw","alaw","g729","g722","g723","g726","gsm","opus"].map(codec=>{
+                      const selected=(form.codecs||"").split(",").map(c=>c.trim()).includes(codec);
+                      return(
+                        <label key={codec} style={{display:"flex",alignItems:"center",gap:6,
+                          padding:"6px 12px",borderRadius:20,cursor:"pointer",
+                          background:selected?"#2CADA6":"#F5F5F5",
+                          border:selected?"none":"1px solid #E0E0E0",
+                          color:selected?"#FFF":"#555",fontSize:12,fontWeight:selected?700:400}}>
+                          <input type="checkbox" checked={selected} style={{display:"none"}}
+                            onChange={e=>{
+                              const codecs=(form.codecs||"").split(",").map(c=>c.trim()).filter(Boolean);
+                              if(e.target.checked){codecs.push(codec);}
+                              else{const i=codecs.indexOf(codec);if(i>-1)codecs.splice(i,1);}
+                              setForm(f=>({...f,codecs:codecs.join(",")}));
+                            }}/>
+                          {codec.toUpperCase()}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div style={{borderTop:"1px solid #F0F0F0",paddingTop:12,marginTop:4,marginBottom:4}}>
                   <div style={{fontSize:12,fontWeight:700,color:"#2CADA6",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>Server Info</div>
