@@ -49,6 +49,7 @@ const getNavGroups=(role)=>{
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
     {id:"quality",label:"Call Quality",icon:"📊"},
     {id:"customers",label:"Customers",icon:"◷"},
+    {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
@@ -73,6 +74,7 @@ const NAV_GROUPS=[
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
     {id:"quality",label:"Call Quality",icon:"📊"},
     {id:"customers",label:"Customers",icon:"◷"},
+    {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
     {id:"settings",label:"Settings",icon:"⚙"},
   ]},
@@ -2267,6 +2269,253 @@ function ConnectIVRPage({token}){
 }
 
 
+// ── Reseller Portal ───────────────────────────────────────────────
+function ResellerPortalPage({token}){
+  const [resellers,setResellers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [selected,setSelected]=useState(null);
+  const [showAdd,setShowAdd]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [tab,setTab]=useState("list");
+  const [resellerCdr,setResellerCdr]=useState([]);
+  const [topupAmount,setTopupAmount]=useState("");
+  const [form,setForm]=useState({
+    name:"",email:"",password:"",company:"",phone:"",
+    role:"reseller",credit_limit:"0",markup:"0",notes:""
+  });
+
+  const load=()=>{
+    apiFetch("/resellers",token).then(d=>{setResellers(d.data||[]);setLoading(false);});
+  };
+  useEffect(()=>{load();},[token]);
+
+  const selectReseller=(r)=>{
+    setSelected(r);setTab("detail");
+    setForm({name:r.name,email:r.email,password:"",company:r.company||"",
+      phone:r.phone||"",role:r.role||"reseller",credit_limit:r.credit_limit||"0",
+      markup:r.markup||"0",notes:r.notes||""});
+    apiFetch("/resellers/"+r.id+"/cdr",token).then(d=>setResellerCdr(d.data||[]));
+  };
+
+  const save=async()=>{
+    setSaving(true);
+    if(selected){
+      await apiFetch("/resellers/"+selected.id,token,{method:"PUT",body:JSON.stringify(form)});
+    } else {
+      await apiFetch("/resellers",token,{method:"POST",body:JSON.stringify(form)});
+    }
+    setSaving(false);setShowAdd(false);setSelected(null);setTab("list");load();
+  };
+
+  const del=async(id)=>{
+    if(!window.confirm("Delete this reseller?")) return;
+    await apiFetch("/resellers/"+id,token,{method:"DELETE"});
+    setSelected(null);setTab("list");load();
+  };
+
+  const topup=async()=>{
+    if(!topupAmount||isNaN(topupAmount)) return;
+    await apiFetch("/resellers/"+selected.id+"/topup",token,{method:"POST",body:JSON.stringify({amount:parseFloat(topupAmount)})});
+    setTopupAmount("");load();selectReseller({...selected,balance:parseFloat(selected.balance||0)+parseFloat(topupAmount)});
+  };
+
+  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
+    background:"#FFF",color:"#333",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+
+  const Field=({label,k,ph,type="text"})=>(
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>{label}</div>
+      <input type={type} style={inp} value={form[k]||""} placeholder={ph||""}
+        onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
+    </div>
+  );
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Reseller Portal</div>
+        <button onClick={()=>{setShowAdd(true);setSelected(null);setTab("add");
+          setForm({name:"",email:"",password:"",company:"",phone:"",role:"reseller",credit_limit:"0",markup:"0",notes:""});}}
+          style={{padding:"8px 18px",borderRadius:20,border:"none",background:"#2CADA6",
+            color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Add Reseller</button>
+      </div>
+
+      {/* Summary */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {label:"Total Resellers",value:resellers.length,color:"#2CADA6"},
+          {label:"Active",value:resellers.filter(r=>r.status==="active").length,color:"#10B981"},
+          {label:"Total Revenue",value:"€"+resellers.reduce((a,r)=>a+parseFloat(r.revenue||0),0).toFixed(4),color:"#F5A623"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
+            <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.value}</div>
+            <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add/Edit Form */}
+      {(tab==="add"||(tab==="detail"&&selected))&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:18,marginBottom:16,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A"}}>
+              {tab==="add"?"New Reseller":"Edit: "+selected?.name}
+            </div>
+            {selected&&<button onClick={()=>del(selected.id)}
+              style={{padding:"6px 14px",borderRadius:20,border:"1px solid #EF4444",
+                background:"#FFF",color:"#EF4444",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Field label="Full Name" k="name" ph="John Smith"/>
+            <Field label="Email" k="email" ph="john@company.com"/>
+            <Field label="Password" k="password" ph={selected?"Leave blank to keep":"Set password"} type="password"/>
+            <Field label="Company" k="company" ph="Company Ltd"/>
+            <Field label="Phone" k="phone" ph="+1234567890"/>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Role</div>
+              <select style={inp} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                <option value="reseller">Reseller</option>
+                <option value="dialer">Dialer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <Field label="Credit Limit (€)" k="credit_limit" ph="1000"/>
+            <Field label="Markup (%)" k="markup" ph="10"/>
+          </div>
+          <Field label="Notes" k="notes" ph="Additional notes..."/>
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={()=>{setTab("list");setSelected(null);setShowAdd(false);}}
+              style={{flex:1,padding:"10px",borderRadius:10,border:"1px solid #DDD",
+                background:"#FFF",color:"#666",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+            <button onClick={save} disabled={saving}
+              style={{flex:2,padding:"10px",borderRadius:10,border:"none",
+                background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+              {saving?"Saving...":"Save Reseller"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reseller Detail View */}
+      {tab==="detail"&&selected&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:16,marginBottom:16,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>{selected.name} — Stats</div>
+            <button onClick={()=>setTab("list")}
+              style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
+                background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>← Back</button>
+          </div>
+          {/* Stats */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+            {[
+              {label:"DIDs",value:selected.dids_count,color:"#8B5CF6"},
+              {label:"Calls",value:selected.calls_count,color:"#3B82F6"},
+              {label:"Revenue",value:"€"+selected.revenue,color:"#10B981"},
+              {label:"Balance",value:"€"+parseFloat(selected.balance||0).toFixed(4),color:"#F5A623"},
+              {label:"Credit Limit",value:"€"+selected.credit_limit,color:"#2CADA6"},
+              {label:"Markup",value:selected.markup+"%",color:"#EF4444"},
+            ].map((s,i)=>(
+              <div key={i} style={{background:"#F8F9FA",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+                <div style={{fontSize:16,fontWeight:800,color:s.color}}>{s.value}</div>
+                <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {/* Top Up */}
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <input value={topupAmount} onChange={e=>setTopupAmount(e.target.value)}
+              placeholder="Top up amount (€)" style={{...inp,flex:1}}/>
+            <button onClick={topup}
+              style={{padding:"9px 18px",borderRadius:10,border:"none",background:"#10B981",
+                color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>Top Up</button>
+          </div>
+          {/* CDR Table */}
+          <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+            Recent CDR ({resellerCdr.length} records)
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:"#F8F9FA"}}>
+                  {["Date","Caller","DID","Duration","Revenue"].map((h,i)=>(
+                    <th key={i} style={{padding:"8px 12px",fontSize:11,color:"#9A9A9A",
+                      fontWeight:600,textAlign:"left",borderBottom:"1px solid #EEE"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {resellerCdr.length===0
+                  ?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No CDR records</td></tr>
+                  :resellerCdr.slice(0,20).map((c,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"8px 12px",fontSize:11,color:"#999"}}>{(c.call_start||c.created_at||"").slice(0,16)}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,fontFamily:"monospace"}}>{c.src||c.caller||"—"}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#2CADA6",fontFamily:"monospace"}}>{c.did||"—"}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#555"}}>{c.billsec||0}s</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>€{parseFloat(c.revenue||0).toFixed(4)}</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Reseller List */}
+      {tab==="list"&&(
+        loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+        :resellers.length===0
+        ?<div style={{background:"#FFF",borderRadius:14,padding:40,textAlign:"center",
+          boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:32,marginBottom:8}}>👥</div>
+          <div style={{color:"#999",fontSize:13}}>No resellers yet — add your first one</div>
+        </div>
+        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {resellers.map((r,i)=>(
+            <div key={r.id} onClick={()=>selectReseller(r)}
+              style={{background:"#FFF",borderRadius:12,padding:"14px 16px",
+                boxShadow:"0 2px 8px rgba(0,0,0,0.06)",cursor:"pointer",
+                display:"flex",alignItems:"center",gap:12,
+                transition:"box-shadow 0.15s"}}
+              onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,0.1)"}
+              onMouseLeave={e=>e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.06)"}>
+              <div style={{width:42,height:42,borderRadius:"50%",flexShrink:0,
+                background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:16,fontWeight:800,color:"#FFF"}}>
+                {(r.name||"R")[0].toUpperCase()}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>{r.name}</div>
+                <div style={{fontSize:12,color:"#999"}}>{r.company||r.email}</div>
+              </div>
+              <div style={{display:"flex",gap:12,flexShrink:0}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:"#8B5CF6"}}>{r.dids_count}</div>
+                  <div style={{fontSize:9,color:"#999",textTransform:"uppercase"}}>DIDs</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:"#10B981"}}>€{r.revenue}</div>
+                  <div style={{fontSize:9,color:"#999",textTransform:"uppercase"}}>Revenue</div>
+                </div>
+                <span style={{padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,alignSelf:"center",
+                  background:r.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                  color:r.status==="active"?"#10B981":"#EF4444"}}>
+                  {r.status||"active"}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 // ── Customers ─────────────────────────────────────────────────────
 function CustomersPage({token}){
   const [customers,setCustomers]=useState([]);
@@ -3183,7 +3432,7 @@ export default function App(){
       "ivr":"ivr","ivraudio":"audio-manager","ivr-library":"ivr","audio-manager":"ivraudio","ivr-audio":"ivraudio",
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
-      "customers":"customers",
+      "customers":"customers","resellers":"resellers","resellers":"resellers",
       "test-number":"testlabs",
       "sip-monitor":"sipmonitor",
       "settings":"settings",
@@ -3196,7 +3445,7 @@ export default function App(){
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
       "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
-      "customers":"customers","testlabs":"test-number",
+      "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings",
     };
     const url="/"+( urlMap[p]||p);
@@ -3377,6 +3626,7 @@ export default function App(){
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
       case "customers":    return <CustomersPage token={token}/>;
+      case "resellers":     return <ResellerPortalPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "quality":       return <CallQualityPage token={token}/>;

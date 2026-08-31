@@ -1351,3 +1351,94 @@ Route::get('/v1/ivr-lib/stats', function() {
     });
     return response()->json(['data'=>$stats]);
 });
+
+// ── Reseller Portal API ────────────────────────────────────────
+// Get all resellers/customers with stats
+Route::get('/v1/resellers', function() {
+    $resellers = DB::table('customers')
+        ->get()
+        ->map(function($r){
+            $dids = DB::table('dids')->where('trunk_id',$r->reseller_id??0)->count();
+            $cdrs = DB::table('cdrs')->whereIn('did',
+                DB::table('dids')->where('trunk_id',$r->reseller_id??0)->pluck('number')
+            );
+            return [
+                'id'           => $r->id,
+                'name'         => $r->name,
+                'email'        => $r->email,
+                'company'      => $r->company??'',
+                'phone'        => $r->phone??'',
+                'role'         => $r->role??'reseller',
+                'status'       => $r->status??'active',
+                'credit_limit' => $r->credit_limit??0,
+                'balance'      => $r->balance??0,
+                'markup'       => $r->markup??0,
+                'dids_count'   => $dids,
+                'calls_count'  => $cdrs->count(),
+                'revenue'      => round($cdrs->sum('revenue'),4),
+                'last_login'   => $r->last_login??null,
+                'created_at'   => $r->created_at,
+                'notes'        => $r->notes??'',
+            ];
+        });
+    return response()->json(['data'=>$resellers]);
+});
+
+// Create reseller
+Route::post('/v1/resellers', function(Request $r) {
+    $id = DB::table('customers')->insertGetId([
+        'name'         => $r->name,
+        'email'        => $r->email,
+        'password'     => bcrypt($r->password??'Reseller@2026'),
+        'company'      => $r->company,
+        'phone'        => $r->phone,
+        'role'         => $r->role??'reseller',
+        'status'       => 'active',
+        'credit_limit' => $r->credit_limit??0,
+        'markup'       => $r->markup??0,
+        'notes'        => $r->notes,
+        'created_at'   => now(),
+        'updated_at'   => now(),
+    ]);
+    return response()->json(['success'=>true,'id'=>$id,'data'=>DB::table('customers')->find($id)]);
+});
+
+// Update reseller
+Route::put('/v1/resellers/{id}', function(Request $r, $id) {
+    $update = [
+        'name'         => $r->name,
+        'email'        => $r->email,
+        'company'      => $r->company,
+        'phone'        => $r->phone,
+        'role'         => $r->role??'reseller',
+        'status'       => $r->status??'active',
+        'credit_limit' => $r->credit_limit??0,
+        'markup'       => $r->markup??0,
+        'notes'        => $r->notes,
+        'updated_at'   => now(),
+    ];
+    if($r->password) $update['password'] = bcrypt($r->password);
+    DB::table('customers')->where('id',$id)->update($update);
+    return response()->json(['success'=>true,'data'=>DB::table('customers')->find($id)]);
+});
+
+// Delete reseller
+Route::delete('/v1/resellers/{id}', function($id) {
+    DB::table('customers')->delete($id);
+    return response()->json(['success'=>true]);
+});
+
+// Get reseller CDR (filtered by their DIDs)
+Route::get('/v1/resellers/{id}/cdr', function($id) {
+    $reseller = DB::table('customers')->find($id);
+    $dids = DB::table('dids')->where('trunk_id',$reseller->reseller_id??0)->pluck('number');
+    $cdrs = DB::table('cdrs')->whereIn('did',$dids)->orderByDesc('created_at')->limit(100)->get();
+    return response()->json(['data'=>$cdrs,'total'=>$cdrs->count()]);
+});
+
+// Top up reseller balance
+Route::post('/v1/resellers/{id}/topup', function(Request $r, $id) {
+    $amount = floatval($r->amount??0);
+    DB::table('customers')->where('id',$id)->increment('balance',$amount);
+    return response()->json(['success'=>true,'new_balance'=>DB::table('customers')->find($id)->balance??0]);
+});
