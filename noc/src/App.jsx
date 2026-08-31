@@ -953,7 +953,7 @@ function DIDInventoryPage({token}){
                           <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
                             <td colSpan={6} style={{padding:"8px 14px 8px 52px"}}>
                               <span style={{fontSize:12,fontFamily:"monospace",color:di%2===0?"#10B981":"#555",fontWeight:500}}>{d.number}</span>
-                              <span style={{fontSize:11,color:"#AAA",marginLeft:16,letterSpacing:"0.3px"}}>{" — "}{(d.created_at||"").slice(0,19)}</span>
+                              <span style={{fontSize:11,color:"#AAAAAA",marginLeft:20,fontFamily:"monospace"}}>{(d.created_at||"").slice(0,19)}</span>
                             </td>
                           </tr>
                         ))
