@@ -1393,6 +1393,7 @@ function DIDInventoryPage({token}){
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
+  const [resellers,setResellers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [expanded,setExpanded]=useState({});
   const [search,setSearch]=useState("");
@@ -1414,10 +1415,12 @@ function DIDInventoryPage({token}){
       apiFetch("/did-ranges",token),
       apiFetch("/dids",token),
       apiFetch("/suppliers",token),
-    ]).then(([r,d,s])=>{
+      apiFetch("/resellers",token),
+    ]).then(([r,d,s,res])=>{
       setRanges(r.data||[]);
       setDids(d.data||[]);
       setSuppliers(s.data||[]);
+      setResellers(res.data||[]);
       setLoading(false);
     });
   };
@@ -1686,82 +1689,171 @@ function DIDInventoryPage({token}){
         {/* ── BULK MANAGER TAB ── */}
         {tab==="bulk"&&(
           <>
+            {/* Action Bar */}
             <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,
               boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>
-                Bulk Actions — {selected.size} selected
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>
+                  {selected.size>0
+                    ?<span style={{color:"#2CADA6"}}>{selected.size} numbers selected</span>
+                    :"Select numbers to assign or unassign"}
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={selectAll}
+                    style={{padding:"4px 12px",borderRadius:20,border:"1px solid #2CADA6",
+                      background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                    All
+                  </button>
+                  <button onClick={clearAll}
+                    style={{padding:"4px 12px",borderRadius:20,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>
+                    Clear
+                  </button>
+                </div>
               </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
-                <select style={{...inp,flex:1,minWidth:120}} value={bulkAction} onChange={e=>setBulkAction(e.target.value)}>
-                  <option value="">Choose action...</option>
-                  <option value="supplier">Assign Supplier</option>
-                  <option value="delete">Delete</option>
-                </select>
-                {bulkAction==="supplier"&&(
-                  <select style={{...inp,flex:1,minWidth:120}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
-                    <option value="">Choose supplier...</option>
-                    {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+              {/* Action Buttons */}
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {/* Assign to Reseller */}
+                <div style={{display:"flex",gap:6,flex:1,minWidth:200}}>
+                  <select style={{...inp,flex:1}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
+                    <option value="">— Select Reseller —</option>
+                    {(resellers||[]).map(r=>(
+                      <option key={r.id} value={r.id}>{r.name}{r.company?" ("+r.company+")":""}</option>
+                    ))}
                   </select>
-                )}
-                <button onClick={applyBulk} disabled={saving||selected.size===0}
-                  style={{padding:"9px 18px",borderRadius:20,border:"none",
-                    background:bulkAction==="delete"?"#EF4444":"#2CADA6",
-                    color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
-                  {saving?"Applying...":"Apply"}
+                  <button onClick={async()=>{
+                    if(selected.size===0){alert("Select numbers first");return;}
+                    if(!bulkValue){alert("Select a reseller");return;}
+                    setSaving(true);
+                    const d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",
+                      body:JSON.stringify({ids:[...selected],trunk_id:bulkValue})});
+                    setResult(d);setSaving(false);clearAll();load();
+                  }} disabled={saving||selected.size===0||!bulkValue}
+                    style={{padding:"9px 16px",borderRadius:8,border:"none",
+                      background:saving||selected.size===0||!bulkValue?"#CCC":"#2CADA6",
+                      color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer",
+                      flexShrink:0,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                    {saving?"...":"👤 Assign"}
+                  </button>
+                </div>
+                {/* Unassign */}
+                <button onClick={async()=>{
+                  if(selected.size===0){alert("Select numbers first");return;}
+                  if(!window.confirm("Remove "+selected.size+" numbers from reseller and keep in your panel?")) return;
+                  setSaving(true);
+                  const d=await apiFetch("/dids/bulk-unassign",token,{method:"POST",
+                    body:JSON.stringify({ids:[...selected]})});
+                  setResult(d);setSaving(false);clearAll();load();
+                }} disabled={saving||selected.size===0}
+                  style={{padding:"9px 16px",borderRadius:8,
+                    border:"2px solid #F5A623",background:"#FFF",
+                    color:"#F5A623",fontSize:12,fontWeight:700,cursor:"pointer",
+                    flexShrink:0,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                  🔄 Unassign
+                </button>
+                {/* Delete */}
+                <button onClick={async()=>{
+                  if(selected.size===0){alert("Select numbers first");return;}
+                  if(!window.confirm("Delete "+selected.size+" numbers permanently?")) return;
+                  setSaving(true);
+                  const d=await apiFetch("/dids/bulk-delete",token,{method:"POST",
+                    body:JSON.stringify({ids:[...selected]})});
+                  setResult(d);setSaving(false);clearAll();load();
+                }} disabled={saving||selected.size===0}
+                  style={{padding:"9px 16px",borderRadius:8,
+                    border:"2px solid #EF4444",background:"#FFF",
+                    color:"#EF4444",fontSize:12,fontWeight:700,cursor:"pointer",
+                    flexShrink:0,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                  🗑 Delete
                 </button>
               </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={selectAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #2CADA6",
-                  background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Select All</button>
-                <button onClick={clearAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
-                  background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>Clear</button>
-                <span style={{fontSize:11,color:"#999",alignSelf:"center"}}>{dids.length} total DIDs</span>
-              </div>
             </div>
+
+            {/* Result */}
+            {result&&(
+              <div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+                background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                border:"1px solid "+(result.success?"#10B981":"#EF4444"),
+                fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
+                {result.success?"✅ ":"❌ "}{result.message||result.error}
+              </div>
+            )}
+
+            {/* DID Table */}
             {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",
+              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
                   <thead>
                     <tr style={{background:"#F8F9FA"}}>
-                      <th style={{...thS,width:40}}><input type="checkbox"
-                        checked={selected.size===dids.length&&dids.length>0}
-                        onChange={e=>e.target.checked?selectAll():clearAll()}
-                        style={{accentColor:"#2CADA6"}}/></th>
-                      {["Number","Country","Tariff","Supplier","Status"].map((h,i)=>(
+                      <th style={{...thS,width:36,textAlign:"center"}}>
+                        <input type="checkbox"
+                          checked={selected.size===dids.length&&dids.length>0}
+                          onChange={e=>e.target.checked?selectAll():clearAll()}
+                          style={{accentColor:"#2CADA6"}}/>
+                      </th>
+                      {["NUMBER","COUNTRY","TARIFF","SUPPLIER","RESELLER","STATUS"].map((h,i)=>(
                         <th key={i} style={thS}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {dids.map((d,i)=>(
-                      <tr key={d.id} style={{borderBottom:"1px solid #F5F5F5",
-                        background:selected.has(d.id)?"rgba(100,42,145,0.05)":i%2===0?"#FFF":"#FAFAFA",
-                        cursor:"pointer"}} onClick={()=>toggleSelect(d.id)}>
-                        <td style={{padding:"8px 12px"}}>
-                          <input type="checkbox" checked={selected.has(d.id)} onChange={()=>toggleSelect(d.id)}
-                            style={{accentColor:"#2CADA6"}}/>
-                        </td>
-                        <td style={{padding:"4px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
-                        <td style={{padding:"4px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                        <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
-                        <td style={{padding:"4px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
-                        <td style={{padding:"8px 12px"}}>
-                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
-                            background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-                            color:d.status==="active"?"#10B981":"#EF4444"}}>
-                            {d.status||"active"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {dids.length===0
+                      ?<tr><td colSpan={7} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>
+                      :dids.map((d,i)=>(
+                        <tr key={d.id}
+                          onClick={()=>toggleSelect(d.id)}
+                          style={{borderBottom:"1px solid #F5F5F5",cursor:"pointer",
+                            background:selected.has(d.id)?"rgba(44,173,166,0.06)":i%2===0?"#FFF":"#FAFAFA"}}>
+                          <td style={{padding:"6px 12px",textAlign:"center"}}>
+                            <input type="checkbox" checked={selected.has(d.id)}
+                              onChange={()=>toggleSelect(d.id)}
+                              style={{accentColor:"#2CADA6"}}/>
+                          </td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>
+                            {(d.number||"").replace("+","")}
+                          </td>
+                          <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>
+                            {currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}
+                          </td>
+                          <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
+                            {d.supplier_name||"PROFESSOR"}
+                          </td>
+                          <td style={{padding:"6px 10px",fontSize:12,color:"#8B5CF6",fontWeight:600}}>
+                            {d.customer_id?
+                              <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,
+                                background:"rgba(139,92,246,0.1)",color:"#8B5CF6",fontWeight:700}}>
+                                Assigned
+                              </span>
+                              :<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,
+                                background:"#F5F5F5",color:"#999"}}>
+                                In Panel
+                              </span>
+                            }
+                          </td>
+                          <td style={{padding:"6px 10px"}}>
+                            <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                              background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                              color:d.status==="active"?"#10B981":"#EF4444"}}>
+                              {d.status||"active"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    }
                   </tbody>
                 </table>
+              </div>
+              <div style={{padding:"8px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
+                fontSize:11,color:"#999",display:"flex",justifyContent:"space-between"}}>
+                <span>{dids.length} total numbers</span>
+                <span>{dids.filter(d=>d.customer_id).length} assigned · {dids.filter(d=>!d.customer_id).length} in panel</span>
               </div>
             </div>}
           </>
         )}
-
         {/* ── UPLOAD CSV TAB ── */}
         {tab==="upload"&&(
           <div style={{fontFamily:"inherit"}}>
