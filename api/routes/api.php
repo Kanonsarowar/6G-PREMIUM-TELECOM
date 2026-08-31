@@ -1030,3 +1030,55 @@ Route::get('/v1/suppliers/{id}/live-calls', function($id) {
     return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
 });
 
+
+// ── Invoice PDF Download ───────────────────────────────────────
+Route::get('/v1/invoices/{id}/pdf', function($id) {
+    $invoice = DB::table('invoices')->find($id);
+    if(!$invoice) return response()->json(['error'=>'Not found'],404);
+    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('invoices.template',['invoice'=>$invoice]);
+    return $pdf->download('invoice-'.$invoice->invoice_number.'.pdf');
+});
+
+// ── Invoice Status Update ──────────────────────────────────────
+Route::put('/v1/invoices/{id}/status', function(Request $r, $id) {
+    DB::table('invoices')->where('id',$id)->update([
+        'status'     => $r->status,
+        'updated_at' => now(),
+    ]);
+    return response()->json(['success'=>true]);
+});
+
+// ── Auto Generate Weekly Invoice (cron) ───────────────────────
+Route::post('/v1/invoices/generate-weekly-supplier', function() {
+    $suppliers = DB::table('trunks')->where('is_active',1)->get();
+    $created = [];
+    foreach($suppliers as $supplier){
+        $cdrs = DB::table('cdrs')
+            ->where('trunk_name',$supplier->name)
+            ->where('created_at','>=',now()->startOfWeek())
+            ->where('created_at','<=',now()->endOfWeek())
+            ->get();
+        if($cdrs->isEmpty()) continue;
+        $total = $cdrs->sum('revenue');
+        $calls = $cdrs->count();
+        $minutes = $cdrs->sum('billsec') / 60;
+        $invNum = 'SINV-'.date('YW').'-'.strtoupper($supplier->name);
+        DB::table('invoices')->insert([
+            'invoice_number' => $invNum,
+            'supplier_name'  => $supplier->nickname??$supplier->name,
+            'period_start'   => now()->startOfWeek(),
+            'period_end'     => now()->endOfWeek(),
+            'total_calls'    => $calls,
+            'total_minutes'  => round($minutes,2),
+            'total_amount'   => round($total,4),
+            'currency'       => 'EUR',
+            'status'         => 'unpaid',
+            'invoice_type'   => 'supplier-weekly',
+            'due_date'       => now()->addDays(7),
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+        $created[] = $invNum;
+    }
+    return response()->json(['success'=>true,'created'=>$created,'message'=>count($created).' supplier invoices generated']);
+});

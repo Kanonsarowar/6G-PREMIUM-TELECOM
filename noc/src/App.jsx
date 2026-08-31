@@ -872,7 +872,7 @@ function RevenuePage({token}){
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead>
                   <tr style={{background:"#F8F9FA"}}>
-                    {["Invoice #","Calls","Amount","Status","Period"].map((h,i)=>(
+                    {["Invoice #","Calls","Amount","Status","Period","PDF"].map((h,i)=>(
                       <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
                         fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
                         borderBottom:"1px solid #EEEEEE"}}>{h}</th>
@@ -891,6 +891,15 @@ function RevenuePage({token}){
                         <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,
                           color:inv.currency==="USD"?"#F5A623":"#10B981",fontFamily:"monospace"}}>
                           {inv.currency==="USD"?"$":"€"}{parseFloat(inv.total_amount||0).toFixed(4)}
+                        </td>
+                        <td style={{padding:"10px 14px"}}>
+                          <a href={"https://6g-premium-telecom.com/api/v1/invoices/"+inv.id+"/pdf"}
+                            target="_blank" rel="noreferrer"
+                            style={{padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,
+                              background:"rgba(44,173,166,0.1)",color:"#2CADA6",
+                              textDecoration:"none",border:"1px solid rgba(44,173,166,0.3)"}}>
+                            📄 PDF
+                          </a>
                         </td>
                         <td style={{padding:"10px 14px"}}>
                           <button onClick={async()=>{
