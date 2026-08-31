@@ -1082,3 +1082,71 @@ Route::post('/v1/invoices/generate-weekly-supplier', function() {
     }
     return response()->json(['success'=>true,'created'=>$created,'message'=>count($created).' supplier invoices generated']);
 });
+
+// ── Call Quality Monitor ───────────────────────────────────────
+Route::get('/v1/quality/overview', function() {
+    $cdrs = DB::table('cdrs')->get();
+    $total = $cdrs->count();
+    $answered = $cdrs->where('disposition','ANSWERED')->count();
+    $asr = $total > 0 ? round($answered/$total*100,2) : 0;
+    $acd = $answered > 0 ? round($cdrs->where('disposition','ANSWERED')->avg('billsec'),2) : 0;
+
+    // Per DID stats
+    $didStats = DB::table('cdrs')
+        ->select('did', DB::raw('COUNT(*) as calls'),
+            DB::raw('SUM(CASE WHEN disposition="ANSWERED" THEN 1 ELSE 0 END) as answered'),
+            DB::raw('AVG(billsec) as acd'),
+            DB::raw('SUM(revenue) as revenue'))
+        ->groupBy('did')
+        ->orderByDesc('calls')
+        ->limit(20)
+        ->get()
+        ->map(function($d){
+            $d->asr = $d->calls > 0 ? round($d->answered/$d->calls*100,1) : 0;
+            $d->acd = round($d->acd,1);
+            $d->revenue = round($d->revenue,4);
+            return $d;
+        });
+
+    // Per supplier stats
+    $supplierStats = DB::table('cdrs')
+        ->select('trunk_name',
+            DB::raw('COUNT(*) as calls'),
+            DB::raw('SUM(CASE WHEN disposition="ANSWERED" THEN 1 ELSE 0 END) as answered'),
+            DB::raw('AVG(billsec) as acd'),
+            DB::raw('SUM(revenue) as revenue'))
+        ->groupBy('trunk_name')
+        ->get()
+        ->map(function($s){
+            $s->asr = $s->calls > 0 ? round($s->answered/$s->calls*100,1) : 0;
+            $s->acd = round($s->acd,1);
+            return $s;
+        });
+
+    // Dead DIDs - DIDs with no calls in last 7 days
+    $activeDids = DB::table('dids')->pluck('number');
+    $recentDids = DB::table('cdrs')
+        ->where('created_at','>=',now()->subDays(7))
+        ->pluck('did')->unique();
+    $deadDids = $activeDids->diff($recentDids)->values();
+
+    // Hourly distribution
+    $hourly = DB::table('cdrs')
+        ->select(DB::raw('HOUR(call_start) as hour'), DB::raw('COUNT(*) as calls'))
+        ->whereNotNull('call_start')
+        ->groupBy('hour')
+        ->orderBy('hour')
+        ->get();
+
+    return response()->json([
+        'asr'          => $asr,
+        'acd'          => $acd,
+        'total'        => $total,
+        'answered'     => $answered,
+        'failed'       => $total - $answered,
+        'did_stats'    => $didStats,
+        'supplier_stats'=> $supplierStats,
+        'dead_dids'    => $deadDids->take(20),
+        'hourly'       => $hourly,
+    ]);
+});

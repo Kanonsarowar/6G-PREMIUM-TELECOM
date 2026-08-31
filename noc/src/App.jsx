@@ -44,6 +44,7 @@ const getNavGroups=(role)=>{
   ]},
   {key:"system",label:"System",items:[
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"quality",label:"Call Quality",icon:"📊"},
     {id:"customers",label:"Customers",icon:"◷"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
@@ -64,6 +65,7 @@ const NAV_GROUPS=[
   ]},
   {key:"system",label:"System",items:[
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"quality",label:"Call Quality",icon:"📊"},
     {id:"customers",label:"Customers",icon:"◷"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
     {id:"settings",label:"Settings",icon:"⚙"},
@@ -1710,6 +1712,232 @@ function CustomersPage({token}){
   );
 }
 
+// ── Call Quality ──────────────────────────────────────────────────
+function CallQualityPage({token}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("overview");
+
+  useEffect(()=>{
+    apiFetch("/quality/overview",token).then(d=>{setData(d);setLoading(false);});
+  },[token]);
+
+  const asrColor=(asr)=>asr>=80?"#10B981":asr>=60?"#F5A623":"#EF4444";
+  const acdColor=(acd)=>acd>=30?"#10B981":acd>=15?"#F5A623":"#EF4444";
+
+  const tabs=[
+    {id:"overview",label:"Overview"},
+    {id:"did",label:"DID Performance"},
+    {id:"supplier",label:"Supplier Quality"},
+    {id:"hourly",label:"Hourly Traffic"},
+    {id:"dead",label:"Dead DIDs"},
+  ];
+
+  if(loading) return <div style={{padding:40,textAlign:"center",color:"#999"}}>Loading quality data...</div>;
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Call Quality Monitor</div>
+        <button onClick={()=>{setLoading(true);apiFetch("/quality/overview",token).then(d=>{setData(d);setLoading(false);});}}
+          style={{padding:"6px 14px",borderRadius:20,border:"none",background:"#2CADA6",
+            color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
+      </div>
+
+      {/* KPI Cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {label:"ASR",value:(data?.asr||0)+"%",sub:"Answer Seizure Ratio",color:asrColor(data?.asr||0),icon:"📊"},
+          {label:"ACD",value:(data?.acd||0)+"s",sub:"Avg Call Duration",color:acdColor(data?.acd||0),icon:"⏱"},
+          {label:"Total Calls",value:data?.total||0,sub:"All time",color:"#3B82F6",icon:"📞"},
+          {label:"Failed Calls",value:data?.failed||0,sub:"Not answered",color:"#EF4444",icon:"❌"},
+        ].map((k,i)=>(
+          <div key={i} style={{background:"#FFFFFF",borderRadius:14,padding:"14px 12px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+k.color}}>
+            <div style={{fontSize:10,marginBottom:4}}>{k.icon}</div>
+            <div style={{fontSize:28,fontWeight:800,color:k.color,fontFamily:"monospace"}}>{k.value}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",textTransform:"uppercase",
+              letterSpacing:"0.5px",marginTop:2}}>{k.label}</div>
+            <div style={{fontSize:10,color:"#999",marginTop:2}}>{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"7px 14px",borderRadius:20,border:"none",whiteSpace:"nowrap",
+              background:tab===t.id?"#2CADA6":"#F0F0F0",
+              color:tab===t.id?"#FFFFFF":"#555",
+              fontSize:12,fontWeight:tab===t.id?700:500,cursor:"pointer",fontFamily:"inherit"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview Tab */}
+      {tab==="overview"&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Quality Summary</div>
+          {[
+            ["ASR",(data?.asr||0)+"%",asrColor(data?.asr||0),"≥80% Good, 60-80% Fair, <60% Poor"],
+            ["ACD",(data?.acd||0)+"s",acdColor(data?.acd||0),"≥30s Good, 15-30s Fair, <15s Poor"],
+            ["Total Calls",data?.total||0,"#3B82F6","All calls received"],
+            ["Answered",data?.answered||0,"#10B981","Successfully connected"],
+            ["Failed",data?.failed||0,"#EF4444","Not answered or error"],
+            ["Dead DIDs",(data?.dead_dids||[]).length,"#8B5CF6","No calls in 7 days"],
+          ].map(([k,v,col,hint])=>(
+            <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"9px 0",borderBottom:"1px solid #F5F5F5"}}>
+              <div>
+                <span style={{fontSize:13,color:"#666"}}>{k}</span>
+                <div style={{fontSize:10,color:"#BBB"}}>{hint}</div>
+              </div>
+              <span style={{fontSize:14,color:col,fontWeight:700,fontFamily:"monospace"}}>{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* DID Performance Tab */}
+      {tab==="did"&&(
+        <div style={{background:"#FFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #F0F0F0"}}>
+            <div style={{fontSize:13,fontWeight:700}}>DID Performance (Top 20)</div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:"#F8F9FA"}}>
+                  {["DID","Calls","Answered","ASR","ACD","Revenue"].map((h,i)=>(
+                    <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
+                      fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                      borderBottom:"1px solid #EEE"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.did_stats||[]).length===0
+                  ?<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999"}}>No DID data yet</td></tr>
+                  :(data?.did_stats||[]).map((d,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"10px 14px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>{d.did}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#333"}}>{d.calls}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#10B981"}}>{d.answered}</td>
+                      <td style={{padding:"10px 14px"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:asrColor(d.asr)+"15",color:asrColor(d.asr)}}>
+                          {d.asr}%
+                        </span>
+                      </td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:acdColor(d.acd),fontWeight:600}}>{d.acd}s</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#F5A623",fontWeight:700,fontFamily:"monospace"}}>€{d.revenue}</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Supplier Quality Tab */}
+      {tab==="supplier"&&(
+        <div style={{background:"#FFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #F0F0F0"}}>
+            <div style={{fontSize:13,fontWeight:700}}>Supplier Quality Report</div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:"#F8F9FA"}}>
+                  {["Supplier","Calls","Answered","ASR","ACD (avg)","Revenue"].map((h,i)=>(
+                    <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
+                      fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                      borderBottom:"1px solid #EEE"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.supplier_stats||[]).length===0
+                  ?<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999"}}>No supplier data yet</td></tr>
+                  :(data?.supplier_stats||[]).map((s,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{s.trunk_name||"—"}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#333"}}>{s.calls}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#10B981"}}>{s.answered}</td>
+                      <td style={{padding:"10px 14px"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:asrColor(s.asr)+"15",color:asrColor(s.asr)}}>
+                          {s.asr}%
+                        </span>
+                      </td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:acdColor(s.acd),fontWeight:600}}>{s.acd}s</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#F5A623",fontWeight:700,fontFamily:"monospace"}}>€{parseFloat(s.revenue||0).toFixed(4)}</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Hourly Traffic Tab */}
+      {tab==="hourly"&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Hourly Traffic Distribution</div>
+          {(data?.hourly||[]).length===0
+            ?<div style={{textAlign:"center",padding:40,color:"#999"}}>No hourly data yet</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {Array.from({length:24},(_,h)=>{
+                const found=(data?.hourly||[]).find(x=>x.hour===h);
+                const calls=found?.calls||0;
+                const maxCalls=Math.max(...(data?.hourly||[]).map(x=>x.calls),1);
+                return(
+                  <div key={h} style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{width:40,fontSize:11,color:"#999",flexShrink:0,textAlign:"right"}}>{String(h).padStart(2,"0")}:00</div>
+                    <div style={{flex:1,height:20,background:"#F5F5F5",borderRadius:4,overflow:"hidden"}}>
+                      <div style={{height:"100%",background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
+                        borderRadius:4,width:(calls/maxCalls*100)+"%",
+                        display:"flex",alignItems:"center",paddingLeft:6,minWidth:calls>0?30:0}}>
+                        {calls>0&&<span style={{fontSize:10,color:"#FFF",fontWeight:700}}>{calls}</span>}
+                      </div>
+                    </div>
+                    <div style={{width:30,fontSize:11,color:"#999",flexShrink:0}}>{calls}</div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* Dead DIDs Tab */}
+      {tab==="dead"&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Dead DIDs</div>
+          <div style={{fontSize:12,color:"#999",marginBottom:14}}>Numbers with no calls in the last 7 days</div>
+          {(data?.dead_dids||[]).length===0
+            ?<div style={{textAlign:"center",padding:30,color:"#10B981",fontSize:13}}>
+              ✅ All DIDs are active!
+            </div>
+            :<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {(data?.dead_dids||[]).map((d,i)=>(
+                <span key={i} style={{padding:"6px 12px",borderRadius:20,fontSize:12,
+                  background:"rgba(239,68,68,0.08)",color:"#EF4444",
+                  border:"1px solid rgba(239,68,68,0.2)",fontFamily:"monospace"}}>
+                  {d}
+                </span>
+              ))}
+            </div>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
   const [genSaving,setGenSaving]=useState(false);
@@ -2347,7 +2575,7 @@ export default function App(){
       "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers",
       "ivr":"ivr","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","testlabs":"test-number",
-      "sipmonitor":"sip-monitor","settings":"settings",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -2526,6 +2754,7 @@ export default function App(){
       case "customers":    return <CustomersPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
+      case "quality":       return <CallQualityPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       default:             return <DashboardPage token={token}/>;
     }
