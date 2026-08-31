@@ -1442,3 +1442,91 @@ Route::post('/v1/resellers/{id}/topup', function(Request $r, $id) {
     DB::table('customers')->where('id',$id)->increment('balance',$amount);
     return response()->json(['success'=>true,'new_balance'=>DB::table('customers')->find($id)->balance??0]);
 });
+
+// ── IP Whitelist Manager ───────────────────────────────────────
+Route::get('/v1/whitelist', function() {
+    // Get UFW rules
+    exec('ufw status numbered 2>/dev/null', $ufw);
+    $rules = [];
+    foreach($ufw as $line){
+        if(preg_match('/\[\s*(\d+)\]\s+(.+?)\s+(ALLOW|DENY)\s+IN\s+(.+)/', $line, $m)){
+            $rules[] = [
+                'num'    => intval($m[1]),
+                'port'   => trim($m[2]),
+                'action' => $m[3],
+                'from'   => trim($m[4]),
+                'type'   => 'firewall',
+            ];
+        }
+    }
+    // Get Asterisk PJSIP identifies
+    $pjsip = file_get_contents('/etc/asterisk/pjsip.conf');
+    $endpoints = [];
+    preg_match_all('/\[(\w+)-identify\]\ntype=identify\nendpoint=\w+\n((?:match=.+\n?)*)/m', $pjsip, $matches, PREG_SET_ORDER);
+    foreach($matches as $m){
+        $ips = [];
+        preg_match_all('/match=(.+)/', $m[2], $ipMatches);
+        foreach($ipMatches[1] as $ip) $ips[] = trim($ip);
+        $endpoints[] = ['name'=>$m[1],'ips'=>$ips,'type'=>'asterisk'];
+    }
+    // Get failed login attempts
+    exec('grep "Invalid user\|authentication failure\|SECURITY" /var/log/asterisk/security* 2>/dev/null | tail -20', $security);
+    return response()->json([
+        'firewall_rules' => $rules,
+        'asterisk_endpoints' => $endpoints,
+        'security_log' => array_values($security),
+    ]);
+});
+
+// Add IP to UFW firewall
+Route::post('/v1/whitelist/firewall', function(Request $r) {
+    $ip = preg_replace('/[^0-9\.\/:a-fA-F]/','',$r->ip??'');
+    $port = preg_replace('/[^0-9\/a-z]/','',$r->port??'any');
+    $action = $r->action==='deny'?'deny':'allow';
+    if(!$ip) return response()->json(['error'=>'Invalid IP'],400);
+    $cmd = $port==='any' ? "ufw $action from $ip" : "ufw $action from $ip to any port $port";
+    exec($cmd.' 2>&1', $out, $code);
+    return response()->json(['success'=>$code===0,'output'=>implode("\n",$out),'cmd'=>$cmd]);
+});
+
+// Remove UFW rule by number
+Route::delete('/v1/whitelist/firewall/{num}', function($num) {
+    exec("ufw --force delete $num 2>&1", $out, $code);
+    return response()->json(['success'=>$code===0,'output'=>implode("\n",$out)]);
+});
+
+// Add IP to Asterisk PJSIP endpoint
+Route::post('/v1/whitelist/asterisk', function(Request $r) {
+    $endpoint = strtoupper(preg_replace('/[^a-zA-Z0-9_-]/','',$r->endpoint??''));
+    $ip = preg_replace('/[^0-9\.\/:a-fA-F]/','',$r->ip??'');
+    if(!$endpoint||!$ip) return response()->json(['error'=>'Invalid endpoint or IP'],400);
+    $pjsip = file_get_contents('/etc/asterisk/pjsip.conf');
+    $identifyBlock = "[$endpoint-identify]";
+    if(strpos($pjsip,$identifyBlock)!==false){
+        // Add match to existing identify block
+        $pjsip = str_replace($identifyBlock."\ntype=identify\nendpoint=$endpoint\n",
+            $identifyBlock."\ntype=identify\nendpoint=$endpoint\nmatch=$ip\n", $pjsip);
+    }
+    file_put_contents('/etc/asterisk/pjsip.conf',$pjsip);
+    exec("asterisk -rx 'module reload res_pjsip.so' 2>&1",$out);
+    return response()->json(['success'=>true,'message'=>"IP $ip added to $endpoint"]);
+});
+
+// Remove IP from Asterisk PJSIP endpoint
+Route::delete('/v1/whitelist/asterisk', function(Request $r) {
+    $ip = preg_replace('/[^0-9\.\/:a-fA-F]/','',$r->ip??'');
+    if(!$ip) return response()->json(['error'=>'Invalid IP'],400);
+    $pjsip = file_get_contents('/etc/asterisk/pjsip.conf');
+    $pjsip = preg_replace('/^match='.preg_quote($ip,'/').'$/m','',$pjsip);
+    file_put_contents('/etc/asterisk/pjsip.conf',$pjsip);
+    exec("asterisk -rx 'module reload res_pjsip.so' 2>&1",$out);
+    return response()->json(['success'=>true,'message'=>"IP $ip removed"]);
+});
+
+// Block IP completely
+Route::post('/v1/whitelist/block', function(Request $r) {
+    $ip = preg_replace('/[^0-9\.\/:a-fA-F]/','',$r->ip??'');
+    if(!$ip) return response()->json(['error'=>'Invalid IP'],400);
+    exec("ufw deny from $ip 2>&1",$out,$code);
+    return response()->json(['success'=>$code===0,'message'=>"IP $ip blocked",'output'=>implode("\n",$out)]);
+});

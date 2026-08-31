@@ -51,7 +51,8 @@ const getNavGroups=(role)=>{
     {id:"customers",label:"Customers",icon:"◷"},
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
-    ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
+    ...(isSuperAdmin?[{id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
+    {id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
 const NAV_GROUPS=[
@@ -76,6 +77,7 @@ const NAV_GROUPS=[
     {id:"customers",label:"Customers",icon:"◷"},
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
+    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
     {id:"settings",label:"Settings",icon:"⚙"},
   ]},
 ];
@@ -2809,6 +2811,288 @@ function CallQualityPage({token}){
     </div>
   );
 }
+// ── IP Whitelist Manager ──────────────────────────────────────────
+function IPWhitelistPage({token}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("firewall");
+  const [saving,setSaving]=useState(false);
+  const [result,setResult]=useState(null);
+  const [newIP,setNewIP]=useState("");
+  const [newPort,setNewPort]=useState("any");
+  const [newAction,setNewAction]=useState("allow");
+  const [newEndpoint,setNewEndpoint]=useState("");
+  const [newAsteriskIP,setNewAsteriskIP]=useState("");
+  const [blockIP,setBlockIP]=useState("");
+
+  const load=()=>{
+    setLoading(true);
+    apiFetch("/whitelist",token).then(d=>{setData(d);setLoading(false);});
+  };
+  useEffect(()=>{load();},[token]);
+
+  const addFirewall=async()=>{
+    if(!newIP){alert("Enter an IP address");return;}
+    setSaving(true);setResult(null);
+    const d=await apiFetch("/whitelist/firewall",token,{method:"POST",
+      body:JSON.stringify({ip:newIP,port:newPort,action:newAction})});
+    setResult(d);setSaving(false);setNewIP("");load();
+  };
+
+  const removeFirewall=async(num)=>{
+    if(!window.confirm("Remove this firewall rule?")) return;
+    setSaving(true);
+    const d=await apiFetch("/whitelist/firewall/"+num,token,{method:"DELETE"});
+    setResult(d);setSaving(false);load();
+  };
+
+  const addAsterisk=async()=>{
+    if(!newAsteriskIP||!newEndpoint){alert("Enter endpoint and IP");return;}
+    setSaving(true);setResult(null);
+    const d=await apiFetch("/whitelist/asterisk",token,{method:"POST",
+      body:JSON.stringify({endpoint:newEndpoint,ip:newAsteriskIP})});
+    setResult(d);setSaving(false);setNewAsteriskIP("");load();
+  };
+
+  const removeAsteriskIP=async(ip)=>{
+    if(!window.confirm("Remove IP "+ip+" from Asterisk?")) return;
+    setSaving(true);
+    const d=await apiFetch("/whitelist/asterisk",token,{method:"DELETE",
+      body:JSON.stringify({ip})});
+    setResult(d);setSaving(false);load();
+  };
+
+  const blockIPNow=async()=>{
+    if(!blockIP){alert("Enter an IP to block");return;}
+    if(!window.confirm("Block IP "+blockIP+" completely?")) return;
+    setSaving(true);setResult(null);
+    const d=await apiFetch("/whitelist/block",token,{method:"POST",
+      body:JSON.stringify({ip:blockIP})});
+    setResult(d);setSaving(false);setBlockIP("");load();
+  };
+
+  const inp={padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
+    background:"#FFF",color:"#333",fontSize:13,outline:"none",fontFamily:"inherit"};
+
+  const tabs=[
+    {id:"firewall",label:"🔥 Firewall"},
+    {id:"asterisk",label:"📡 Asterisk IPs"},
+    {id:"block",label:"🚫 Block IP"},
+    {id:"security",label:"🔐 Security Log"},
+  ];
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>IP Whitelist Manager</div>
+        <button onClick={load} style={{padding:"6px 14px",borderRadius:20,border:"none",
+          background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
+      </div>
+
+      {/* Result */}
+      {result&&(
+        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
+          <div style={{fontSize:12,fontWeight:700,color:result.success?"#10B981":"#EF4444"}}>
+            {result.success?"✅ Success":"❌ Error"}
+          </div>
+          <div style={{fontSize:12,color:"#333",marginTop:2}}>{result.message||result.output||result.error}</div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:14,flexWrap:"wrap"}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"7px 14px",borderRadius:20,border:"none",whiteSpace:"nowrap",
+              background:tab===t.id?"#2CADA6":"#F0F0F0",
+              color:tab===t.id?"#FFF":"#555",
+              fontSize:12,fontWeight:tab===t.id?700:500,cursor:"pointer",fontFamily:"inherit"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Firewall Tab */}
+      {tab==="firewall"&&(
+        <div>
+          {/* Add Rule */}
+          <div style={{background:"#FFF",borderRadius:14,padding:16,marginBottom:14,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:12}}>Add Firewall Rule</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <input value={newIP} onChange={e=>setNewIP(e.target.value)}
+                placeholder="IP address (e.g. 1.2.3.4)" style={{...inp,flex:2,minWidth:150}}/>
+              <input value={newPort} onChange={e=>setNewPort(e.target.value)}
+                placeholder="Port (any/80/443/5060)" style={{...inp,flex:1,minWidth:100}}/>
+              <select value={newAction} onChange={e=>setNewAction(e.target.value)}
+                style={{...inp,cursor:"pointer"}}>
+                <option value="allow">Allow</option>
+                <option value="deny">Deny</option>
+              </select>
+              <button onClick={addFirewall} disabled={saving}
+                style={{padding:"9px 18px",borderRadius:10,border:"none",
+                  background:newAction==="deny"?"#EF4444":"#10B981",
+                  color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+                {saving?"Adding...":"Add Rule"}
+              </button>
+            </div>
+          </div>
+          {/* Rules List */}
+          <div style={{background:"#FFF",borderRadius:14,overflow:"hidden",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{padding:"12px 16px",borderBottom:"1px solid #F0F0F0",
+              fontSize:13,fontWeight:700,color:"#1A1A1A"}}>
+              Active Firewall Rules ({(data?.firewall_rules||[]).length})
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{background:"#F8F9FA"}}>
+                    {["#","Port/Service","Action","From","Remove"].map((h,i)=>(
+                      <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
+                        fontWeight:600,textAlign:"left",borderBottom:"1px solid #EEE"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999"}}>Loading...</td></tr>
+                  :(data?.firewall_rules||[]).map((r,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#999"}}>{r.num}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>{r.port}</td>
+                      <td style={{padding:"10px 14px"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:r.action==="ALLOW"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                          color:r.action==="ALLOW"?"#10B981":"#EF4444"}}>
+                          {r.action}
+                        </span>
+                      </td>
+                      <td style={{padding:"10px 14px",fontSize:12,fontFamily:"monospace",color:"#333"}}>{r.from}</td>
+                      <td style={{padding:"10px 14px"}}>
+                        <button onClick={()=>removeFirewall(r.num)}
+                          style={{padding:"4px 10px",borderRadius:8,border:"1px solid #EF4444",
+                            background:"#FFF",color:"#EF4444",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Asterisk IPs Tab */}
+      {tab==="asterisk"&&(
+        <div>
+          {/* Add IP */}
+          <div style={{background:"#FFF",borderRadius:14,padding:16,marginBottom:14,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:12}}>Add IP to Endpoint</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <select value={newEndpoint} onChange={e=>setNewEndpoint(e.target.value)}
+                style={{...inp,flex:1,minWidth:120,cursor:"pointer"}}>
+                <option value="">Select endpoint...</option>
+                {(data?.asterisk_endpoints||[]).map(e=>(
+                  <option key={e.name} value={e.name}>{e.name}</option>
+                ))}
+              </select>
+              <input value={newAsteriskIP} onChange={e=>setNewAsteriskIP(e.target.value)}
+                placeholder="IP address" style={{...inp,flex:2,minWidth:150}}/>
+              <button onClick={addAsterisk} disabled={saving}
+                style={{padding:"9px 18px",borderRadius:10,border:"none",
+                  background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+                {saving?"Adding...":"Add IP"}
+              </button>
+            </div>
+          </div>
+          {/* Endpoints */}
+          {(data?.asterisk_endpoints||[]).map((ep,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:14,padding:16,marginBottom:10,
+              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <span style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>{ep.name}</span>
+                <span style={{fontSize:11,color:"#999",background:"#F0F0F0",
+                  padding:"2px 8px",borderRadius:10}}>{ep.ips.length} IPs</span>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {ep.ips.map((ip,j)=>(
+                  <div key={j} style={{display:"flex",alignItems:"center",gap:6,
+                    padding:"5px 12px",borderRadius:20,
+                    background:"rgba(44,173,166,0.08)",border:"1px solid rgba(44,173,166,0.2)"}}>
+                    <span style={{fontSize:12,fontFamily:"monospace",color:"#2CADA6",fontWeight:600}}>{ip}</span>
+                    <button onClick={()=>removeAsteriskIP(ip)}
+                      style={{background:"none",border:"none",cursor:"pointer",
+                        color:"#EF4444",fontSize:14,padding:0,lineHeight:1}}>×</button>
+                  </div>
+                ))}
+                {ep.ips.length===0&&<span style={{fontSize:12,color:"#999"}}>No IPs configured</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Block IP Tab */}
+      {tab==="block"&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:20,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:8}}>Block IP Address</div>
+          <div style={{fontSize:12,color:"#999",marginBottom:16}}>
+            Immediately block an IP from accessing your server via UFW firewall
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <input value={blockIP} onChange={e=>setBlockIP(e.target.value)}
+              placeholder="Enter IP to block (e.g. 1.2.3.4)"
+              style={{...inp,flex:1}}
+              onKeyDown={e=>e.key==="Enter"&&blockIPNow()}/>
+            <button onClick={blockIPNow} disabled={saving}
+              style={{padding:"9px 18px",borderRadius:10,border:"none",
+                background:"#EF4444",color:"#FFF",fontSize:13,fontWeight:700,
+                cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
+              {saving?"Blocking...":"🚫 Block Now"}
+            </button>
+          </div>
+          <div style={{background:"#FFF9F9",border:"1px solid #FFCDD2",borderRadius:8,padding:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#EF4444",marginBottom:4}}>⚠ Warning</div>
+            <div style={{fontSize:12,color:"#666"}}>
+              Blocking an IP will prevent ALL access from that IP — including SIP calls, web, and SSH.
+              Make sure you don't block your own IP!
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Security Log Tab */}
+      {tab==="security"&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:16,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:14}}>
+            Security Log (Recent Events)
+          </div>
+          {(data?.security_log||[]).length===0
+            ?<div style={{textAlign:"center",padding:30,color:"#10B981",fontSize:13}}>
+              ✅ No security events found
+            </div>
+            :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {(data?.security_log||[]).map((log,i)=>(
+                <div key={i} style={{padding:"8px 12px",borderRadius:8,fontSize:11,
+                  fontFamily:"monospace",color:"#EF4444",
+                  background:"rgba(239,68,68,0.05)",border:"1px solid rgba(239,68,68,0.1)"}}>
+                  {log}
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
   const [genSaving,setGenSaving]=useState(false);
@@ -3435,7 +3719,7 @@ export default function App(){
       "customers":"customers","resellers":"resellers","resellers":"resellers",
       "test-number":"testlabs",
       "sip-monitor":"sipmonitor",
-      "settings":"settings",
+      "settings":"settings","ipwhitelist":"ip-whitelist","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist",
     };
     return routes[path]||"dashboard";
   };
@@ -3446,7 +3730,7 @@ export default function App(){
       "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
-      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -3630,6 +3914,7 @@ export default function App(){
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "quality":       return <CallQualityPage token={token}/>;
+      case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       default:             return <DashboardPage token={token}/>;
     }
