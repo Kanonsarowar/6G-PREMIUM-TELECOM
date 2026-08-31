@@ -1199,3 +1199,95 @@ Route::get('/v1/did-performance', function() {
         'dids' => $didStats->values(),
     ]);
 });
+
+// ── Bulk DID Management ────────────────────────────────────────
+// Bulk delete DIDs
+Route::post('/v1/dids/bulk-delete', function(Request $r) {
+    $ids = $r->ids ?? [];
+    if(empty($ids)) return response()->json(['error'=>'No IDs provided'],400);
+    $deleted = DB::table('dids')->whereIn('id',$ids)->delete();
+    return response()->json(['success'=>true,'deleted'=>$deleted]);
+});
+
+// Bulk assign supplier
+Route::post('/v1/dids/bulk-supplier', function(Request $r) {
+    $ids = $r->ids ?? [];
+    $trunk_id = $r->trunk_id;
+    if(empty($ids)||!$trunk_id) return response()->json(['error'=>'Missing ids or trunk_id'],400);
+    $updated = DB::table('dids')->whereIn('id',$ids)->update(['trunk_id'=>$trunk_id,'updated_at'=>now()]);
+    return response()->json(['success'=>true,'updated'=>$updated]);
+});
+
+// Bulk assign IVR
+Route::post('/v1/dids/bulk-ivr', function(Request $r) {
+    $ids = $r->ids ?? [];
+    $ivr = $r->ivr_context;
+    if(empty($ids)||!$ivr) return response()->json(['error'=>'Missing ids or ivr_context'],400);
+    $updated = DB::table('dids')->whereIn('id',$ids)->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+    // Update Asterisk extensions
+    $numbers = DB::table('dids')->whereIn('id',$ids)->pluck('number');
+    return response()->json(['success'=>true,'updated'=>$updated,'numbers'=>$numbers]);
+});
+
+// Upload CSV/Excel of DIDs
+Route::post('/v1/dids/bulk-upload', function(Request $r) {
+    if(!$r->hasFile('file')) return response()->json(['error'=>'No file uploaded'],400);
+    $file = $r->file('file');
+    $content = file_get_contents($file->getRealPath());
+    $lines = array_filter(explode("\n", str_replace("\r","",$content)));
+    $imported=0; $skipped=0; $errors=[];
+    $trunkId = $r->trunk_id ?? null;
+    $rate = $r->rate ?? 0.07;
+    $currency = $r->currency ?? 'EUR';
+
+    foreach($lines as $i=>$line){
+        if($i===0 && stripos($line,'number')!==false) continue; // skip header
+        $cols = str_getcsv($line);
+        $num = trim($cols[0] ?? '');
+        if(!$num) continue;
+        $num = preg_replace('/[^0-9+]/','',$num);
+        if(!str_starts_with($num,'+')) $num='+'.$num;
+        if(strlen($num)<8){$errors[]=$num." (too short)";continue;}
+        if(DB::table('dids')->where('number',$num)->orWhere('number',ltrim($num,'+'))->exists()){$skipped++;continue;}
+
+        // Auto detect country
+        $countryCode='XX'; $countryName='Unknown';
+        $stripped=ltrim($num,'+');
+        $prefixMap=['39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
+            '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
+            '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'593'=>['EC','Ecuador'],
+            '998'=>['UZ','Uzbekistan'],'995'=>['GE','Georgia'],'882'=>['SAT','Satellite'],
+            '88'=>['SAT','Satellite']];
+        foreach([3,2,1] as $len){
+            $p=substr($stripped,0,$len);
+            if(isset($prefixMap[$p])){$countryCode=$prefixMap[$p][0];$countryName=$prefixMap[$p][1];break;}
+        }
+        DB::table('dids')->insert([
+            'number'=>$num,'trunk_id'=>$trunkId,'country_code'=>$countryCode,
+            'country_name'=>$countryName,'rate'=>$rate,'currency'=>$currency,
+            'status'=>'active','ivr_context'=>'custom/6g-premium-telecom',
+            'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        $imported++;
+    }
+    return response()->json(['success'=>true,'imported'=>$imported,'skipped'=>$skipped,
+        'errors'=>array_slice($errors,0,10),'message'=>"$imported imported, $skipped skipped"]);
+});
+
+// Export DIDs as CSV
+Route::get('/v1/dids/export-csv', function() {
+    $dids = DB::table('dids')
+        ->leftJoin('trunks','dids.trunk_id','=','trunks.id')
+        ->select('dids.number','dids.country_name','dids.rate','dids.currency',
+            'trunks.nickname as supplier','dids.status','dids.ivr_context','dids.created_at')
+        ->get();
+    $csv = "Number,Country,Rate,Currency,Supplier,Status,IVR,Created\n";
+    foreach($dids as $d){
+        $csv .= implode(',',[
+            $d->number,$d->country_name,$d->rate,$d->currency,
+            $d->supplier??'—',$d->status,$d->ivr_context,$d->created_at
+        ])."\n";
+    }
+    return response($csv,200,['Content-Type'=>'text/csv',
+        'Content-Disposition'=>'attachment; filename="dids-export-'.date('Y-m-d').'.csv"']);
+});

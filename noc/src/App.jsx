@@ -40,6 +40,7 @@ const getNavGroups=(role)=>{
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
     {id:"didinventory",label:"Numbers",icon:"▤"},
     {id:"didperformance",label:"DID Report",icon:"📈"},
+    {id:"bulkdid",label:"Bulk Manager",icon:"⚡"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
@@ -62,6 +63,7 @@ const NAV_GROUPS=[
     {id:"suppliers",label:"Suppliers",icon:"⬡"},
     {id:"didinventory",label:"Numbers",icon:"▤"},
     {id:"didperformance",label:"DID Report",icon:"📈"},
+    {id:"bulkdid",label:"Bulk Manager",icon:"⚡"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
@@ -1232,6 +1234,279 @@ function SuppliersPage({token}){
           </div>
         )}
       </div>
+    </div>
+  );
+}
+// ── Bulk DID Management ───────────────────────────────────────────
+function BulkDIDPage({token}){
+  const [dids,setDids]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
+  const [ivrs,setIvrs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [selected,setSelected]=useState(new Set());
+  const [uploading,setUploading]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [result,setResult]=useState(null);
+  const [tab,setTab]=useState("manage");
+  const [bulkAction,setBulkAction]=useState("");
+  const [bulkValue,setBulkValue]=useState("");
+  const [uploadFile,setUploadFile]=useState(null);
+  const [uploadTrunk,setUploadTrunk]=useState("");
+  const [uploadRate,setUploadRate]=useState("0.070");
+  const [uploadCurrency,setUploadCurrency]=useState("EUR");
+
+  const load=()=>{
+    Promise.all([
+      apiFetch("/dids",token),
+      apiFetch("/suppliers",token),
+      apiFetch("/ivr-lib/audio",token),
+    ]).then(([d,s,i])=>{
+      setDids(d.data||[]);
+      setSuppliers(s.data||[]);
+      setIvrs(i.data||[]);
+      setLoading(false);
+    });
+  };
+  useEffect(()=>{load();},[token]);
+
+  const toggleSelect=(id)=>{
+    setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  };
+  const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
+  const clearAll=()=>setSelected(new Set());
+
+  const applyBulk=async()=>{
+    if(selected.size===0){alert("Select at least one DID");return;}
+    if(!bulkAction){alert("Choose an action");return;}
+    if(!bulkValue){alert("Choose a value");return;}
+    setSaving(true);
+    const ids=[...selected];
+    let d;
+    if(bulkAction==="supplier"){
+      d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",body:JSON.stringify({ids,trunk_id:bulkValue})});
+    } else if(bulkAction==="ivr"){
+      d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids,ivr_context:bulkValue})});
+    } else if(bulkAction==="delete"){
+      if(!window.confirm("Delete "+selected.size+" DIDs?")) {setSaving(false);return;}
+      d=await apiFetch("/dids/bulk-delete",token,{method:"POST",body:JSON.stringify({ids})});
+    }
+    setResult(d);setSaving(false);clearAll();load();
+  };
+
+  const uploadCSV=async()=>{
+    if(!uploadFile){alert("Select a CSV file");return;}
+    setUploading(true);setResult(null);
+    const fd=new FormData();
+    fd.append("file",uploadFile);
+    if(uploadTrunk) fd.append("trunk_id",uploadTrunk);
+    fd.append("rate",uploadRate);
+    fd.append("currency",uploadCurrency);
+    const r=await fetch("https://6g-premium-telecom.com/api/v1/dids/bulk-upload",{
+      method:"POST",
+      headers:{Authorization:"Bearer "+token},
+      body:fd
+    });
+    const d=await r.json();
+    setResult(d);setUploading(false);load();
+  };
+
+  const exportCSV=()=>{
+    window.open("https://6g-premium-telecom.com/api/v1/dids/export-csv?token="+token,"_blank");
+  };
+
+  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
+    background:"#FFF",color:"#333",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Bulk DID Management</div>
+        <button onClick={exportCSV}
+          style={{padding:"8px 16px",borderRadius:20,border:"2px solid #2CADA6",
+            background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          ⬇ Export CSV
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:16}}>
+        {[["manage","Manage DIDs"],["upload","Upload CSV"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{padding:"8px 18px",borderRadius:20,border:"none",
+              background:tab===t?"#2CADA6":"#F0F0F0",
+              color:tab===t?"#FFF":"#555",fontSize:13,fontWeight:tab===t?700:400,
+              cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+        ))}
+      </div>
+
+      {/* Result Banner */}
+      {result&&(
+        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
+          <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444"}}>
+            {result.success?"✅ Success":"❌ Error"}
+          </div>
+          <div style={{fontSize:12,color:"#333",marginTop:2}}>{result.message||result.error}</div>
+        </div>
+      )}
+
+      {/* Manage Tab */}
+      {tab==="manage"&&(
+        <>
+          {/* Bulk Actions Bar */}
+          <div style={{background:"#FFF",borderRadius:12,padding:14,marginBottom:14,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+              Bulk Actions — {selected.size} selected
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <select style={{...inp,flex:1,minWidth:120}} value={bulkAction} onChange={e=>setBulkAction(e.target.value)}>
+                <option value="">Choose action...</option>
+                <option value="supplier">Assign Supplier</option>
+                <option value="ivr">Assign IVR</option>
+                <option value="delete">Delete</option>
+              </select>
+              {bulkAction==="supplier"&&(
+                <select style={{...inp,flex:1,minWidth:120}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
+                  <option value="">Choose supplier...</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                </select>
+              )}
+              {bulkAction==="ivr"&&(
+                <select style={{...inp,flex:1,minWidth:120}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
+                  <option value="">Choose IVR...</option>
+                  {ivrs.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
+                </select>
+              )}
+              {bulkAction==="delete"&&(
+                <input style={{...inp,flex:1}} value="Confirm delete selected" readOnly
+                  onClick={()=>setBulkValue("confirm")}/>
+              )}
+              <button onClick={applyBulk} disabled={saving||selected.size===0}
+                style={{padding:"9px 18px",borderRadius:20,border:"none",
+                  background:bulkAction==="delete"?"#EF4444":"#2CADA6",
+                  color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                {saving?"Applying...":"Apply"}
+              </button>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:8}}>
+              <button onClick={selectAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #2CADA6",
+                background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Select All</button>
+              <button onClick={clearAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
+                background:"#FFF",color:"#666",fontSize:11,fontWeight:600,cursor:"pointer"}}>Clear</button>
+              <span style={{fontSize:11,color:"#999",alignSelf:"center"}}>{dids.length} total DIDs</span>
+            </div>
+          </div>
+
+          {/* DID List */}
+          {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+          :dids.length===0
+          ?<div style={{background:"#FFF",borderRadius:14,padding:40,textAlign:"center",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:32,marginBottom:8}}>📱</div>
+            <div style={{color:"#999",fontSize:13}}>No DIDs yet</div>
+          </div>
+          :<div style={{background:"#FFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{background:"#F8F9FA"}}>
+                    <th style={{padding:"10px 12px",width:40}}>
+                      <input type="checkbox" checked={selected.size===dids.length&&dids.length>0}
+                        onChange={e=>e.target.checked?selectAll():clearAll()}
+                        style={{accentColor:"#2CADA6"}}/>
+                    </th>
+                    {["Number","Country","Supplier","IVR","Rate","Status"].map((h,i)=>(
+                      <th key={i} style={{padding:"10px 12px",fontSize:11,color:"#9A9A9A",
+                        fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                        borderBottom:"1px solid #EEE"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dids.map((d,i)=>(
+                    <tr key={d.id} style={{borderBottom:"1px solid #F5F5F5",
+                      background:selected.has(d.id)?"rgba(44,173,166,0.05)":i%2===0?"#FFF":"#FAFAFA",
+                      cursor:"pointer"}} onClick={()=>toggleSelect(d.id)}>
+                      <td style={{padding:"10px 12px"}}>
+                        <input type="checkbox" checked={selected.has(d.id)} onChange={()=>toggleSelect(d.id)}
+                          style={{accentColor:"#2CADA6"}}/>
+                      </td>
+                      <td style={{padding:"10px 12px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>{d.number}</td>
+                      <td style={{padding:"10px 12px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                      <td style={{padding:"10px 12px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.trunk_id||"—"}</td>
+                      <td style={{padding:"10px 12px",fontSize:11,color:"#555",
+                        maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {(d.ivr_context||"—").replace("custom/","")}
+                      </td>
+                      <td style={{padding:"10px 12px",fontSize:12,color:"#F5A623",fontFamily:"monospace"}}>€{parseFloat(d.rate||0).toFixed(3)}</td>
+                      <td style={{padding:"10px 12px"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                          color:d.status==="active"?"#10B981":"#EF4444"}}>
+                          {d.status||"active"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>}
+        </>
+      )}
+
+      {/* Upload Tab */}
+      {tab==="upload"&&(
+        <div style={{background:"#FFF",borderRadius:14,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Upload CSV File</div>
+          <div style={{background:"#F8F9FA",border:"2px dashed #E0E0E0",borderRadius:12,
+            padding:30,textAlign:"center",marginBottom:16,cursor:"pointer"}}
+            onClick={()=>document.getElementById("csv-upload").click()}>
+            <div style={{fontSize:32,marginBottom:8}}>📂</div>
+            <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:4}}>
+              {uploadFile?uploadFile.name:"Click to select CSV file"}
+            </div>
+            <div style={{fontSize:12,color:"#999"}}>One phone number per line, E.164 format (+393199052141)</div>
+            <input id="csv-upload" type="file" accept=".csv,.txt" style={{display:"none"}}
+              onChange={e=>setUploadFile(e.target.files[0])}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Assign to Supplier</div>
+              <select style={inp} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
+                <option value="">Auto-detect</option>
+                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
+              <select style={inp} value={uploadCurrency} onChange={e=>setUploadCurrency(e.target.value)}>
+                <option value="EUR">EUR (€)</option>
+                <option value="USD">USD ($)</option>
+                <option value="SAR">SAR (﷼)</option>
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Default Rate/min</div>
+              <input style={inp} value={uploadRate} onChange={e=>setUploadRate(e.target.value)} placeholder="0.070"/>
+            </div>
+          </div>
+          <button onClick={uploadCSV} disabled={uploading||!uploadFile}
+            style={{width:"100%",padding:"12px",borderRadius:10,border:"none",
+              background:uploading?"#999":"#2CADA6",color:"#FFF",fontSize:14,
+              fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+            {uploading?"Uploading...":"⬆ Upload & Import"}
+          </button>
+          <div style={{marginTop:14,padding:12,background:"#F8F9FA",borderRadius:8,fontSize:12,color:"#666"}}>
+            <strong>CSV Format:</strong> One number per line<br/>
+            <code style={{fontSize:11,color:"#2CADA6"}}>+393199052141</code><br/>
+            <code style={{fontSize:11,color:"#2CADA6"}}>+447700900000</code><br/>
+            Country is auto-detected from number prefix.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2704,7 +2979,7 @@ export default function App(){
       "cdr":"cdr","cdr-analytics":"cdr",
       "revenue":"revenue",
       "suppliers":"suppliers",
-      "numbers":"didinventory","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance",
+      "numbers":"didinventory","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance","bulk-did":"bulkdid","bulk-manager":"bulkdid",
       "ivr":"ivr","ivr-library":"ivr",
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
@@ -2719,7 +2994,7 @@ export default function App(){
   const navigateTo=(p)=>{
     const urlMap={
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
-      "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance",
+      "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","testlabs":"test-number",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings",
@@ -2896,6 +3171,7 @@ export default function App(){
       case "suppliers":    return <SuppliersPage token={token}/>;
       case "didinventory": return <DIDInventoryPage token={token}/>;
       case "didperformance":return <DIDPerformancePage token={token}/>;
+      case "bulkdid":       return <BulkDIDPage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
