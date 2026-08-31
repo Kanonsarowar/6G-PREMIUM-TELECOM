@@ -39,6 +39,7 @@ const getNavGroups=(role)=>{
   {key:"voice",label:"Voice",items:[
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
     {id:"didinventory",label:"Numbers",icon:"▤"},
+    {id:"didperformance",label:"DID Report",icon:"📈"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
@@ -60,6 +61,7 @@ const NAV_GROUPS=[
   {key:"voice",label:"Voice",items:[
     {id:"suppliers",label:"Suppliers",icon:"⬡"},
     {id:"didinventory",label:"Numbers",icon:"▤"},
+    {id:"didperformance",label:"DID Report",icon:"📈"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
@@ -1230,6 +1232,151 @@ function SuppliersPage({token}){
           </div>
         )}
       </div>
+    </div>
+  );
+}
+// ── DID Performance ───────────────────────────────────────────────
+function DIDPerformancePage({token}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [filter,setFilter]=useState("all");
+  const [search,setSearch]=useState("");
+  const [sort,setSort]=useState("total_calls");
+
+  useEffect(()=>{
+    apiFetch("/did-performance",token).then(d=>{setData(d);setLoading(false);});
+  },[token]);
+
+  const asrColor=(asr)=>asr>=70?"#10B981":asr>=40?"#F5A623":"#EF4444";
+  const statusBg=(s)=>s==="good"?"rgba(16,185,129,0.1)":s==="fair"?"rgba(245,158,11,0.1)":"rgba(239,68,68,0.1)";
+  const statusColor=(s)=>s==="good"?"#10B981":s==="fair"?"#F59E0B":"#EF4444";
+
+  const dids=(data?.dids||[])
+    .filter(d=>{
+      if(filter==="dead") return d.is_dead;
+      if(filter==="poor") return d.status==="poor";
+      if(filter==="good") return d.status==="good";
+      return true;
+    })
+    .filter(d=>!search||(d.did||"").includes(search)||(d.supplier||"").toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>b[sort]-a[sort]);
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>DID Performance</div>
+        <button onClick={()=>{setLoading(true);apiFetch("/did-performance",token).then(d=>{setData(d);setLoading(false);});}}
+          style={{padding:"6px 14px",borderRadius:20,border:"none",background:"#2CADA6",
+            color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
+      </div>
+
+      {/* Summary Cards */}
+      {data&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {label:"Total DIDs",value:data.summary?.total_dids||0,color:"#3B82F6"},
+          {label:"Active DIDs",value:data.summary?.active_dids||0,color:"#10B981"},
+          {label:"Dead DIDs",value:data.summary?.dead_dids||0,color:"#EF4444"},
+          {label:"Poor Quality",value:data.summary?.poor_dids||0,color:"#F59E0B"},
+          {label:"Top DID",value:data.summary?.top_did||"—",color:"#8B5CF6"},
+          {label:"Top Revenue",value:"€"+(data.summary?.top_revenue||0),color:"#2CADA6"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
+            <div style={{fontSize:16,fontWeight:800,color:s.color,fontFamily:"monospace",
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{loading?"...":s.value}</div>
+            <div style={{fontSize:10,color:"#999",marginTop:2,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
+          </div>
+        ))}
+      </div>}
+
+      {/* Filters + Search */}
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="Search DID or supplier..."
+          style={{flex:1,minWidth:150,padding:"8px 12px",borderRadius:20,
+            border:"1px solid #E0E0E0",background:"#FFF",fontSize:13,outline:"none"}}/>
+        <select value={sort} onChange={e=>setSort(e.target.value)}
+          style={{padding:"8px 12px",borderRadius:20,border:"1px solid #E0E0E0",
+            background:"#FFF",fontSize:12,outline:"none",cursor:"pointer"}}>
+          <option value="total_calls">Sort: Most Calls</option>
+          <option value="total_revenue">Sort: Most Revenue</option>
+          <option value="asr">Sort: Best ASR</option>
+          <option value="avg_duration">Sort: Longest Calls</option>
+        </select>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {[["all","All"],["good","✅ Good"],["fair","⚠️ Fair"],["poor","❌ Poor"],["dead","💀 Dead"]].map(([f,l])=>(
+          <button key={f} onClick={()=>setFilter(f)}
+            style={{padding:"5px 14px",borderRadius:20,border:"none",fontSize:12,
+              background:filter===f?"#2CADA6":"#F0F0F0",
+              color:filter===f?"#FFF":"#555",fontWeight:filter===f?700:400,
+              cursor:"pointer",fontFamily:"inherit"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* DID Table */}
+      {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+      :<div style={{background:"#FFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:"#F8F9FA"}}>
+                {["DID","Supplier","Calls","Answered","ASR","Avg Dur","Minutes","Revenue","Last Call","Status"].map((h,i)=>(
+                  <th key={i} style={{padding:"10px 12px",fontSize:11,color:"#9A9A9A",
+                    fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                    borderBottom:"1px solid #EEE",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dids.length===0
+                ?<tr><td colSpan={10} style={{padding:40,textAlign:"center",color:"#999"}}>
+                  No DID performance data yet — data appears after calls are received
+                </td></tr>
+                :dids.map((d,i)=>(
+                  <tr key={i} style={{borderBottom:"1px solid #F5F5F5",
+                    background:d.is_dead?"#FFF9F9":i%2===0?"#FFF":"#FAFAFA"}}>
+                    <td style={{padding:"10px 12px",fontSize:12,fontFamily:"monospace",
+                      fontWeight:600,color:"#1A1A1A",whiteSpace:"nowrap"}}>{d.did}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier||"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#333"}}>{d.total_calls}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#10B981"}}>{d.answered}</td>
+                    <td style={{padding:"10px 12px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                        background:asrColor(d.asr)+"15",color:asrColor(d.asr)}}>
+                        {d.asr}%
+                      </span>
+                    </td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#555"}}>{d.avg_duration}s</td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#555",fontFamily:"monospace"}}>{d.total_minutes}m</td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#F5A623",fontWeight:700,fontFamily:"monospace"}}>€{d.total_revenue}</td>
+                    <td style={{padding:"10px 12px",fontSize:11,color:"#999",whiteSpace:"nowrap"}}>
+                      {d.last_call?(d.last_call||"").slice(0,10):"Never"}
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      {d.is_dead
+                        ?<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:"rgba(107,114,128,0.1)",color:"#6B7280"}}>💀 Dead</span>
+                        :<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:statusBg(d.status),color:statusColor(d.status)}}>
+                          {d.status==="good"?"✅ Good":d.status==="fair"?"⚠️ Fair":"❌ Poor"}
+                        </span>
+                      }
+                    </td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+        <div style={{padding:"10px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
+          fontSize:12,color:"#999"}}>
+          Showing {dids.length} DIDs · ASR: Good ≥70% · Fair 40-70% · Poor &lt;40%
+        </div>
+      </div>}
     </div>
   );
 }
@@ -2557,7 +2704,7 @@ export default function App(){
       "cdr":"cdr","cdr-analytics":"cdr",
       "revenue":"revenue",
       "suppliers":"suppliers",
-      "numbers":"didinventory","did-inventory":"didinventory",
+      "numbers":"didinventory","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance",
       "ivr":"ivr","ivr-library":"ivr",
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
@@ -2572,7 +2719,7 @@ export default function App(){
   const navigateTo=(p)=>{
     const urlMap={
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
-      "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers",
+      "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance",
       "ivr":"ivr","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","testlabs":"test-number",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings",
@@ -2748,6 +2895,7 @@ export default function App(){
       case "revenue":      return <RevenuePage token={token}/>;
       case "suppliers":    return <SuppliersPage token={token}/>;
       case "didinventory": return <DIDInventoryPage token={token}/>;
+      case "didperformance":return <DIDPerformancePage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;

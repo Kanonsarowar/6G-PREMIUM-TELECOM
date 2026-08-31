@@ -1150,3 +1150,52 @@ Route::get('/v1/quality/overview', function() {
         'hourly'       => $hourly,
     ]);
 });
+
+// ── DID Performance Report ─────────────────────────────────────
+Route::get('/v1/did-performance', function() {
+    // DID stats from CDRs
+    $didStats = DB::table('cdrs')
+        ->select(
+            'did',
+            DB::raw('COUNT(*) as total_calls'),
+            DB::raw('SUM(CASE WHEN disposition="ANSWERED" THEN 1 ELSE 0 END) as answered'),
+            DB::raw('SUM(CASE WHEN disposition!="ANSWERED" THEN 1 ELSE 0 END) as failed'),
+            DB::raw('AVG(billsec) as avg_duration'),
+            DB::raw('SUM(billsec) as total_seconds'),
+            DB::raw('SUM(revenue) as total_revenue'),
+            DB::raw('MAX(call_start) as last_call'),
+            DB::raw('trunk_name as supplier')
+        )
+        ->groupBy('did','trunk_name')
+        ->orderByDesc('total_calls')
+        ->get()
+        ->map(function($d){
+            $d->asr = $d->total_calls>0 ? round($d->answered/$d->total_calls*100,1) : 0;
+            $d->avg_duration = round($d->avg_duration,1);
+            $d->total_minutes = round($d->total_seconds/60,2);
+            $d->total_revenue = round($d->total_revenue,4);
+            $d->status = $d->asr >= 70 ? 'good' : ($d->asr >= 40 ? 'fair' : 'poor');
+            // Check if dead (no calls in 7 days)
+            $d->is_dead = $d->last_call ? \Carbon\Carbon::parse($d->last_call)->lt(now()->subDays(7)) : true;
+            return $d;
+        });
+
+    // Summary stats
+    $totalDids = DB::table('dids')->count();
+    $activeDids = $didStats->where('is_dead',false)->count();
+    $deadDids = $didStats->where('is_dead',true)->count();
+    $topDid = $didStats->sortByDesc('total_revenue')->first();
+    $poorDids = $didStats->where('status','poor')->count();
+
+    return response()->json([
+        'summary' => [
+            'total_dids'  => $totalDids,
+            'active_dids' => $activeDids,
+            'dead_dids'   => $deadDids,
+            'poor_dids'   => $poorDids,
+            'top_did'     => $topDid?->did ?? '—',
+            'top_revenue' => $topDid?->total_revenue ?? 0,
+        ],
+        'dids' => $didStats->values(),
+    ]);
+});
