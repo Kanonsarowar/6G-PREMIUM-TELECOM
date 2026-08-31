@@ -602,15 +602,18 @@ function CDRPage({token}){
 function RevenuePage({token}){
   const [data,setData]=useState({usd:{calls:0,minutes:0,revenue:0},eur:{calls:0,minutes:0,revenue:0},total_calls:0,total_minutes:0});
   const [supRevenue,setSupRevenue]=useState([]);
+  const [cdrs,setCdrs]=useState([]);
   const [invoices,setInvoices]=useState([]);
   const [supInvoices,setSupInvoices]=useState([]);
   const [genSaving,setGenSaving]=useState(false);
   const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("overview");
 
-  useEffect(()=>{
+  const load=()=>{
     apiFetch("/billing/supplier-revenue",token).then(d=>setSupRevenue(d.data||[]));
     apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
     apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
+    apiFetch("/cdr?per_page=200",token).then(d=>setCdrs(d.data||[]));
     apiFetch("/billing/revenue-by-currency",token).then(d=>{
       setData({
         usd:{calls:d.usd?.calls||0,minutes:parseFloat(d.usd?.minutes||0).toFixed(2),revenue:parseFloat(d.usd?.revenue||0).toFixed(4)},
@@ -620,168 +623,299 @@ function RevenuePage({token}){
       });
       setLoading(false);
     });
-  },[token]);
+  };
+  useEffect(()=>{load();},[token]);
+
+  // Daily revenue chart from CDRs
+  const dailyData=()=>{
+    const days={};
+    cdrs.forEach(c=>{
+      const day=(c.call_start||c.created_at||"").slice(0,10);
+      if(!day) return;
+      if(!days[day]) days[day]={date:day,calls:0,revenue:0,minutes:0};
+      days[day].calls++;
+      days[day].revenue+=parseFloat(c.revenue||0);
+      days[day].minutes+=parseInt(c.billsec||c.duration||0)/60;
+    });
+    return Object.values(days).sort((a,b)=>a.date.localeCompare(b.date)).slice(-14);
+  };
+
+  // Country breakdown
+  const countryData=()=>{
+    const countries={};
+    cdrs.forEach(c=>{
+      const country=c.country_name||c.country||"Unknown";
+      if(!countries[country]) countries[country]={country,calls:0,revenue:0};
+      countries[country].calls++;
+      countries[country].revenue+=parseFloat(c.revenue||0);
+    });
+    return Object.values(countries).sort((a,b)=>b.revenue-a.revenue).slice(0,8);
+  };
+
+  const daily=dailyData();
+  const countries=countryData();
+  const maxRev=Math.max(...daily.map(d=>d.revenue),0.01);
+  const maxCountryRev=Math.max(...countries.map(c=>c.revenue),0.01);
+  const totalRevEur=parseFloat(data.eur.revenue||0);
+  const totalRevUsd=parseFloat(data.usd.revenue||0);
+
+  const tabs=[
+    {id:"overview",label:"Overview"},
+    {id:"daily",label:"Daily Chart"},
+    {id:"country",label:"By Country"},
+    {id:"supplier",label:"By Supplier"},
+    {id:"invoices",label:"Invoices"},
+  ];
 
   return(
-    <div style={{padding:16}}>
-      <div style={{marginBottom:16,fontSize:16,fontWeight:800}}>Revenue</div>
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Revenue Analytics</div>
+        <span style={{fontSize:11,color:"#999",background:"#F0F0F0",padding:"4px 12px",borderRadius:20}}>
+          {cdrs.length} CDR records
+        </span>
+      </div>
 
-      {/* Dual Wallet */}
+      {/* Wallet Cards */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        {/* USD Wallet */}
-        <Card style={{padding:16,border:`1px solid ${C.yellow}30`,background:`${C.yellow}05`}}>
-          <div style={{fontSize:9,color:C.yellow,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:8}}>
-            💵 USD Wallet
-          </div>
-          <div style={{fontSize:24,fontWeight:900,color:C.yellow,fontFamily:"monospace",marginBottom:4}}>
+        <div style={{background:"linear-gradient(135deg,#F5A623,#F59E0B)",borderRadius:14,padding:16,
+          boxShadow:"0 4px 16px rgba(245,166,35,0.3)"}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💵 USD WALLET</div>
+          <div style={{fontSize:28,fontWeight:800,color:"#FFFFFF",fontFamily:"monospace",marginBottom:4}}>
             ${loading?"...":data.usd.revenue}
           </div>
-          <div style={{fontSize:9,color:C.muted,marginBottom:8}}>United States Dollar</div>
-          <div style={{borderTop:`1px solid rgba(255,255,255,0.07)`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
-              <span style={{color:C.muted}}>Calls</span>
-              <span style={{color:C.text,fontFamily:"monospace"}}>{data.usd.calls}</span>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
-              <span style={{color:C.muted}}>Minutes</span>
-              <span style={{color:C.text,fontFamily:"monospace"}}>{data.usd.minutes}</span>
-            </div>
+          <div style={{display:"flex",gap:12,fontSize:10,color:"rgba(255,255,255,0.8)"}}>
+            <span>{data.usd.calls} calls</span>
+            <span>{data.usd.minutes} min</span>
           </div>
-        </Card>
-
-        {/* EUR Wallet */}
-        <Card style={{padding:16,border:`1px solid ${C.blue}30`,background:`${C.blue}05`}}>
-          <div style={{fontSize:9,color:C.blue,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:8}}>
-            💶 EUR Wallet
-          </div>
-          <div style={{fontSize:24,fontWeight:900,color:C.blue,fontFamily:"monospace",marginBottom:4}}>
+        </div>
+        <div style={{background:"linear-gradient(135deg,#3B82F6,#2563EB)",borderRadius:14,padding:16,
+          boxShadow:"0 4px 16px rgba(59,130,246,0.3)"}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💶 EUR WALLET</div>
+          <div style={{fontSize:28,fontWeight:800,color:"#FFFFFF",fontFamily:"monospace",marginBottom:4}}>
             €{loading?"...":data.eur.revenue}
           </div>
-          <div style={{fontSize:9,color:C.muted,marginBottom:8}}>Euro</div>
-          <div style={{borderTop:`1px solid rgba(255,255,255,0.07)`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
-              <span style={{color:C.muted}}>Calls</span>
-              <span style={{color:C.text,fontFamily:"monospace"}}>{data.eur.calls}</span>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
-              <span style={{color:C.muted}}>Minutes</span>
-              <span style={{color:C.text,fontFamily:"monospace"}}>{data.eur.minutes}</span>
-            </div>
+          <div style={{display:"flex",gap:12,fontSize:10,color:"rgba(255,255,255,0.8)"}}>
+            <span>{data.eur.calls} calls</span>
+            <span>{data.eur.minutes} min</span>
           </div>
-        </Card>
+        </div>
       </div>
 
-      {/* Total Stats */}
-      <Card style={{padding:14,marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Total Summary</div>
+      {/* Summary Row */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
         {[
-          ["Total Calls",data.total_calls,C.blue],
-          ["Total Minutes",data.total_minutes,C.cyan],
-          ["USD Balance",`$${data.usd.revenue}`,C.yellow],
-          ["EUR Balance",`€${data.eur.revenue}`,C.green],
-        ].map(([k,v,col])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:col,fontFamily:"monospace",fontWeight:700}}>{v}</span>
+          {label:"Total Calls",value:data.total_calls,color:"#2CADA6"},
+          {label:"Total Minutes",value:data.total_minutes,color:"#8B5CF6"},
+          {label:"Total Revenue",value:"€"+totalRevEur.toFixed(4),color:"#10B981"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#FFFFFF",borderRadius:12,padding:"12px 14px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
+            <div style={{fontSize:18,fontWeight:800,color:s.color,fontFamily:"monospace"}}>{loading?"...":s.value}</div>
+            <div style={{fontSize:10,color:"#999",marginTop:2,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
           </div>
         ))}
-      </Card>
-
-      {/* Supplier Revenue Table */}
-      <div style={{fontSize:11,fontWeight:700,marginBottom:8}}>Supplier Revenue Report</div>
-      <Card style={{overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1.5fr 50px 70px 80px 60px",
-          padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderBottom:`1px solid ${C.border}`}}>
-          {["Supplier","DIDs","Calls","Revenue","Cur"].map(h=>(
-            <div key={h} style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</div>
-          ))}
-        </div>
-        {(supRevenue||[]).length===0
-          ?<div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>No data yet</div>
-          :(supRevenue||[]).map((s,i)=>(
-            <div key={i} style={{display:"grid",gridTemplateColumns:"1.5fr 50px 70px 80px 60px",
-              padding:"10px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`,alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:12,fontWeight:700,color:C.text}}>{s.nickname||s.supplier||"—"}</div>
-                <div style={{fontSize:9,color:C.muted,fontFamily:"monospace"}}>{s.supplier}</div>
-              </div>
-              <span style={{fontSize:11,color:C.purple,fontFamily:"monospace"}}>{s.unique_dids||0}</span>
-              <span style={{fontSize:11,color:C.blue,fontFamily:"monospace"}}>{s.calls||0}</span>
-              <span style={{fontSize:11,fontWeight:700,fontFamily:"monospace",
-                color:s.currency==="USD"?C.yellow:C.green}}>
-                {s.currency==="USD"?`$`:`€`}{parseFloat(s.revenue||0).toFixed(4)}
-              </span>
-              <span style={{fontSize:9,padding:"2px 6px",borderRadius:10,fontWeight:700,
-                background:s.currency==="USD"?`${C.yellow}15`:`${C.blue}15`,
-                color:s.currency==="USD"?C.yellow:C.blue}}>
-                {s.currency||"USD"}
-              </span>
-            </div>
-          ))
-        }
-      </Card>
-
-      {/* Invoices Section */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"16px 0 8px"}}>
-        <div style={{fontSize:11,fontWeight:700}}>Weekly Invoices</div>
-        <button disabled={genSaving} onClick={async()=>{
-          setGenSaving(true);
-          const d=await apiFetch("/invoices/generate-weekly",token,{method:"POST"});
-          if(d.success){
-            alert(d.message);
-            apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
-    apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
-          }
-          setGenSaving(false);
-        }}
-          style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.cyan}40`,
-            background:`${C.cyan}15`,color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          {genSaving?"Generating...":"⚡ Generate Now"}
-        </button>
       </div>
-      <Card style={{overflow:"hidden",marginBottom:8}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 60px 70px 80px 60px 70px",
-          padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderBottom:`1px solid ${C.border}`}}>
-          {["Invoice #","Cur","Calls","Amount","Status","Period"].map(h=>(
-            <div key={h} style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"7px 14px",borderRadius:20,border:"none",whiteSpace:"nowrap",
+              background:tab===t.id?"#2CADA6":"#F0F0F0",
+              color:tab===t.id?"#FFFFFF":"#555",
+              fontSize:12,fontWeight:tab===t.id?700:500,cursor:"pointer",fontFamily:"inherit"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview Tab */}
+      {tab==="overview"&&(
+        <div style={{background:"#FFFFFF",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:14}}>Revenue Summary</div>
+          {[
+            ["Total Calls",data.total_calls,"#2CADA6"],
+            ["Total Minutes",data.total_minutes,"#8B5CF6"],
+            ["EUR Revenue","€"+totalRevEur.toFixed(4),"#10B981"],
+            ["USD Revenue","$"+totalRevUsd.toFixed(4),"#F5A623"],
+            ["Avg Revenue/Call",cdrs.length>0?"€"+(totalRevEur/cdrs.length).toFixed(4):"€0","#3B82F6"],
+            ["Answered Calls",cdrs.filter(c=>c.disposition==="ANSWERED").length,"#10B981"],
+            ["Failed Calls",cdrs.filter(c=>c.disposition!=="ANSWERED").length,"#EF4444"],
+            ["ASR",cdrs.length>0?Math.round(cdrs.filter(c=>c.disposition==="ANSWERED").length/cdrs.length*100)+"%":"0%","#F5A623"],
+          ].map(([k,v,col])=>(
+            <div key={k} style={{display:"flex",justifyContent:"space-between",
+              padding:"9px 0",borderBottom:"1px solid #F5F5F5"}}>
+              <span style={{fontSize:13,color:"#666"}}>{k}</span>
+              <span style={{fontSize:13,color:col,fontWeight:700,fontFamily:"monospace"}}>{v}</span>
+            </div>
           ))}
         </div>
-        {invoices.length===0
-          ?<div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>
-            No invoices yet — auto-generated every Sunday 00:01 UTC
-          </div>
-          :invoices.slice(0,10).map((inv,i)=>(
-            <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 60px 70px 80px 60px 70px",
-              padding:"10px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`,alignItems:"center"}}>
-              <span style={{fontSize:10,fontFamily:"monospace",color:C.blue}}>{inv.invoice_number}</span>
-              <span style={{fontSize:10,padding:"2px 6px",borderRadius:10,fontWeight:700,
-                background:inv.currency==="USD"?`${C.yellow}15`:`${C.blue}15`,
-                color:inv.currency==="USD"?C.yellow:C.blue}}>{inv.currency}</span>
-              <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{inv.total_calls}</span>
-              <span style={{fontSize:11,fontWeight:700,color:inv.currency==="USD"?C.yellow:C.green,fontFamily:"monospace"}}>
-                {inv.currency==="USD"?"$":"€"}{parseFloat(inv.total_amount||0).toFixed(4)}
-              </span>
-              <button onClick={async()=>{
-                const newStatus=inv.status==="paid"?"unpaid":"paid";
-                await apiFetch(`/invoices/${inv.id}/status`,token,{method:"PUT",body:JSON.stringify({status:newStatus})});
-                apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
-    apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
-              }}
-                style={{fontSize:9,padding:"2px 8px",borderRadius:10,cursor:"pointer",fontWeight:700,
-                  background:inv.status==="paid"?`${C.green}15`:`${C.orange}15`,
-                  color:inv.status==="paid"?C.green:C.orange,
-                  border:`1px solid ${inv.status==="paid"?C.green:C.orange}30`}}>
-                {(inv.status||"unpaid").toUpperCase()}
-              </button>
-              <span style={{fontSize:9,color:C.muted}}>{(inv.period_start||"").slice(5)}</span>
+      )}
+
+      {/* Daily Chart Tab */}
+      {tab==="daily"&&(
+        <div style={{background:"#FFFFFF",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:14}}>Daily Revenue (Last 14 Days)</div>
+          {daily.length===0
+            ?<div style={{textAlign:"center",padding:40,color:"#999"}}>No data yet</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {daily.map((d,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:80,fontSize:11,color:"#999",flexShrink:0}}>{d.date.slice(5)}</div>
+                  <div style={{flex:1,height:24,background:"#F5F5F5",borderRadius:6,overflow:"hidden",position:"relative"}}>
+                    <div style={{height:"100%",background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
+                      borderRadius:6,width:(d.revenue/maxRev*100)+"%",
+                      display:"flex",alignItems:"center",paddingLeft:8,minWidth:40}}>
+                      <span style={{fontSize:10,color:"#FFF",fontWeight:700,whiteSpace:"nowrap"}}>€{d.revenue.toFixed(4)}</span>
+                    </div>
+                  </div>
+                  <div style={{width:50,fontSize:11,color:"#999",textAlign:"right",flexShrink:0}}>{d.calls} calls</div>
+                </div>
+              ))}
             </div>
-          ))
-        }
-      </Card>
+          }
+        </div>
+      )}
+
+      {/* Country Tab */}
+      {tab==="country"&&(
+        <div style={{background:"#FFFFFF",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:14}}>Revenue by Country</div>
+          {countries.length===0
+            ?<div style={{textAlign:"center",padding:40,color:"#999"}}>No data yet</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {countries.map((c,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:100,fontSize:12,color:"#333",fontWeight:600,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.country}</div>
+                  <div style={{flex:1,height:24,background:"#F5F5F5",borderRadius:6,overflow:"hidden"}}>
+                    <div style={{height:"100%",borderRadius:6,
+                      background:["#2CADA6","#8B5CF6","#F5A623","#3B82F6","#10B981","#EF4444","#F97316","#06B6D4"][i%8],
+                      width:(c.revenue/maxCountryRev*100)+"%",
+                      display:"flex",alignItems:"center",paddingLeft:8,minWidth:50}}>
+                      <span style={{fontSize:10,color:"#FFF",fontWeight:700}}>€{c.revenue.toFixed(4)}</span>
+                    </div>
+                  </div>
+                  <div style={{width:50,fontSize:11,color:"#999",textAlign:"right",flexShrink:0}}>{c.calls}</div>
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* Supplier Tab */}
+      {tab==="supplier"&&(
+        <div style={{background:"#FFFFFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #F0F0F0"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>Revenue by Supplier</div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:"#F8F9FA"}}>
+                  {["Supplier","DIDs","Calls","Minutes","Revenue","Currency"].map((h,i)=>(
+                    <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
+                      fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                      borderBottom:"1px solid #EEEEEE"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {supRevenue.length===0
+                  ?<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999"}}>No supplier revenue data</td></tr>
+                  :supRevenue.map((s,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{s.nickname||s.supplier||"—"}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#8B5CF6",fontFamily:"monospace"}}>{s.unique_dids||0}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#3B82F6",fontFamily:"monospace"}}>{s.calls||0}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:"#555",fontFamily:"monospace"}}>{parseFloat(s.minutes||0).toFixed(2)}</td>
+                      <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,
+                        color:s.currency==="USD"?"#F5A623":"#10B981",fontFamily:"monospace"}}>
+                        {s.currency==="USD"?"$":"€"}{parseFloat(s.revenue||0).toFixed(4)}
+                      </td>
+                      <td style={{padding:"10px 14px"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                          background:s.currency==="USD"?"rgba(245,166,35,0.1)":"rgba(16,185,129,0.1)",
+                          color:s.currency==="USD"?"#F5A623":"#10B981"}}>
+                          {s.currency||"USD"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Invoices Tab */}
+      {tab==="invoices"&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>Weekly Invoices</div>
+            <button disabled={genSaving} onClick={async()=>{
+              setGenSaving(true);
+              const d=await apiFetch("/invoices/generate-weekly",token,{method:"POST"});
+              if(d.success){alert(d.message);load();}
+              setGenSaving(false);
+            }} style={{padding:"8px 16px",borderRadius:20,border:"none",
+              background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit"}}>
+              {genSaving?"Generating...":"⚡ Generate Now"}
+            </button>
+          </div>
+          <div style={{background:"#FFFFFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{background:"#F8F9FA"}}>
+                    {["Invoice #","Calls","Amount","Status","Period"].map((h,i)=>(
+                      <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
+                        fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                        borderBottom:"1px solid #EEEEEE"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.length===0
+                    ?<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>
+                      No invoices yet — auto-generated every Sunday
+                    </td></tr>
+                    :invoices.slice(0,20).map((inv,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"10px 14px",fontSize:12,color:"#3B82F6",fontFamily:"monospace",fontWeight:600}}>{inv.invoice_number}</td>
+                        <td style={{padding:"10px 14px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{inv.total_calls}</td>
+                        <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,
+                          color:inv.currency==="USD"?"#F5A623":"#10B981",fontFamily:"monospace"}}>
+                          {inv.currency==="USD"?"$":"€"}{parseFloat(inv.total_amount||0).toFixed(4)}
+                        </td>
+                        <td style={{padding:"10px 14px"}}>
+                          <button onClick={async()=>{
+                            const ns=inv.status==="paid"?"unpaid":"paid";
+                            await apiFetch("/invoices/"+inv.id+"/status",token,{method:"PUT",body:JSON.stringify({status:ns})});
+                            load();
+                          }} style={{padding:"3px 10px",borderRadius:10,cursor:"pointer",fontSize:11,fontWeight:700,border:"none",
+                            background:inv.status==="paid"?"rgba(16,185,129,0.1)":"rgba(245,158,11,0.1)",
+                            color:inv.status==="paid"?"#10B981":"#F59E0B",fontFamily:"inherit"}}>
+                            {(inv.status||"unpaid").toUpperCase()}
+                          </button>
+                        </td>
+                        <td style={{padding:"10px 14px",fontSize:11,color:"#999"}}>{(inv.period_start||"").slice(0,10)}</td>
+                      </tr>
+                    ))
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
 // ── Suppliers ─────────────────────────────────────────────────────
 function SuppliersPage({token}){
   const [suppliers,setSuppliers]=useState([]);
