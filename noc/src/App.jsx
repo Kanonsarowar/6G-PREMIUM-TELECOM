@@ -1611,9 +1611,7 @@ function DIDInventoryPage({token}){
                                   <span style={{fontSize:12,fontWeight:700,color:"#1A1A1A",fontFamily:"monospace"}}>
                                     {r.prefix||r.range_start}
                                   </span>
-                                  <span style={{fontSize:11,color:"#AAA",marginLeft:5}}>
-                                    ({r.total_count||nums.length} numbers)
-                                  </span>
+                                  <span style={{fontSize:11,color:"#AAA",marginLeft:5}}>({r.total_count||nums.length})</span>
                                 </div>
                               </div>
                             </td>
