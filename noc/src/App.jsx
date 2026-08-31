@@ -124,7 +124,7 @@ function MobileDrawer({page,setPage,user,logout,onClose}){
               {g.items.map(n=>{
                 const active=page===n.id;
                 return(
-                  <button key={n.id} onClick={()=>{setPage(n.id);onClose();}}
+                  <button key={n.id} onClick={()=>{navigateTo(n.id);onClose();}}
                     style={{display:"flex",alignItems:"center",gap:12,width:"100%",
                       padding:"13px 16px",borderRadius:12,marginBottom:2,cursor:"pointer",
                       background:active?"#2CADA6":"transparent",
@@ -207,7 +207,7 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
             {g.items.map(n=>{
               const active=page===n.id;
               return(
-                <button key={n.id} onClick={()=>setPage(n.id)}
+                <button key={n.id} onClick={()=>navigateTo(n.id)}
                   title={!open?n.label:undefined}
                   style={{display:"flex",alignItems:"center",gap:12,width:"100%",
                     padding:open?"12px 16px":"13px 0",
@@ -2178,7 +2178,38 @@ function SIPMonitorPage({token}){
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("noc_token")||"");
   const [user,setUser]=useState(null);
-  const [page,setPage]=useState("dashboard");
+  const getPageFromUrl=()=>{
+    const path=window.location.pathname.replace("/","").replace(/\/$/,"");
+    const routes={
+      "":"dashboard","dashboard":"dashboard",
+      "live-calls":"livecalls","livecalls":"livecalls",
+      "cdr":"cdr","cdr-analytics":"cdr",
+      "revenue":"revenue",
+      "suppliers":"suppliers",
+      "numbers":"didinventory","did-inventory":"didinventory",
+      "ivr":"ivr","ivr-library":"ivr",
+      "connect-ivr":"connectivr",
+      "route-prefix":"routeprefix",
+      "customers":"customers",
+      "test-number":"testlabs",
+      "sip-monitor":"sipmonitor",
+      "settings":"settings",
+    };
+    return routes[path]||"dashboard";
+  };
+  const [page,setPage]=useState(getPageFromUrl());
+  const navigateTo=(p)=>{
+    const urlMap={
+      "dashboard":"","livecalls":"live-calls","cdr":"cdr",
+      "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers",
+      "ivr":"ivr","connectivr":"connect-ivr","routeprefix":"route-prefix",
+      "customers":"customers","testlabs":"test-number",
+      "sipmonitor":"sip-monitor","settings":"settings",
+    };
+    const url="/"+( urlMap[p]||p);
+    window.history.pushState({},"",url);
+    setPage(p);
+  };
   const [username,setUsername]=useState("");
   const [pass,setPass]=useState("");
   const [error,setError]=useState("");
