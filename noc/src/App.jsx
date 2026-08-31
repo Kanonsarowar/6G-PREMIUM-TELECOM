@@ -1629,11 +1629,12 @@ function DIDInventoryPage({token}){
                             ?<tr><td colSpan={6} style={{padding:"4px 10px 4px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#FAFAFA"}}>No numbers in this range</td></tr>
                             :nums.map((d,di)=>(
                               <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
-                                <td colSpan={5} style={{padding:"3px 10px 3px 37px"}}>
+                                <td style={{padding:"3px 10px 3px 37px"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
                                   <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
                                 </td>
-                                <td style={{padding:"4px 10px",textAlign:"center"}}>
+                                <td colSpan={4}/>
+                                <td style={{padding:"3px 10px",textAlign:"center"}}>
                                   <button onClick={(e)=>deleteDid(d.id,e)}
                                     style={{background:"none",border:"1px solid #CCC",borderRadius:3,
                                       cursor:"pointer",fontSize:11,color:"#642A91",padding:"1px 5px"}}>🗑</button>
