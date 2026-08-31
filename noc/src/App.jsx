@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-const API = "http://6g-premium-telecom.com/api/v1";
+const API = "https://6g-premium-telecom.com/api/v1";
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={hasError:false,error:""}; }
   static getDerivedStateFromError(e){ return {hasError:true,error:e.message}; }
