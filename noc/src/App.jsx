@@ -1801,8 +1801,8 @@ function DIDInventoryPage({token}){
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
               <thead>
                 <tr>
-                  {["NUMBERS","COUNTRY","IVR","TARIFF","PAYMENT TERMS","SUPPLIER","DEL"].map((h,i)=>(
-                    <th key={i} style={{...thS,textAlign:i>=3&&i<=4?"center":"left"}}>{h}</th>
+                  {["NUMBERS","COUNTRY","TARIFF","PAYMENT TERMS","SUPPLIER","DEL"].map((h,i)=>(
+                    <th key={i} style={{...thS,textAlign:i>=2&&i<=3?"center":"left"}}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1849,19 +1849,7 @@ function DIDInventoryPage({token}){
                             {(r.country_name||"—").replace("ITLAY","Italy")}
                             {r.has_rules&&<span style={{color:"#642A91"}}>*</span>}
                           </td>
-                          {/* IVR */}
-                          <td style={{padding:"10px 10px",verticalAlign:"middle",textAlign:"center"}}>
-                            <select onClick={e=>e.stopPropagation()}
-                              style={{fontSize:10,padding:"2px 4px",border:"1px solid #CCC",
-                                borderRadius:3,outline:"none",cursor:"pointer",maxWidth:80,
-                                background:"#FFF",color:"#333"}}
-                              defaultValue={r.default_ivr||""}>
-                              <option value="">- IVR -</option>
-                              {ivrs.map(i=>(
-                                <option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>
-                              ))}
-                            </select>
-                          </td>
+
                           {/* TARIFF */}
                           <td style={{padding:"10px 10px",fontSize:12,color:"#333",
                             fontFamily:"monospace",textAlign:"center",verticalAlign:"middle"}}>
@@ -1930,7 +1918,7 @@ function DIDInventoryPage({token}){
                             <tr key={d.id} style={{
                               background:di%2===0?"#FAFBFF":"#F5F3FF",
                               borderBottom:"1px solid #EEE8FF"}}>
-                              <td colSpan={5} style={{padding:"6px 10px 6px 38px"}}>
+                              <td colSpan={4} style={{padding:"6px 10px 6px 38px"}}>
                                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",
                                     color:"#1A1A1A",fontWeight:500}}>{d.number}</span>
