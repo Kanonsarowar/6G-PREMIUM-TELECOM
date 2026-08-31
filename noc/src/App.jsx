@@ -1917,7 +1917,7 @@ function DIDInventoryPage({token}){
                               <td colSpan={4} style={{padding:"4px 10px 4px 38px"}}>
                                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",
-                                    color:"#1A1A1A",fontWeight:500}}>{d.number}</span>
+                                    color:"#1A1A1A",fontWeight:500}}>{(d.number||"").replace("+","")}</span>
                                   <span style={{fontSize:10,color:"#AAA",fontFamily:"monospace"}}>
                                     {(d.created_at||"").slice(0,19)}
                                   </span>
