@@ -1667,12 +1667,23 @@ function DIDPerformancePage({token}){
 function DIDInventoryPage({token}){
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
+  const [resellers,setResellers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [expanded,setExpanded]=useState({});
   const [search,setSearch]=useState("");
+  const [assigningRange,setAssigningRange]=useState(null);
+  const [assigningDid,setAssigningDid]=useState(null);
   const load=()=>{
-    Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token)])
-    .then(([r,d])=>{setRanges(r.data||[]);setDids(d.data||[]);setLoading(false);});
+    Promise.all([
+      apiFetch("/did-ranges",token),
+      apiFetch("/dids",token),
+      apiFetch("/resellers",token),
+    ]).then(([r,d,res])=>{
+      setRanges(r.data||[]);
+      setDids(d.data||[]);
+      setResellers(res.data||[]);
+      setLoading(false);
+    });
   };
   useEffect(()=>{load();},[token]);
   const toggleRow=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
@@ -1702,11 +1713,11 @@ function DIDInventoryPage({token}){
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
             <thead>
-              <tr>{["NUMBERS","COUNTRY","SUPPLIER","TARIFF","PAYMENT TERMS","DEL"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr>
+              <tr>{["NUMBERS","COUNTRY","SUPPLIER","TARIFF","PAYMENT TERMS","RESELLER","DEL"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {filtered.length===0
-                ?<tr><td colSpan={6} style={{padding:40,textAlign:"center",color:"#999"}}>No number blocks found</td></tr>
+                ?<tr><td colSpan={7} style={{padding:40,textAlign:"center",color:"#999"}}>No number blocks found</td></tr>
                 :filtered.map((r)=>{
                   const nums=getNumbers(r);
                   const isExp=expanded[r.id];
@@ -1733,15 +1744,42 @@ function DIDInventoryPage({token}){
                         <td style={{padding:"13px 14px",fontSize:13,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"WTP"}</td>
                         <td style={{padding:"13px 14px",fontSize:13,color:"#333",fontFamily:"monospace"}}>{tariff}</td>
                         <td style={{padding:"13px 14px",fontSize:13,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
+                        <td style={{padding:"13px 14px",fontSize:12,color:"#8B5CF6",fontWeight:600}}>
+                          {r.reseller_name||"—"}
+                        </td>
                         <td style={{padding:"13px 14px",textAlign:"center"}}>
-                          <button onClick={(e)=>deleteRange(r.id,e)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9B59B6"}}>🗑</button>
+                          <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"center"}}>
+                            {assigningRange===r.id
+                              ?<select autoFocus
+                                style={{padding:"4px 8px",borderRadius:8,border:"1px solid #2CADA6",
+                                  fontSize:11,outline:"none",cursor:"pointer"}}
+                                defaultValue=""
+                                onChange={async(e)=>{
+                                  if(!e.target.value){setAssigningRange(null);return;}
+                                  await apiFetch("/dids/bulk-supplier",token,{method:"POST",
+                                    body:JSON.stringify({ids:getNumbers(r).map(d=>d.id),trunk_id:e.target.value})});
+                                  setAssigningRange(null);load();
+                                }}
+                                onBlur={()=>setAssigningRange(null)}>
+                                <option value="">Cancel</option>
+                                {resellers.map(res=><option key={res.id} value={res.id}>{res.name}</option>)}
+                              </select>
+                              :<button onClick={e=>{e.stopPropagation();setAssigningRange(r.id);}}
+                                style={{padding:"3px 8px",borderRadius:8,border:"1px solid #2CADA6",
+                                  background:"rgba(44,173,166,0.08)",color:"#2CADA6",
+                                  fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                                👤 Assign
+                              </button>
+                            }
+                            <button onClick={(e)=>deleteRange(r.id,e)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9B59B6"}}>🗑</button>
+                          </div>
                         </td>
                       </tr>
                       {isExp&&(nums.length===0
-                        ?<tr style={{background:"#FAF5FF"}}><td colSpan={6} style={{padding:"10px 14px 10px 52px",fontSize:12,color:"#999",fontStyle:"italic"}}>No individual numbers in this range</td></tr>
+                        ?<tr style={{background:"#FAF5FF"}}><td colSpan={7} style={{padding:"10px 14px 10px 52px",fontSize:12,color:"#999",fontStyle:"italic"}}>No individual numbers in this range</td></tr>
                         :nums.map((d,di)=>(
                           <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
-                            <td colSpan={6} style={{padding:"8px 14px 8px 52px"}}>
+                            <td colSpan={7} style={{padding:"8px 14px 8px 52px"}}>
                               <span style={{fontSize:12,fontFamily:"monospace",color:di%2===0?"#10B981":"#555",fontWeight:500}}>{d.number}</span>
                               <span style={{fontSize:11,color:"#AAAAAA",marginLeft:20,fontFamily:"monospace"}}>{(d.created_at||"").slice(0,19)}</span>
                             </td>
