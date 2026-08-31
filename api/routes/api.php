@@ -14,6 +14,20 @@ Route::post('/v1/auth/login', function(Request $request) {
     if(!$user || !Hash::check($request->password, $user->password))
         return response()->json(['message'=>'Invalid credentials'], 401);
     $token = $user->createToken('api')->plainTextToken;
+    // Log login
+    DB::table('audit_logs')->insert([
+        'user'       => $user->name,
+        'role'       => $user->role??'unknown',
+        'action'     => 'LOGIN',
+        'module'     => 'Auth',
+        'details'    => 'User logged in from '.$request->ip(),
+        'ip_address' => $request->ip(),
+        'method'     => 'POST',
+        'url'        => '/api/v1/auth/login',
+        'status_code'=> 200,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
     return response()->json(['token'=>$token, 'user'=>$user]);
 });
 
@@ -1529,4 +1543,48 @@ Route::post('/v1/whitelist/block', function(Request $r) {
     if(!$ip) return response()->json(['error'=>'Invalid IP'],400);
     exec("ufw deny from $ip 2>&1",$out,$code);
     return response()->json(['success'=>$code===0,'message'=>"IP $ip blocked",'output'=>implode("\n",$out)]);
+});
+
+// ── Audit Log ─────────────────────────────────────────────────
+Route::get('/v1/audit-logs', function(Request $r) {
+    $q = DB::table('audit_logs')->orderByDesc('created_at');
+    if($r->module) $q->where('module',$r->module);
+    if($r->user) $q->where('user','like','%'.$r->user.'%');
+    if($r->action) $q->where('action','like','%'.$r->action.'%');
+    if($r->from) $q->where('created_at','>=',$r->from);
+    if($r->to) $q->where('created_at','<=',$r->to.' 23:59:59');
+    $logs = $q->limit(200)->get();
+    $stats = [
+        'total'   => DB::table('audit_logs')->count(),
+        'today'   => DB::table('audit_logs')->whereDate('created_at',now())->count(),
+        'modules' => DB::table('audit_logs')->select('module',DB::raw('COUNT(*) as count'))->groupBy('module')->get(),
+        'users'   => DB::table('audit_logs')->select('user',DB::raw('COUNT(*) as count'))->groupBy('user')->orderByDesc('count')->limit(10)->get(),
+    ];
+    return response()->json(['data'=>$logs,'stats'=>$stats]);
+});
+
+// Log an action manually (from frontend)
+Route::post('/v1/audit-logs', function(Request $r) {
+    $user = $r->user();
+    DB::table('audit_logs')->insert([
+        'user'       => $user?->name??$r->user_name??'System',
+        'role'       => $user?->role??$r->role??'unknown',
+        'action'     => $r->action??'unknown',
+        'module'     => $r->module??'unknown',
+        'details'    => $r->details,
+        'ip_address' => $r->ip(),
+        'method'     => $r->method_type??'manual',
+        'url'        => $r->url_path??'',
+        'status_code'=> $r->status_code??200,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    return response()->json(['success'=>true]);
+});
+
+// Clear old logs
+Route::delete('/v1/audit-logs/clear', function(Request $r) {
+    $days = intval($r->days??30);
+    $deleted = DB::table('audit_logs')->where('created_at','<',now()->subDays($days))->delete();
+    return response()->json(['success'=>true,'deleted'=>$deleted,'message'=>"$deleted logs older than $days days deleted"]);
 });

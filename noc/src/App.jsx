@@ -52,6 +52,7 @@ const getNavGroups=(role)=>{
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
     ...(isSuperAdmin?[{id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
+    {id:"auditlog",label:"Audit Log",icon:"📜"},
     {id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
@@ -78,6 +79,7 @@ const NAV_GROUPS=[
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
     {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
+    {id:"auditlog",label:"Audit Log",icon:"📜"},
     {id:"settings",label:"Settings",icon:"⚙"},
   ]},
 ];
@@ -2811,6 +2813,196 @@ function CallQualityPage({token}){
     </div>
   );
 }
+// ── Audit Log ─────────────────────────────────────────────────────
+function AuditLogPage({token}){
+  const [logs,setLogs]=useState([]);
+  const [stats,setStats]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [filterModule,setFilterModule]=useState("");
+  const [filterUser,setFilterUser]=useState("");
+  const [filterFrom,setFilterFrom]=useState("");
+  const [filterTo,setFilterTo]=useState("");
+  const [clearing,setClearing]=useState(false);
+  const [result,setResult]=useState(null);
+
+  const load=()=>{
+    setLoading(true);
+    const params=new URLSearchParams();
+    if(filterModule) params.set("module",filterModule);
+    if(filterUser) params.set("user",filterUser);
+    if(filterFrom) params.set("from",filterFrom);
+    if(filterTo) params.set("to",filterTo);
+    apiFetch("/audit-logs?"+params.toString(),token).then(d=>{
+      setLogs(d.data||[]);setStats(d.stats||null);setLoading(false);
+    });
+  };
+  useEffect(()=>{load();},[token]);
+
+  const clearOldLogs=async(days)=>{
+    if(!window.confirm("Delete logs older than "+days+" days?")) return;
+    setClearing(true);
+    const d=await apiFetch("/audit-logs/clear?days="+days,token,{method:"DELETE"});
+    setResult(d);setClearing(false);load();
+  };
+
+  const actionColor=(action)=>{
+    const a=action?.toUpperCase();
+    if(a==="LOGIN") return "#10B981";
+    if(a==="DELETE") return "#EF4444";
+    if(a==="CREATE"||a==="POST") return "#3B82F6";
+    if(a==="UPDATE"||a==="PUT") return "#F5A623";
+    return "#8B5CF6";
+  };
+
+  const modules=[...new Set(logs.map(l=>l.module).filter(Boolean))];
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Audit Log</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>clearOldLogs(30)} disabled={clearing}
+            style={{padding:"6px 12px",borderRadius:20,border:"1px solid #F5A623",
+              background:"#FFF",color:"#F5A623",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+            Clear 30d+
+          </button>
+          <button onClick={load}
+            style={{padding:"6px 14px",borderRadius:20,border:"none",background:"#2CADA6",
+              color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
+        </div>
+      </div>
+
+      {/* Result */}
+      {result&&(
+        <div style={{padding:"10px 14px",borderRadius:10,marginBottom:12,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(result.success?"#10B981":"#EF4444"),fontSize:12,
+          color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
+          {result.message||result.error}
+        </div>
+      )}
+
+      {/* Stats Row */}
+      {stats&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {label:"Total Logs",value:stats.total||0,color:"#2CADA6"},
+          {label:"Today",value:stats.today||0,color:"#10B981"},
+          {label:"Modules",value:(stats.modules||[]).length,color:"#8B5CF6"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
+            <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+            <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
+          </div>
+        ))}
+      </div>}
+
+      {/* Top Users */}
+      {stats?.users?.length>0&&(
+        <div style={{background:"#FFF",borderRadius:12,padding:14,marginBottom:14,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>Most Active Users</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {(stats.users||[]).map((u,i)=>(
+              <div key={i} style={{padding:"5px 12px",borderRadius:20,
+                background:"rgba(44,173,166,0.08)",border:"1px solid rgba(44,173,166,0.2)"}}>
+                <span style={{fontSize:12,fontWeight:600,color:"#2CADA6"}}>{u.user}</span>
+                <span style={{fontSize:11,color:"#999",marginLeft:6}}>{u.count} actions</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <select value={filterModule} onChange={e=>setFilterModule(e.target.value)}
+          style={{padding:"8px 12px",borderRadius:20,border:"1px solid #E0E0E0",
+            background:"#FFF",fontSize:12,outline:"none",cursor:"pointer",flex:1,minWidth:120}}>
+          <option value="">All Modules</option>
+          {modules.map(m=><option key={m} value={m}>{m}</option>)}
+        </select>
+        <input value={filterUser} onChange={e=>setFilterUser(e.target.value)}
+          placeholder="Filter by user..." style={{padding:"8px 12px",borderRadius:20,
+            border:"1px solid #E0E0E0",background:"#FFF",fontSize:12,outline:"none",flex:1,minWidth:100}}/>
+        <input type="date" value={filterFrom} onChange={e=>setFilterFrom(e.target.value)}
+          style={{padding:"8px 12px",borderRadius:20,border:"1px solid #E0E0E0",
+            background:"#FFF",fontSize:12,outline:"none"}}/>
+        <input type="date" value={filterTo} onChange={e=>setFilterTo(e.target.value)}
+          style={{padding:"8px 12px",borderRadius:20,border:"1px solid #E0E0E0",
+            background:"#FFF",fontSize:12,outline:"none"}}/>
+        <button onClick={load}
+          style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#6B2FBF",
+            color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>Filter</button>
+      </div>
+
+      {/* Log Table */}
+      {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading audit logs...</div>
+      :<div style={{background:"#FFF",borderRadius:14,overflow:"hidden",
+        boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:"#F8F9FA"}}>
+                {["Time","User","Role","Action","Module","Details","IP"].map((h,i)=>(
+                  <th key={i} style={{padding:"10px 12px",fontSize:11,color:"#9A9A9A",
+                    fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
+                    borderBottom:"1px solid #EEE",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {logs.length===0
+                ?<tr><td colSpan={7} style={{padding:40,textAlign:"center",color:"#999"}}>
+                  No audit logs yet — logs appear after user actions
+                </td></tr>
+                :logs.map((log,i)=>(
+                  <tr key={i} style={{borderBottom:"1px solid #F5F5F5",
+                    background:i%2===0?"#FFF":"#FAFAFA"}}>
+                    <td style={{padding:"8px 12px",fontSize:11,color:"#999",whiteSpace:"nowrap"}}>
+                      {(log.created_at||"").slice(0,16)}
+                    </td>
+                    <td style={{padding:"8px 12px",fontSize:12,fontWeight:600,color:"#1A1A1A"}}>
+                      {log.user||"—"}
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                        background:"rgba(107,47,191,0.1)",color:"#6B2FBF",textTransform:"capitalize"}}>
+                        {log.role||"—"}
+                      </span>
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                        background:actionColor(log.action)+"15",color:actionColor(log.action)}}>
+                        {log.action||"—"}
+                      </span>
+                    </td>
+                    <td style={{padding:"8px 12px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
+                      {log.module||"—"}
+                    </td>
+                    <td style={{padding:"8px 12px",fontSize:11,color:"#555",
+                      maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {log.details||"—"}
+                    </td>
+                    <td style={{padding:"8px 12px",fontSize:11,fontFamily:"monospace",color:"#999"}}>
+                      {log.ip_address||"—"}
+                    </td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+        <div style={{padding:"10px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
+          fontSize:12,color:"#999",display:"flex",justifyContent:"space-between"}}>
+          <span>Showing {logs.length} of {stats?.total||0} total logs</span>
+          <span>Auto-logged: Login, API changes, Settings</span>
+        </div>
+      </div>}
+    </div>
+  );
+}
 // ── IP Whitelist Manager ──────────────────────────────────────────
 function IPWhitelistPage({token}){
   const [data,setData]=useState(null);
@@ -3719,7 +3911,7 @@ export default function App(){
       "customers":"customers","resellers":"resellers","resellers":"resellers",
       "test-number":"testlabs",
       "sip-monitor":"sipmonitor",
-      "settings":"settings","ipwhitelist":"ip-whitelist","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist",
+      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
     };
     return routes[path]||"dashboard";
   };
@@ -3730,7 +3922,7 @@ export default function App(){
       "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
-      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -3915,6 +4107,7 @@ export default function App(){
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "quality":       return <CallQualityPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
+      case "auditlog":      return <AuditLogPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       default:             return <DashboardPage token={token}/>;
     }
