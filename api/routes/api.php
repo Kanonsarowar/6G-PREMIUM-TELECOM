@@ -147,13 +147,30 @@ Route::middleware('auth:sanctum')->group(function() {
 
     Route::put('/v1/suppliers/{id}', function(Request $r, $id) {
         DB::table('trunks')->where('id',$id)->update([
-            'name'      => $r->name,
-            'host'      => $r->host,
-            'port'      => $r->port ?? 5060,
-            'transport' => $r->transport ?? 'udp',
-            'is_active' => $r->is_active ?? 1,
-            'notes'     => $r->notes,
-            'updated_at'=> now(),
+            'name'              => $r->name,
+            'nickname'          => $r->nickname,
+            'host'              => $r->host,
+            'port'              => $r->port ?? 5060,
+            'transport'         => $r->transport ?? 'udp',
+            'codecs'            => $r->codecs,
+            'is_active'         => $r->is_active ?? 1,
+            'notes'             => $r->notes,
+            'panel_url'         => $r->panel_url,
+            'panel_user'        => $r->panel_user,
+            'panel_password'    => $r->panel_password,
+            'team_link'         => $r->team_link,
+            'sales_person'      => $r->sales_person,
+            'whatsapp'          => $r->whatsapp,
+            'api_url'           => $r->api_url,
+            'api_key'           => $r->api_key,
+            'api_secret'        => $r->api_secret,
+            'api_did'           => $r->api_did ?? '0',
+            'api_livecalls'     => $r->api_livecalls ?? '0',
+            'api_cdr'           => $r->api_cdr ?? '0',
+            'api_balance'       => $r->api_balance ?? '0',
+            'api_did_path'      => $r->api_did_path,
+            'api_livecalls_path'=> $r->api_livecalls_path,
+            'updated_at'        => now(),
         ]);
         return response()->json(['data'=>DB::table('trunks')->find($id),'success'=>true]);
     });

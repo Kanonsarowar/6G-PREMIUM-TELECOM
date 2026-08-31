@@ -988,6 +988,52 @@ function SuppliersPage({token}){
                   <Field label="WhatsApp" k="whatsapp" ph="+1234567890"/>
                   <Field label="Notes" k="notes" ph="Additional notes..."/>
                 </div>
+                {/* API Integration */}
+                <div style={{borderTop:"1px solid #F0F0F0",paddingTop:12,marginTop:4,marginBottom:4}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#6B2FBF",textTransform:"uppercase",letterSpacing:"0.5px"}}>API Integration</div>
+                    <span style={{fontSize:10,color:"#999",background:"#F0F0F0",padding:"2px 8px",borderRadius:10}}>Optional</span>
+                  </div>
+                  <Field label="API Base URL" k="api_url" ph="https://api.supplier.com/v1"/>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <Field label="API Key" k="api_key" ph="your-api-key"/>
+                    <Field label="API Secret" k="api_secret" ph="your-api-secret"/>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>API Features</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                      {[
+                        {k:"api_did",label:"DID Import","icon":"📱"},
+                        {k:"api_livecalls",label:"Live Calls","icon":"📞"},
+                        {k:"api_cdr",label:"CDR Pull","icon":"📋"},
+                        {k:"api_balance",label:"Balance","icon":"💰"},
+                      ].map(f=>{
+                        const on=(form[f.k]||"0")==="1";
+                        return(
+                          <label key={f.k} style={{display:"flex",alignItems:"center",gap:6,
+                            padding:"6px 12px",borderRadius:20,cursor:"pointer",
+                            background:on?"#6B2FBF":"#F5F5F5",
+                            border:on?"none":"1px solid #E0E0E0",
+                            color:on?"#FFF":"#555",fontSize:12,fontWeight:on?700:400}}>
+                            <input type="checkbox" checked={on} style={{display:"none"}}
+                              onChange={e=>setForm(frm=>({...frm,[f.k]:e.target.checked?"1":"0"}))}/>
+                            {f.icon} {f.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>DID Endpoint Path</div>
+                    <input style={inp} value={form.api_did_path||""} placeholder="/dids or /numbers"
+                      onChange={e=>setForm(f=>({...f,api_did_path:e.target.value}))}/>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Live Calls Endpoint Path</div>
+                    <input style={inp} value={form.api_livecalls_path||""} placeholder="/livecalls or /channels"
+                      onChange={e=>setForm(f=>({...f,api_livecalls_path:e.target.value}))}/>
+                  </div>
+                </div>
                 <div style={{display:"flex",gap:8,marginTop:8}}>
                   <button onClick={()=>{setEditing(false);if(!selected)setSelected(null);}}
                     style={{flex:1,padding:"10px",borderRadius:10,border:"1px solid #DDD",
