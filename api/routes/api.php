@@ -705,3 +705,328 @@ Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
 });
 
 // Live calls from Asterisk AMI - override existing
+
+// ── Supplier API Sync ─────────────────────────────────────────
+Route::post('/v1/suppliers/{id}/sync-dids', function($id) {
+    $supplier = DB::table('trunks')->find($id);
+    if(!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+    if(!$supplier->api_url) return response()->json(['error'=>'No API URL configured'],400);
+    if(!$supplier->api_did || $supplier->api_did==='0') return response()->json(['error'=>'DID API not enabled'],400);
+
+    // Build API URL
+    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_did_path??'dids','/');
+
+    // Call supplier API
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer '.($supplier->api_key??''),
+            'X-API-Key: '.($supplier->api_key??''),
+            'Accept: application/json',
+        ],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if(!$response) return response()->json(['error'=>'Could not reach supplier API'],502);
+
+    $data = json_decode($response, true);
+    if(!$data) return response()->json(['error'=>'Invalid JSON response from supplier'],502);
+
+    // ── Universal Normalizer ──────────────────────────────────
+    // Try to find the array of numbers in response
+    $numbers = [];
+    $possibleArrayKeys = ['data','numbers','dids','items','results','list','records','numbers_list'];
+    foreach($possibleArrayKeys as $key){
+        if(isset($data[$key]) && is_array($data[$key])){
+            $numbers = $data[$key];
+            break;
+        }
+    }
+    // If response itself is array
+    if(empty($numbers) && isset($data[0])) $numbers = $data;
+
+    if(empty($numbers)) return response()->json(['error'=>'Could not find numbers in response','raw'=>substr($response,0,500)],422);
+
+    // Field name variations for each standard field
+    $fieldMap = [
+        'number'       => ['number','did','ddi','msisdn','e164','phone','phonenumber','num','cli','destination','tn'],
+        'country_code' => ['country_code','countrycode','cc','country','iso','iso2','country_iso'],
+        'country_name' => ['country_name','countryname','country','nation','country_label'],
+        'rate'         => ['rate','tariff','price','cost','buy_rate','buying_rate','rate_per_min','price_per_minute'],
+        'currency'     => ['currency','cur','currency_code','curr'],
+    ];
+
+    $imported = 0;
+    $skipped  = 0;
+    $errors   = 0;
+
+    foreach($numbers as $item){
+        if(!is_array($item)) continue;
+
+        // Normalize keys to lowercase
+        $item = array_change_key_case($item, CASE_LOWER);
+
+        // Extract each field trying all variations
+        $extracted = [];
+        foreach($fieldMap as $standard => $variations){
+            foreach($variations as $v){
+                if(isset($item[$v]) && $item[$v]!==null && $item[$v]!==''){
+                    $extracted[$standard] = $item[$v];
+                    break;
+                }
+            }
+        }
+
+        // Must have a number at minimum
+        if(empty($extracted['number'])) { $errors++; continue; }
+
+        // Normalize number format to E.164
+        $num = preg_replace('/[^0-9+]/','',$extracted['number']);
+        if(!str_starts_with($num,'+')) $num = '+'.$num;
+
+        // Skip if already exists
+        $exists = DB::table('dids')->where('number',$num)->orWhere('number',ltrim($num,'+'  ))->exists();
+        if($exists){ $skipped++; continue; }
+
+        // Detect country from number if not provided
+        $countryCode = $extracted['country_code'] ?? null;
+        $countryName = $extracted['country_name'] ?? null;
+        if(!$countryCode){
+            // Basic prefix detection
+            $prefixMap = [
+                '39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
+                '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
+                '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'86'=>['CN','China'],
+                '91'=>['IN','India'],'55'=>['BR','Brazil'],'52'=>['MX','Mexico'],
+                '880'=>['BD','Bangladesh'],'92'=>['PK','Pakistan'],'998'=>['UZ','Uzbekistan'],
+                '593'=>['EC','Ecuador'],'995'=>['GE','Georgia'],'882'=>['SAT','Satellite'],
+            ];
+            $stripped = ltrim($num,'+');
+            foreach([3,2,1] as $len){
+                $prefix = substr($stripped,0,$len);
+                if(isset($prefixMap[$prefix])){
+                    $countryCode = $prefixMap[$prefix][0];
+                    $countryName = $prefixMap[$prefix][1];
+                    break;
+                }
+            }
+        }
+
+        // Insert normalized DID
+        DB::table('dids')->insert([
+            'number'       => $num,
+            'trunk_id'     => $supplier->id,
+            'country_code' => $countryCode ?? 'XX',
+            'country_name' => $countryName ?? 'Unknown',
+            'rate'         => floatval($extracted['rate'] ?? 0),
+            'currency'     => $extracted['currency'] ?? 'USD',
+            'status'       => 'active',
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+        $imported++;
+    }
+
+    // Update last sync time
+    DB::table('trunks')->where('id',$id)->update(['updated_at'=>now()]);
+
+    return response()->json([
+        'success'  => true,
+        'imported' => $imported,
+        'skipped'  => $skipped,
+        'errors'   => $errors,
+        'total'    => count($numbers),
+        'message'  => "Sync complete: {$imported} imported, {$skipped} already exist, {$errors} failed",
+    ]);
+});
+
+// ── Supplier Live Calls Sync ───────────────────────────────────
+Route::get('/v1/suppliers/{id}/live-calls', function($id) {
+    $supplier = DB::table('trunks')->find($id);
+    if(!$supplier||!$supplier->api_url) return response()->json(['data'=>[]]);
+
+    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_livecalls_path??'livecalls','/');
+    $ch = curl_init();
+    curl_setopt_array($ch,[
+        CURLOPT_URL=>$url,
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_TIMEOUT=>10,
+        CURLOPT_HTTPHEADER=>[
+            'Authorization: Bearer '.($supplier->api_key??''),
+            'X-API-Key: '.($supplier->api_key??''),
+            'Accept: application/json',
+        ],
+    ]);
+    $response = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode($response,true);
+    return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
+});
+
+// ── Supplier API Sync ─────────────────────────────────────────
+Route::post('/v1/suppliers/{id}/sync-dids', function($id) {
+    $supplier = DB::table('trunks')->find($id);
+    if(!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+    if(!$supplier->api_url) return response()->json(['error'=>'No API URL configured'],400);
+    if(!$supplier->api_did || $supplier->api_did==='0') return response()->json(['error'=>'DID API not enabled'],400);
+
+    // Build API URL
+    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_did_path??'dids','/');
+
+    // Call supplier API
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer '.($supplier->api_key??''),
+            'X-API-Key: '.($supplier->api_key??''),
+            'Accept: application/json',
+        ],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if(!$response) return response()->json(['error'=>'Could not reach supplier API'],502);
+
+    $data = json_decode($response, true);
+    if(!$data) return response()->json(['error'=>'Invalid JSON response from supplier'],502);
+
+    // ── Universal Normalizer ──────────────────────────────────
+    // Try to find the array of numbers in response
+    $numbers = [];
+    $possibleArrayKeys = ['data','numbers','dids','items','results','list','records','numbers_list'];
+    foreach($possibleArrayKeys as $key){
+        if(isset($data[$key]) && is_array($data[$key])){
+            $numbers = $data[$key];
+            break;
+        }
+    }
+    // If response itself is array
+    if(empty($numbers) && isset($data[0])) $numbers = $data;
+
+    if(empty($numbers)) return response()->json(['error'=>'Could not find numbers in response','raw'=>substr($response,0,500)],422);
+
+    // Field name variations for each standard field
+    $fieldMap = [
+        'number'       => ['number','did','ddi','msisdn','e164','phone','phonenumber','num','cli','destination','tn'],
+        'country_code' => ['country_code','countrycode','cc','country','iso','iso2','country_iso'],
+        'country_name' => ['country_name','countryname','country','nation','country_label'],
+        'rate'         => ['rate','tariff','price','cost','buy_rate','buying_rate','rate_per_min','price_per_minute'],
+        'currency'     => ['currency','cur','currency_code','curr'],
+    ];
+
+    $imported = 0;
+    $skipped  = 0;
+    $errors   = 0;
+
+    foreach($numbers as $item){
+        if(!is_array($item)) continue;
+
+        // Normalize keys to lowercase
+        $item = array_change_key_case($item, CASE_LOWER);
+
+        // Extract each field trying all variations
+        $extracted = [];
+        foreach($fieldMap as $standard => $variations){
+            foreach($variations as $v){
+                if(isset($item[$v]) && $item[$v]!==null && $item[$v]!==''){
+                    $extracted[$standard] = $item[$v];
+                    break;
+                }
+            }
+        }
+
+        // Must have a number at minimum
+        if(empty($extracted['number'])) { $errors++; continue; }
+
+        // Normalize number format to E.164
+        $num = preg_replace('/[^0-9+]/','',$extracted['number']);
+        if(!str_starts_with($num,'+')) $num = '+'.$num;
+
+        // Skip if already exists
+        $exists = DB::table('dids')->where('number',$num)->orWhere('number',ltrim($num,'+'  ))->exists();
+        if($exists){ $skipped++; continue; }
+
+        // Detect country from number if not provided
+        $countryCode = $extracted['country_code'] ?? null;
+        $countryName = $extracted['country_name'] ?? null;
+        if(!$countryCode){
+            // Basic prefix detection
+            $prefixMap = [
+                '39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
+                '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
+                '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'86'=>['CN','China'],
+                '91'=>['IN','India'],'55'=>['BR','Brazil'],'52'=>['MX','Mexico'],
+                '880'=>['BD','Bangladesh'],'92'=>['PK','Pakistan'],'998'=>['UZ','Uzbekistan'],
+                '593'=>['EC','Ecuador'],'995'=>['GE','Georgia'],'882'=>['SAT','Satellite'],
+            ];
+            $stripped = ltrim($num,'+');
+            foreach([3,2,1] as $len){
+                $prefix = substr($stripped,0,$len);
+                if(isset($prefixMap[$prefix])){
+                    $countryCode = $prefixMap[$prefix][0];
+                    $countryName = $prefixMap[$prefix][1];
+                    break;
+                }
+            }
+        }
+
+        // Insert normalized DID
+        DB::table('dids')->insert([
+            'number'       => $num,
+            'trunk_id'     => $supplier->id,
+            'country_code' => $countryCode ?? 'XX',
+            'country_name' => $countryName ?? 'Unknown',
+            'rate'         => floatval($extracted['rate'] ?? 0),
+            'currency'     => $extracted['currency'] ?? 'USD',
+            'status'       => 'active',
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+        $imported++;
+    }
+
+    // Update last sync time
+    DB::table('trunks')->where('id',$id)->update(['updated_at'=>now()]);
+
+    return response()->json([
+        'success'  => true,
+        'imported' => $imported,
+        'skipped'  => $skipped,
+        'errors'   => $errors,
+        'total'    => count($numbers),
+        'message'  => "Sync complete: {$imported} imported, {$skipped} already exist, {$errors} failed",
+    ]);
+});
+
+// ── Supplier Live Calls Sync ───────────────────────────────────
+Route::get('/v1/suppliers/{id}/live-calls', function($id) {
+    $supplier = DB::table('trunks')->find($id);
+    if(!$supplier||!$supplier->api_url) return response()->json(['data'=>[]]);
+
+    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_livecalls_path??'livecalls','/');
+    $ch = curl_init();
+    curl_setopt_array($ch,[
+        CURLOPT_URL=>$url,
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_TIMEOUT=>10,
+        CURLOPT_HTTPHEADER=>[
+            'Authorization: Bearer '.($supplier->api_key??''),
+            'X-API-Key: '.($supplier->api_key??''),
+            'Accept: application/json',
+        ],
+    ]);
+    $response = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode($response,true);
+    return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
+});
+
