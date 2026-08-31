@@ -1626,10 +1626,10 @@ function DIDInventoryPage({token}){
                             </td>
                           </tr>
                           {isExp&&(nums.length===0
-                            ?<tr><td colSpan={6} style={{padding:"6px 10px 6px 38px",fontSize:11,color:"#999",fontStyle:"italic",background:"#FAFAFA"}}>No numbers in this range</td></tr>
+                            ?<tr><td colSpan={6} style={{padding:"4px 10px 4px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#FAFAFA"}}>No numbers in this range</td></tr>
                             :nums.map((d,di)=>(
                               <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
-                                <td colSpan={5} style={{padding:"3px 10px 3px 38px"}}>
+                                <td colSpan={5} style={{padding:"3px 10px 3px 37px"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
                                   <span style={{fontSize:10,color:"#AAA",marginLeft:12}}>{(d.created_at||"").slice(0,10)}</span>
                                 </td>
