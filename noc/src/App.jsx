@@ -1631,7 +1631,7 @@ function DIDInventoryPage({token}){
                               <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
                                 <td colSpan={5} style={{padding:"3px 10px 3px 37px"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
-                                  <span style={{fontSize:10,color:"#AAA",marginLeft:12}}>{(d.created_at||"").slice(0,10)}</span>
+                                  <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
                                 </td>
                                 <td style={{padding:"4px 10px",textAlign:"center"}}>
                                   <button onClick={(e)=>deleteDid(d.id,e)}
