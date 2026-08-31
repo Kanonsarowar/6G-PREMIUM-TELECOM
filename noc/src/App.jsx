@@ -1668,341 +1668,330 @@ function DIDInventoryPage({token}){
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
   const [resellers,setResellers]=useState([]);
+  const [ivrs,setIvrs]=useState([]);
   const [loading,setLoading]=useState(true);
   const [expanded,setExpanded]=useState({});
   const [search,setSearch]=useState("");
+  const [searchInput,setSearchInput]=useState("");
   const [assigningRange,setAssigningRange]=useState(null);
-  const [assigningDid,setAssigningDid]=useState(null);
+  const [serviceType,setServiceType]=useState("all");
+
   const load=()=>{
     Promise.all([
       apiFetch("/did-ranges",token),
       apiFetch("/dids",token),
       apiFetch("/resellers",token),
-    ]).then(([r,d,res])=>{
+      apiFetch("/ivr-lib/audio",token),
+    ]).then(([r,d,res,iv])=>{
       setRanges(r.data||[]);
       setDids(d.data||[]);
       setResellers(res.data||[]);
+      setIvrs(iv.data||[]);
       setLoading(false);
     });
   };
   useEffect(()=>{load();},[token]);
-  const toggleRow=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
+
+  const toggleRow=(id,e)=>{e.stopPropagation();setExpanded(ex=>({...ex,[id]:!ex[id]}));};
+  
   const deleteRange=async(id,e)=>{
     e.stopPropagation();
     if(!window.confirm("Delete this number block?")) return;
     await apiFetch("/did-ranges/"+id,token,{method:"DELETE"});
     load();
   };
+
+  const deleteDid=async(id,e)=>{
+    e.stopPropagation();
+    if(!window.confirm("Delete this number?")) return;
+    await apiFetch("/dids/"+id,token,{method:"DELETE"});
+    load();
+  };
+
   const getNumbers=(r)=>dids.filter(d=>{
     const n=(d.number||"").replace("+","");
     return n.startsWith(r.prefix||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
   });
-  const filtered=search?ranges.filter(r=>(r.prefix||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase())):ranges;
-  const thS={fontSize:11,color:"#9A9A9A",fontWeight:600,letterSpacing:"0.5px",padding:"12px 14px",textAlign:"left",whiteSpace:"nowrap",borderBottom:"1px solid #EEEEEE",background:"#F8F9FA"};
+
+  const applySearch=()=>setSearch(searchInput);
+
+  const filtered=search
+    ?ranges.filter(r=>(r.prefix||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase()))
+    :ranges;
+
+  const downloadExcel=()=>{
+    const rows=[["Number","Country","Tariff","Currency","Payment Terms","Supplier","IVR"]];
+    dids.forEach(d=>rows.push([d.number,d.country_name||"",d.tariff||"",d.currency||"",d.payment_terms||"",d.supplier_name||"",""]));
+    const csv=rows.map(r=>r.join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download="numbers.csv";a.click();
+  };
+
+  const thS={
+    fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"9px 10px",textAlign:"left",whiteSpace:"nowrap",
+    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",
+    textTransform:"uppercase"
+  };
+
+  const currSym=(cur)=>cur==="EUR"?"€":"$";
+
   return(
-    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Numbers</div>
-        <span style={{fontSize:11,color:"#999",background:"#F0F0F0",padding:"4px 12px",borderRadius:20}}>{dids.length} numbers</span>
+    <div style={{paddingBottom:70,minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      {/* Page Title */}
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total numbers · {ranges.length} blocks</div>
       </div>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search prefix or country..."
-        style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1px solid #E0E0E0",
-          background:"#FFF",color:"#333",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
-      {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
-      :<div style={{background:"#FFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-            <thead>
-              <tr>{["NUMBERS","COUNTRY","SUPPLIER","TARIFF","PAYMENT TERMS","RESELLER","DEL"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {filtered.length===0
-                ?<tr><td colSpan={7} style={{padding:40,textAlign:"center",color:"#999"}}>No number blocks found</td></tr>
-                :filtered.map((r)=>{
-                  const nums=getNumbers(r);
-                  const isExp=expanded[r.id];
-                  const cur=r.currency||"USD";
-                  const tariff=(cur==="EUR"?"E":"$")+parseFloat(r.rate||0).toFixed(3);
-                  return(
-                    <React.Fragment key={r.id}>
-                      <tr onClick={()=>toggleRow(r.id)}
-                        style={{borderBottom:"1px solid #F0F0F0",background:isExp?"#F8F0FF":"#FFF",cursor:"pointer"}}>
-                        <td style={{padding:"13px 14px"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10}}>
-                            <div style={{width:28,height:28,borderRadius:"50%",background:"#6B2FBF",
-                              color:"#FFF",display:"flex",alignItems:"center",justifyContent:"center",
-                              fontSize:16,fontWeight:700,flexShrink:0}}>
-                              {isExp?"−":"+"}
+
+      <div style={{padding:"12px 16px"}}>
+        {/* Search Section */}
+        <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,padding:12,marginBottom:10}}>
+          <div style={{fontSize:11,color:"#555",marginBottom:8}}>
+            Please enter Country Name / Number Range to search
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:140,position:"relative"}}>
+              <input value={searchInput} onChange={e=>setSearchInput(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&applySearch()}
+                placeholder="Search..."
+                style={{width:"100%",padding:"8px 30px 8px 10px",border:"1px solid #CCC",
+                  borderRadius:3,fontSize:12,outline:"none",boxSizing:"border-box",
+                  background:"#FFF",color:"#333",height:36}}/>
+              {searchInput&&<button onClick={()=>{setSearchInput("");setSearch("");}}
+                style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
+                  background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#999",padding:2}}>×</button>}
+            </div>
+            <select value={serviceType} onChange={e=>setServiceType(e.target.value)}
+              style={{width:140,padding:"8px 10px",border:"1px solid #CCC",borderRadius:3,
+                fontSize:12,outline:"none",cursor:"pointer",background:"#FFF",color:"#333",height:36}}>
+              <option value="all">- All -</option>
+              <option value="inbound">Inbound</option>
+              <option value="outbound">Outbound</option>
+            </select>
+            <button onClick={applySearch}
+              style={{padding:"0 18px",background:"#642A91",color:"#FFF",border:"none",
+                borderRadius:3,fontSize:11,fontWeight:600,cursor:"pointer",
+                textTransform:"uppercase",letterSpacing:"0.5px",height:36,flexShrink:0}}>
+              APPLY
+            </button>
+          </div>
+        </div>
+
+        {/* Number Block Selector */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 0"}}>
+          <div style={{width:18,height:18,borderRadius:"50%",background:"#642A91",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            color:"#FFF",fontSize:13,fontWeight:700,flexShrink:0}}>+</div>
+          <span style={{fontSize:12,color:"#555"}}>Select number blocks from list</span>
+        </div>
+
+        {/* Balance */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 0"}}>
+          <span style={{fontSize:16,color:"#642A91"}}>💳</span>
+          <span style={{fontSize:12,color:"#333"}}>
+            <strong>Balance:</strong> $0.00, €0.00
+          </span>
+        </div>
+
+        {/* Rule info */}
+        <div style={{fontSize:11,color:"#666",fontStyle:"italic",marginBottom:10}}>
+          * Click the country with an asterisk to see the rules
+        </div>
+
+        {/* Table */}
+        {loading?<div style={{background:"#FFF",padding:40,textAlign:"center",color:"#999",fontSize:12,border:"1px solid #E0E0E0"}}>Loading...</div>
+        :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:3,overflow:"hidden"}}>
+          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+              <thead>
+                <tr>
+                  {["NUMBERS","COUNTRY","IVR","TARIFF","PAYMENT TERMS","SUPPLIER","DEL"].map((h,i)=>(
+                    <th key={i} style={{...thS,textAlign:i>=3&&i<=4?"center":"left"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length===0
+                  ?<tr><td colSpan={7} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>
+                    No number blocks found
+                  </td></tr>
+                  :filtered.map((r,ri)=>{
+                    const nums=getNumbers(r);
+                    const isExp=expanded[r.id];
+                    const cur=r.currency||"EUR";
+                    const sym=currSym(cur);
+                    const tariff=sym+parseFloat(r.rate||0).toFixed(3);
+                    const supplier=r.supplier_name||"WTP";
+                    return(
+                      <React.Fragment key={r.id}>
+                        {/* Parent Row */}
+                        <tr style={{borderBottom:"1px solid #E8E8E8",
+                          background:isExp?"#F9F5FF":"#FFF",
+                          cursor:"pointer"}}
+                          onClick={(e)=>toggleRow(r.id,e)}>
+                          {/* NUMBERS */}
+                          <td style={{padding:"10px 10px",verticalAlign:"middle"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:7}}>
+                              <div style={{width:20,height:20,borderRadius:"50%",
+                                background:"#642A91",color:"#FFF",
+                                display:"flex",alignItems:"center",justifyContent:"center",
+                                fontSize:13,fontWeight:700,flexShrink:0,lineHeight:1}}>
+                                {isExp?"−":"+"}
+                              </div>
+                              <div>
+                                <span style={{fontSize:12,fontWeight:700,color:"#1A1A1A",fontFamily:"monospace"}}>
+                                  {r.prefix||r.range_start}
+                                </span>
+                                <span style={{fontSize:11,color:"#AAA",marginLeft:5}}>
+                                  ({r.total_count||nums.length} numbers)
+                                </span>
+                              </div>
                             </div>
-                            <div>
-                              <span style={{fontSize:13,fontWeight:700,color:"#1A1A1A",fontFamily:"monospace"}}>{r.prefix||r.range_start}</span>
-                              <span style={{fontSize:12,color:"#AAA",marginLeft:6}}>({r.total_count||nums.length} numbers)</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{padding:"13px 14px",fontSize:13,fontWeight:600,color:"#333"}}>{(r.country_name||"—").replace("ITLAY","Italy")}</td>
-                        <td style={{padding:"13px 14px",fontSize:13,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"WTP"}</td>
-                        <td style={{padding:"13px 14px",fontSize:13,color:"#333",fontFamily:"monospace"}}>{tariff}</td>
-                        <td style={{padding:"13px 14px",fontSize:13,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
-                        <td style={{padding:"13px 14px",fontSize:12,color:"#8B5CF6",fontWeight:600}}>
-                          {r.reseller_name||"—"}
-                        </td>
-                        <td style={{padding:"13px 14px",textAlign:"center"}}>
-                          <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"center"}}>
-                            {assigningRange===r.id
-                              ?<select autoFocus
-                                style={{padding:"4px 8px",borderRadius:8,border:"1px solid #2CADA6",
-                                  fontSize:11,outline:"none",cursor:"pointer"}}
-                                defaultValue=""
-                                onChange={async(e)=>{
-                                  if(!e.target.value){setAssigningRange(null);return;}
-                                  await apiFetch("/dids/bulk-supplier",token,{method:"POST",
-                                    body:JSON.stringify({ids:getNumbers(r).map(d=>d.id),trunk_id:e.target.value})});
-                                  setAssigningRange(null);load();
-                                }}
-                                onBlur={()=>setAssigningRange(null)}>
-                                <option value="">Cancel</option>
-                                {resellers.map(res=><option key={res.id} value={res.id}>{res.name}</option>)}
-                              </select>
-                              :<button onClick={e=>{e.stopPropagation();setAssigningRange(r.id);}}
-                                style={{padding:"3px 8px",borderRadius:8,border:"1px solid #2CADA6",
-                                  background:"rgba(44,173,166,0.08)",color:"#2CADA6",
-                                  fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-                                👤 Assign
+                          </td>
+                          {/* COUNTRY */}
+                          <td style={{padding:"10px 10px",fontSize:12,color:"#333",fontWeight:600,verticalAlign:"middle"}}>
+                            {(r.country_name||"—").replace("ITLAY","Italy")}
+                            {r.has_rules&&<span style={{color:"#642A91"}}>*</span>}
+                          </td>
+                          {/* IVR */}
+                          <td style={{padding:"10px 10px",verticalAlign:"middle",textAlign:"center"}}>
+                            <select onClick={e=>e.stopPropagation()}
+                              style={{fontSize:10,padding:"2px 4px",border:"1px solid #CCC",
+                                borderRadius:3,outline:"none",cursor:"pointer",maxWidth:80,
+                                background:"#FFF",color:"#333"}}
+                              defaultValue={r.default_ivr||""}>
+                              <option value="">- IVR -</option>
+                              {ivrs.map(i=>(
+                                <option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          {/* TARIFF */}
+                          <td style={{padding:"10px 10px",fontSize:12,color:"#333",
+                            fontFamily:"monospace",textAlign:"center",verticalAlign:"middle"}}>
+                            {tariff}
+                          </td>
+                          {/* PAYMENT TERMS */}
+                          <td style={{padding:"10px 10px",fontSize:11,color:"#555",
+                            textAlign:"center",verticalAlign:"middle"}}>
+                            {r.payment_terms||"Weekly"}
+                          </td>
+                          {/* SUPPLIER */}
+                          <td style={{padding:"10px 10px",fontSize:12,color:"#642A91",
+                            fontWeight:600,verticalAlign:"middle",maxWidth:100,
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                            title={supplier}>
+                            {supplier}
+                          </td>
+                          {/* DEL */}
+                          <td style={{padding:"10px 10px",textAlign:"center",verticalAlign:"middle"}}>
+                            <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}>
+                              {assigningRange===r.id
+                                ?<select autoFocus
+                                  style={{fontSize:10,padding:"2px 4px",border:"1px solid #642A91",
+                                    borderRadius:3,outline:"none",cursor:"pointer"}}
+                                  defaultValue=""
+                                  onChange={async(e)=>{
+                                    if(!e.target.value){setAssigningRange(null);return;}
+                                    await apiFetch("/dids/bulk-supplier",token,{method:"POST",
+                                      body:JSON.stringify({ids:nums.map(d=>d.id),trunk_id:e.target.value})});
+                                    setAssigningRange(null);load();
+                                  }}
+                                  onClick={e=>e.stopPropagation()}
+                                  onBlur={()=>setAssigningRange(null)}>
+                                  <option value="">Cancel</option>
+                                  {resellers.map(res=><option key={res.id} value={res.id}>{res.name}</option>)}
+                                </select>
+                                :<button onClick={e=>{e.stopPropagation();setAssigningRange(r.id);}}
+                                  title="Assign Reseller"
+                                  style={{background:"none",border:"1px solid #642A91",borderRadius:3,
+                                    cursor:"pointer",fontSize:10,color:"#642A91",padding:"2px 5px",
+                                    fontWeight:600,lineHeight:1}}>
+                                  👤
+                                </button>
+                              }
+                              <button onClick={(e)=>deleteRange(r.id,e)}
+                                title="Delete block"
+                                style={{background:"none",border:"1px solid #999",borderRadius:3,
+                                  cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 5px",
+                                  lineHeight:1}}>
+                                🗑
                               </button>
-                            }
-                            <button onClick={(e)=>deleteRange(r.id,e)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9B59B6"}}>🗑</button>
-                          </div>
-                        </td>
-                      </tr>
-                      {isExp&&(nums.length===0
-                        ?<tr style={{background:"#FAF5FF"}}><td colSpan={7} style={{padding:"10px 14px 10px 52px",fontSize:12,color:"#999",fontStyle:"italic"}}>No individual numbers in this range</td></tr>
-                        :nums.map((d,di)=>(
-                          <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
-                            <td colSpan={7} style={{padding:"8px 14px 8px 52px"}}>
-                              <span style={{fontSize:12,fontFamily:"monospace",color:di%2===0?"#10B981":"#555",fontWeight:500}}>{d.number}</span>
-                              <span style={{fontSize:11,color:"#AAAAAA",marginLeft:20,fontFamily:"monospace"}}>{(d.created_at||"").slice(0,19)}</span>
+                            </div>
+                          </td>
+                        </tr>
+                        {/* Child Rows */}
+                        {isExp&&(
+                          nums.length===0
+                          ?<tr style={{background:"#FAFAFA"}}>
+                            <td colSpan={7} style={{padding:"8px 10px 8px 38px",
+                              fontSize:11,color:"#999",fontStyle:"italic",
+                              borderBottom:"1px solid #F0F0F0"}}>
+                              No individual numbers in this range
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </React.Fragment>
-                  );
-                })
-              }
-            </tbody>
-          </table>
-        </div>
-        <div style={{padding:"14px 16px",borderTop:"1px solid #EEE",display:"flex",gap:10,background:"#F8F9FA",flexWrap:"wrap"}}>
-          <button style={{padding:"10px 24px",borderRadius:20,border:"none",background:"#6B2FBF",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>SAVE CHANGES</button>
-          <button onClick={()=>{
-            const rows=[["Number","Country","Tariff","Currency","Payment Terms"]];
-            dids.forEach(d=>rows.push([d.number,d.country_name||"",d.rate||"",d.currency||"",d.payment_terms||""]));
-            const csv=rows.map(r=>r.join(",")).join("\n");
-            const blob=new Blob([csv],{type:"text/csv"});
-            const url=URL.createObjectURL(blob);
-            const a=document.createElement("a");a.href=url;a.download="numbers.csv";a.click();
-          }} style={{padding:"10px 24px",borderRadius:20,border:"2px solid #6B2FBF",background:"#FFF",color:"#6B2FBF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>DOWNLOAD EXCEL</button>
-        </div>
-      </div>}
-    </div>
-  );
-}
-// ── IVR Audio Manager ─────────────────────────────────────────────
-function IVRAudioManagerPage({token}){
-  const [ivrs,setIvrs]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [uploading,setUploading]=useState(false);
-  const [selected,setSelected]=useState(null);
-  const [editing,setEditing]=useState(false);
-  const [editName,setEditName]=useState("");
-  const [result,setResult]=useState(null);
-  const [playing,setPlaying]=useState(null);
-  const audioRef=React.useRef(null);
-
-  const load=()=>{
-    apiFetch("/ivr-lib/stats",token).then(d=>{setIvrs(d.data||[]);setLoading(false);});
-  };
-  useEffect(()=>{load();},[token]);
-
-  const upload=async(file)=>{
-    if(!file) return;
-    setUploading(true);setResult(null);
-    const fd=new FormData();
-    fd.append("audio",file);
-    fd.append("name",file.name.replace(/\.[^.]+$/,"").replace(/[^a-z0-9-]/gi,"-").toLowerCase());
-    fd.append("display_name",file.name.replace(/\.[^.]+$/,""));
-    const r=await fetch("https://6g-premium-telecom.com/api/v1/ivr-lib/upload",{
-      method:"POST",headers:{Authorization:"Bearer "+token},body:fd
-    });
-    const d=await r.json();
-    setResult(d);setUploading(false);load();
-  };
-
-  const deleteIvr=async(id)=>{
-    if(!window.confirm("Delete this IVR audio?")) return;
-    await apiFetch("/ivr-lib/"+id,token,{method:"DELETE"});
-    setSelected(null);load();
-  };
-
-  const saveEdit=async()=>{
-    await apiFetch("/ivr-lib/"+selected.id,token,{method:"PUT",body:JSON.stringify({display_name:editName,is_active:selected.is_active})});
-    setEditing(false);load();
-  };
-
-  const togglePlay=(ivr)=>{
-    if(playing===ivr.id){
-      audioRef.current?.pause();setPlaying(null);
-    } else {
-      setPlaying(ivr.id);
-      if(audioRef.current){
-        audioRef.current.src="https://6g-premium-telecom.com/api/v1/ivr-lib/preview/"+ivr.id+"?token="+token;
-        audioRef.current.play().catch(()=>setPlaying(null));
-      }
-    }
-  };
-
-  const fmtSize=(bytes)=>{
-    if(!bytes) return "—";
-    if(bytes>1024*1024) return (bytes/1024/1024).toFixed(1)+"MB";
-    return (bytes/1024).toFixed(0)+"KB";
-  };
-
-  return(
-    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
-      <audio ref={audioRef} onEnded={()=>setPlaying(null)} style={{display:"none"}}/>
-
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>IVR Audio Manager</div>
-        <label style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#2CADA6",
-          color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-          {uploading?"Uploading...":"⬆ Upload Audio"}
-          <input type="file" accept=".wav,.mp3,.ogg" style={{display:"none"}}
-            onChange={e=>upload(e.target.files[0])} disabled={uploading}/>
-        </label>
+                          :nums.map((d,di)=>(
+                            <tr key={d.id} style={{
+                              background:di%2===0?"#FAFBFF":"#F5F3FF",
+                              borderBottom:"1px solid #EEE8FF"}}>
+                              <td colSpan={5} style={{padding:"6px 10px 6px 38px"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                                  <span style={{fontSize:11,fontFamily:"monospace",
+                                    color:"#1A1A1A",fontWeight:500}}>{d.number}</span>
+                                  <span style={{fontSize:10,color:"#AAA",fontFamily:"monospace"}}>
+                                    {(d.created_at||"").slice(0,19)}
+                                  </span>
+                                  {d.customer_id&&(
+                                    <span style={{fontSize:10,padding:"1px 7px",borderRadius:3,
+                                      background:"#E8E0F5",color:"#642A91",fontWeight:600}}>
+                                      {d.customer_id}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{padding:"6px 10px",fontSize:11,color:"#642A91",fontWeight:600}}>
+                                {d.supplier_name||r.supplier_name||"—"}
+                              </td>
+                              <td style={{padding:"6px 10px",textAlign:"center"}}>
+                                <button onClick={(e)=>deleteDid(d.id,e)}
+                                  style={{background:"none",border:"1px solid #CCC",borderRadius:3,
+                                    cursor:"pointer",fontSize:11,color:"#642A91",padding:"1px 5px"}}>
+                                  🗑
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>}
       </div>
 
-      {/* Result */}
-      {result&&(
-        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
-          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-          border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
-          <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444"}}>
-            {result.success?"✅ Upload Successful":"❌ Upload Failed"}
-          </div>
-          <div style={{fontSize:12,color:"#333",marginTop:2}}>{result.message||result.error}</div>
-        </div>
-      )}
-
-      {/* Upload Zone */}
-      <div style={{background:"#F8F9FA",border:"2px dashed #E0E0E0",borderRadius:12,
-        padding:24,textAlign:"center",marginBottom:16,cursor:"pointer"}}
-        onDragOver={e=>e.preventDefault()}
-        onDrop={e=>{e.preventDefault();upload(e.dataTransfer.files[0]);}}>
-        <div style={{fontSize:28,marginBottom:8}}>🎵</div>
-        <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
-          Drag & drop audio file here
-        </div>
-        <div style={{fontSize:11,color:"#999"}}>Supported: WAV, MP3, OGG · Auto-converts to 8kHz mono for Asterisk</div>
+      {/* Sticky Bottom Bar */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,
+        background:"#FFF",borderTop:"1px solid #DDD",
+        padding:"10px 16px",display:"flex",gap:10,
+        boxShadow:"0 -2px 8px rgba(0,0,0,0.08)",zIndex:50}}>
+        <button style={{padding:"9px 20px",borderRadius:4,border:"none",
+          background:"#642A91",color:"#FFF",fontSize:12,fontWeight:600,
+          cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px",fontFamily:"inherit"}}>
+          SAVE CHANGES
+        </button>
+        <button onClick={downloadExcel}
+          style={{padding:"9px 20px",borderRadius:4,
+            border:"2px solid #642A91",background:"#FFF",
+            color:"#642A91",fontSize:12,fontWeight:600,
+            cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px",fontFamily:"inherit"}}>
+          DOWNLOAD EXCEL
+        </button>
       </div>
-
-      {/* Stats Row */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-        {[
-          {label:"Total IVRs",value:ivrs.length,color:"#2CADA6"},
-          {label:"Active",value:ivrs.filter(i=>i.is_active).length,color:"#10B981"},
-          {label:"Total Calls",value:ivrs.reduce((a,i)=>a+i.calls_count,0),color:"#8B5CF6"},
-        ].map((s,i)=>(
-          <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
-            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
-            <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
-            <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* IVR List */}
-      {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {ivrs.length===0
-          ?<div style={{background:"#FFF",borderRadius:14,padding:40,textAlign:"center",
-            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:32,marginBottom:8}}>🎵</div>
-            <div style={{color:"#999",fontSize:13}}>No IVR files yet — upload your first audio</div>
-          </div>
-          :ivrs.map((ivr,i)=>(
-            <div key={ivr.id} style={{background:"#FFF",borderRadius:14,padding:16,
-              boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
-              border:selected?.id===ivr.id?"2px solid #2CADA6":"2px solid transparent"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                {/* Play Button */}
-                <button onClick={()=>togglePlay(ivr)}
-                  style={{width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,
-                    background:playing===ivr.id?"#EF4444":"#2CADA6",
-                    color:"#FFF",fontSize:18,cursor:"pointer",
-                    display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {playing===ivr.id?"⏸":"▶"}
-                </button>
-                {/* Info */}
-                <div style={{flex:1,minWidth:0}} onClick={()=>setSelected(ivr===selected?null:ivr)}>
-                  {editing&&selected?.id===ivr.id
-                    ?<input value={editName} onChange={e=>setEditName(e.target.value)}
-                      style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid #2CADA6",
-                        fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box"}}
-                      onClick={e=>e.stopPropagation()}/>
-                    :<div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",
-                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                      {ivr.display_name||ivr.name}
-                    </div>
-                  }
-                  <div style={{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,color:"#999"}}>📱 {ivr.dids_count} DIDs</span>
-                    <span style={{fontSize:11,color:"#999"}}>📞 {ivr.calls_count} calls</span>
-                    <span style={{fontSize:11,color:"#F5A623"}}>€{ivr.revenue}</span>
-                    <span style={{fontSize:11,color:"#999"}}>{fmtSize(ivr.file_size)}</span>
-                    {!ivr.file_exists&&<span style={{fontSize:11,color:"#EF4444"}}>⚠ File missing</span>}
-                  </div>
-                </div>
-                {/* Status + Actions */}
-                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                  <span style={{padding:"3px 10px",borderRadius:10,fontSize:11,fontWeight:700,
-                    background:ivr.is_active?"rgba(16,185,129,0.1)":"rgba(107,114,128,0.1)",
-                    color:ivr.is_active?"#10B981":"#6B7280"}}>
-                    {ivr.is_active?"Active":"Inactive"}
-                  </span>
-                  {selected?.id===ivr.id&&(
-                    editing
-                    ?<>
-                      <button onClick={saveEdit}
-                        style={{padding:"5px 12px",borderRadius:20,border:"none",
-                          background:"#10B981",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>Save</button>
-                      <button onClick={()=>setEditing(false)}
-                        style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
-                          background:"#FFF",color:"#666",fontSize:11,fontWeight:600,cursor:"pointer"}}>Cancel</button>
-                    </>
-                    :<>
-                      <button onClick={()=>{setEditing(true);setEditName(ivr.display_name||ivr.name);}}
-                        style={{padding:"5px 12px",borderRadius:20,border:"1px solid #2CADA6",
-                          background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Edit</button>
-                      <button onClick={()=>deleteIvr(ivr.id)}
-                        style={{padding:"5px 12px",borderRadius:20,border:"1px solid #EF4444",
-                          background:"#FFF",color:"#EF4444",fontSize:11,fontWeight:700,cursor:"pointer"}}>Delete</button>
-                    </>
-                  )}
-                </div>
-              </div>
-              {/* Audio Progress Bar */}
-              {playing===ivr.id&&(
-                <div style={{marginTop:12,height:4,background:"#F0F0F0",borderRadius:2,overflow:"hidden"}}>
-                  <div style={{height:"100%",background:"#2CADA6",width:"50%",
-                    animation:"progress 2s linear infinite"}}/>
-                </div>
-              )}
-            </div>
-          ))
-        }
-      </div>}
     </div>
   );
 }
