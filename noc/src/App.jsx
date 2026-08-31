@@ -1787,13 +1787,7 @@ function DIDInventoryPage({token}){
           <span style={{fontSize:12,color:"#555"}}>Select number blocks from list</span>
         </div>
 
-        {/* Balance */}
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 0"}}>
-          <span style={{fontSize:16,color:"#642A91"}}>💳</span>
-          <span style={{fontSize:12,color:"#333"}}>
-            <strong>Balance:</strong> $0.00, €0.00
-          </span>
-        </div>
+
 
         {/* Rule info */}
         <div style={{fontSize:11,color:"#666",fontStyle:"italic",marginBottom:10}}>
