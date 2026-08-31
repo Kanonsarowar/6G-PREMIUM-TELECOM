@@ -40,7 +40,6 @@ const getNavGroups=(role)=>{
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
     {id:"didinventory",label:"Numbers",icon:"▤"},
     {id:"didperformance",label:"DID Report",icon:"📈"},
-    {id:"bulkdid",label:"Bulk Manager",icon:"⚡"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
@@ -67,7 +66,6 @@ const NAV_GROUPS=[
     {id:"suppliers",label:"Suppliers",icon:"⬡"},
     {id:"didinventory",label:"Numbers",icon:"▤"},
     {id:"didperformance",label:"DID Report",icon:"📈"},
-    {id:"bulkdid",label:"Bulk Manager",icon:"⚡"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
@@ -1245,279 +1243,6 @@ function SuppliersPage({token}){
     </div>
   );
 }
-// ── Bulk DID Management ───────────────────────────────────────────
-function BulkDIDPage({token}){
-  const [dids,setDids]=useState([]);
-  const [suppliers,setSuppliers]=useState([]);
-  const [ivrs,setIvrs]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [selected,setSelected]=useState(new Set());
-  const [uploading,setUploading]=useState(false);
-  const [saving,setSaving]=useState(false);
-  const [result,setResult]=useState(null);
-  const [tab,setTab]=useState("manage");
-  const [bulkAction,setBulkAction]=useState("");
-  const [bulkValue,setBulkValue]=useState("");
-  const [uploadFile,setUploadFile]=useState(null);
-  const [uploadTrunk,setUploadTrunk]=useState("");
-  const [uploadRate,setUploadRate]=useState("0.070");
-  const [uploadCurrency,setUploadCurrency]=useState("EUR");
-
-  const load=()=>{
-    Promise.all([
-      apiFetch("/dids",token),
-      apiFetch("/suppliers",token),
-      apiFetch("/ivr-lib/audio",token),
-    ]).then(([d,s,i])=>{
-      setDids(d.data||[]);
-      setSuppliers(s.data||[]);
-      setIvrs(i.data||[]);
-      setLoading(false);
-    });
-  };
-  useEffect(()=>{load();},[token]);
-
-  const toggleSelect=(id)=>{
-    setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
-  };
-  const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
-  const clearAll=()=>setSelected(new Set());
-
-  const applyBulk=async()=>{
-    if(selected.size===0){alert("Select at least one DID");return;}
-    if(!bulkAction){alert("Choose an action");return;}
-    if(!bulkValue){alert("Choose a value");return;}
-    setSaving(true);
-    const ids=[...selected];
-    let d;
-    if(bulkAction==="supplier"){
-      d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",body:JSON.stringify({ids,trunk_id:bulkValue})});
-    } else if(bulkAction==="ivr"){
-      d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids,ivr_context:bulkValue})});
-    } else if(bulkAction==="delete"){
-      if(!window.confirm("Delete "+selected.size+" DIDs?")) {setSaving(false);return;}
-      d=await apiFetch("/dids/bulk-delete",token,{method:"POST",body:JSON.stringify({ids})});
-    }
-    setResult(d);setSaving(false);clearAll();load();
-  };
-
-  const uploadCSV=async()=>{
-    if(!uploadFile){alert("Select a CSV file");return;}
-    setUploading(true);setResult(null);
-    const fd=new FormData();
-    fd.append("file",uploadFile);
-    if(uploadTrunk) fd.append("trunk_id",uploadTrunk);
-    fd.append("rate",uploadRate);
-    fd.append("currency",uploadCurrency);
-    const r=await fetch("https://6g-premium-telecom.com/api/v1/dids/bulk-upload",{
-      method:"POST",
-      headers:{Authorization:"Bearer "+token},
-      body:fd
-    });
-    const d=await r.json();
-    setResult(d);setUploading(false);load();
-  };
-
-  const exportCSV=()=>{
-    window.open("https://6g-premium-telecom.com/api/v1/dids/export-csv?token="+token,"_blank");
-  };
-
-  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
-    background:"#FFF",color:"#333",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
-
-  return(
-    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Bulk DID Management</div>
-        <button onClick={exportCSV}
-          style={{padding:"8px 16px",borderRadius:20,border:"2px solid #2CADA6",
-            background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-          ⬇ Export CSV
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div style={{display:"flex",gap:4,marginBottom:16}}>
-        {[["manage","Manage DIDs"],["upload","Upload CSV"]].map(([t,l])=>(
-          <button key={t} onClick={()=>setTab(t)}
-            style={{padding:"8px 18px",borderRadius:20,border:"none",
-              background:tab===t?"#2CADA6":"#F0F0F0",
-              color:tab===t?"#FFF":"#555",fontSize:13,fontWeight:tab===t?700:400,
-              cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-        ))}
-      </div>
-
-      {/* Result Banner */}
-      {result&&(
-        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
-          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-          border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
-          <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444"}}>
-            {result.success?"✅ Success":"❌ Error"}
-          </div>
-          <div style={{fontSize:12,color:"#333",marginTop:2}}>{result.message||result.error}</div>
-        </div>
-      )}
-
-      {/* Manage Tab */}
-      {tab==="manage"&&(
-        <>
-          {/* Bulk Actions Bar */}
-          <div style={{background:"#FFF",borderRadius:12,padding:14,marginBottom:14,
-            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>
-              Bulk Actions — {selected.size} selected
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <select style={{...inp,flex:1,minWidth:120}} value={bulkAction} onChange={e=>setBulkAction(e.target.value)}>
-                <option value="">Choose action...</option>
-                <option value="supplier">Assign Supplier</option>
-                <option value="ivr">Assign IVR</option>
-                <option value="delete">Delete</option>
-              </select>
-              {bulkAction==="supplier"&&(
-                <select style={{...inp,flex:1,minWidth:120}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
-                  <option value="">Choose supplier...</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-                </select>
-              )}
-              {bulkAction==="ivr"&&(
-                <select style={{...inp,flex:1,minWidth:120}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
-                  <option value="">Choose IVR...</option>
-                  {ivrs.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
-                </select>
-              )}
-              {bulkAction==="delete"&&(
-                <input style={{...inp,flex:1}} value="Confirm delete selected" readOnly
-                  onClick={()=>setBulkValue("confirm")}/>
-              )}
-              <button onClick={applyBulk} disabled={saving||selected.size===0}
-                style={{padding:"9px 18px",borderRadius:20,border:"none",
-                  background:bulkAction==="delete"?"#EF4444":"#2CADA6",
-                  color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
-                {saving?"Applying...":"Apply"}
-              </button>
-            </div>
-            <div style={{display:"flex",gap:8,marginTop:8}}>
-              <button onClick={selectAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #2CADA6",
-                background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Select All</button>
-              <button onClick={clearAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
-                background:"#FFF",color:"#666",fontSize:11,fontWeight:600,cursor:"pointer"}}>Clear</button>
-              <span style={{fontSize:11,color:"#999",alignSelf:"center"}}>{dids.length} total DIDs</span>
-            </div>
-          </div>
-
-          {/* DID List */}
-          {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
-          :dids.length===0
-          ?<div style={{background:"#FFF",borderRadius:14,padding:40,textAlign:"center",
-            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:32,marginBottom:8}}>📱</div>
-            <div style={{color:"#999",fontSize:13}}>No DIDs yet</div>
-          </div>
-          :<div style={{background:"#FFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
-                <thead>
-                  <tr style={{background:"#F8F9FA"}}>
-                    <th style={{padding:"10px 12px",width:40}}>
-                      <input type="checkbox" checked={selected.size===dids.length&&dids.length>0}
-                        onChange={e=>e.target.checked?selectAll():clearAll()}
-                        style={{accentColor:"#2CADA6"}}/>
-                    </th>
-                    {["Number","Country","Supplier","IVR","Rate","Status"].map((h,i)=>(
-                      <th key={i} style={{padding:"10px 12px",fontSize:11,color:"#9A9A9A",
-                        fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
-                        borderBottom:"1px solid #EEE"}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {dids.map((d,i)=>(
-                    <tr key={d.id} style={{borderBottom:"1px solid #F5F5F5",
-                      background:selected.has(d.id)?"rgba(44,173,166,0.05)":i%2===0?"#FFF":"#FAFAFA",
-                      cursor:"pointer"}} onClick={()=>toggleSelect(d.id)}>
-                      <td style={{padding:"10px 12px"}}>
-                        <input type="checkbox" checked={selected.has(d.id)} onChange={()=>toggleSelect(d.id)}
-                          style={{accentColor:"#2CADA6"}}/>
-                      </td>
-                      <td style={{padding:"10px 12px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>{d.number}</td>
-                      <td style={{padding:"10px 12px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                      <td style={{padding:"10px 12px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.trunk_id||"—"}</td>
-                      <td style={{padding:"10px 12px",fontSize:11,color:"#555",
-                        maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {(d.ivr_context||"—").replace("custom/","")}
-                      </td>
-                      <td style={{padding:"10px 12px",fontSize:12,color:"#F5A623",fontFamily:"monospace"}}>€{parseFloat(d.rate||0).toFixed(3)}</td>
-                      <td style={{padding:"10px 12px"}}>
-                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
-                          background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-                          color:d.status==="active"?"#10B981":"#EF4444"}}>
-                          {d.status||"active"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>}
-        </>
-      )}
-
-      {/* Upload Tab */}
-      {tab==="upload"&&(
-        <div style={{background:"#FFF",borderRadius:14,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Upload CSV File</div>
-          <div style={{background:"#F8F9FA",border:"2px dashed #E0E0E0",borderRadius:12,
-            padding:30,textAlign:"center",marginBottom:16,cursor:"pointer"}}
-            onClick={()=>document.getElementById("csv-upload").click()}>
-            <div style={{fontSize:32,marginBottom:8}}>📂</div>
-            <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:4}}>
-              {uploadFile?uploadFile.name:"Click to select CSV file"}
-            </div>
-            <div style={{fontSize:12,color:"#999"}}>One phone number per line, E.164 format (+393199052141)</div>
-            <input id="csv-upload" type="file" accept=".csv,.txt" style={{display:"none"}}
-              onChange={e=>setUploadFile(e.target.files[0])}/>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Assign to Supplier</div>
-              <select style={inp} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
-                <option value="">Auto-detect</option>
-                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-              <select style={inp} value={uploadCurrency} onChange={e=>setUploadCurrency(e.target.value)}>
-                <option value="EUR">EUR (€)</option>
-                <option value="USD">USD ($)</option>
-                <option value="SAR">SAR (﷼)</option>
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Default Rate/min</div>
-              <input style={inp} value={uploadRate} onChange={e=>setUploadRate(e.target.value)} placeholder="0.070"/>
-            </div>
-          </div>
-          <button onClick={uploadCSV} disabled={uploading||!uploadFile}
-            style={{width:"100%",padding:"12px",borderRadius:10,border:"none",
-              background:uploading?"#999":"#2CADA6",color:"#FFF",fontSize:14,
-              fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-            {uploading?"Uploading...":"⬆ Upload & Import"}
-          </button>
-          <div style={{marginTop:14,padding:12,background:"#F8F9FA",borderRadius:8,fontSize:12,color:"#666"}}>
-            <strong>CSV Format:</strong> One number per line<br/>
-            <code style={{fontSize:11,color:"#2CADA6"}}>+393199052141</code><br/>
-            <code style={{fontSize:11,color:"#2CADA6"}}>+447700900000</code><br/>
-            Country is auto-detected from number prefix.
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 // ── DID Performance ───────────────────────────────────────────────
 function DIDPerformancePage({token}){
   const [data,setData]=useState(null);
@@ -1667,33 +1392,39 @@ function DIDPerformancePage({token}){
 function DIDInventoryPage({token}){
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
-  const [resellers,setResellers]=useState([]);
-  const [ivrs,setIvrs]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [expanded,setExpanded]=useState({});
   const [search,setSearch]=useState("");
   const [searchInput,setSearchInput]=useState("");
-  const [assigningRange,setAssigningRange]=useState(null);
-  const [serviceType,setServiceType]=useState("all");
+  const [tab,setTab]=useState("numbers");
+  const [selected,setSelected]=useState(new Set());
+  const [bulkAction,setBulkAction]=useState("");
+  const [bulkValue,setBulkValue]=useState("");
+  const [uploading,setUploading]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [result,setResult]=useState(null);
+  const [uploadFile,setUploadFile]=useState(null);
+  const [uploadTrunk,setUploadTrunk]=useState("");
+  const [uploadRate,setUploadRate]=useState("0.070");
+  const [uploadCurrency,setUploadCurrency]=useState("EUR");
 
   const load=()=>{
     Promise.all([
       apiFetch("/did-ranges",token),
       apiFetch("/dids",token),
-      apiFetch("/resellers",token),
-      apiFetch("/ivr-lib/audio",token),
-    ]).then(([r,d,res,iv])=>{
+      apiFetch("/suppliers",token),
+    ]).then(([r,d,s])=>{
       setRanges(r.data||[]);
       setDids(d.data||[]);
-      setResellers(res.data||[]);
-      setIvrs(iv.data||[]);
+      setSuppliers(s.data||[]);
       setLoading(false);
     });
   };
   useEffect(()=>{load();},[token]);
 
   const toggleRow=(id,e)=>{e.stopPropagation();setExpanded(ex=>({...ex,[id]:!ex[id]}));};
-  
+
   const deleteRange=async(id,e)=>{
     e.stopPropagation();
     if(!window.confirm("Delete this number block?")) return;
@@ -1713,234 +1444,383 @@ function DIDInventoryPage({token}){
     return n.startsWith(r.prefix||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
   });
 
-  const applySearch=()=>setSearch(searchInput);
+  // All DIDs not in any range
+  const ungroupedDids=dids.filter(d=>{
+    const n=(d.number||"").replace("+","");
+    return !ranges.some(r=>n.startsWith(r.prefix||"")||(n>=(r.range_start||"")&&n<=(r.range_end||"")));
+  });
 
-  const filtered=search
-    ?ranges.filter(r=>(r.prefix||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase()))
+  const filteredRanges=searchInput
+    ?ranges.filter(r=>(r.prefix||"").includes(searchInput)||(r.country_name||"").toLowerCase().includes(searchInput.toLowerCase()))
     :ranges;
 
+  const filteredDids=searchInput
+    ?dids.filter(d=>(d.number||"").includes(searchInput)||(d.country_name||"").toLowerCase().includes(searchInput.toLowerCase()))
+    :dids;
+
+  // Bulk management
+  const toggleSelect=(id)=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
+  const clearAll=()=>setSelected(new Set());
+
+  const applyBulk=async()=>{
+    if(selected.size===0){alert("Select at least one DID");return;}
+    if(!bulkAction){alert("Choose an action");return;}
+    setSaving(true);
+    const ids=[...selected];
+    let d;
+    if(bulkAction==="supplier"){
+      d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",body:JSON.stringify({ids,trunk_id:bulkValue})});
+    } else if(bulkAction==="ivr"){
+      d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids,ivr_context:bulkValue})});
+    } else if(bulkAction==="delete"){
+      if(!window.confirm("Delete "+selected.size+" DIDs?")) {setSaving(false);return;}
+      d=await apiFetch("/dids/bulk-delete",token,{method:"POST",body:JSON.stringify({ids})});
+    }
+    setResult(d);setSaving(false);clearAll();load();
+  };
+
+  const uploadCSV=async()=>{
+    if(!uploadFile){alert("Select a CSV file");return;}
+    setUploading(true);setResult(null);
+    const fd=new FormData();
+    fd.append("file",uploadFile);
+    if(uploadTrunk) fd.append("trunk_id",uploadTrunk);
+    fd.append("rate",uploadRate);
+    fd.append("currency",uploadCurrency);
+    const r=await fetch("https://6g-premium-telecom.com/api/v1/dids/bulk-upload",{
+      method:"POST",headers:{Authorization:"Bearer "+token},body:fd
+    });
+    const d=await r.json();
+    setResult(d);setUploading(false);load();
+  };
+
   const downloadExcel=()=>{
-    const rows=[["Number","Country","Tariff","Currency","Payment Terms","Supplier","IVR"]];
-    dids.forEach(d=>rows.push([d.number,d.country_name||"",d.tariff||"",d.currency||"",d.payment_terms||"",d.supplier_name||"",""]));
+    const rows=[["Number","Country","Tariff","Currency","Payment Terms"]];
+    dids.forEach(d=>rows.push([d.number,d.country_name||"",d.tariff||"",d.currency||"",d.payment_terms||""]));
     const csv=rows.map(r=>r.join(",")).join("\n");
     const blob=new Blob([csv],{type:"text/csv"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download="numbers.csv";a.click();
   };
 
-  const thS={
-    fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
-    padding:"9px 10px",textAlign:"left",whiteSpace:"nowrap",
-    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",
-    textTransform:"uppercase"
-  };
+  const inp={padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
+    background:"#FFF",color:"#333",fontSize:13,outline:"none",fontFamily:"inherit"};
+
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap",
+    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
 
   const currSym=(cur)=>cur==="EUR"?"€":"$";
 
   return(
     <div style={{paddingBottom:70,minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-      {/* Page Title */}
-      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
-        <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total numbers · {ranges.length} blocks</div>
+      {/* Header */}
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
+        </div>
+        <button onClick={downloadExcel}
+          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #642A91",
+            background:"#FFF",color:"#642A91",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          ⬇ Export
+        </button>
       </div>
 
       <div style={{padding:"12px 16px"}}>
-        {/* Search Section */}
-        <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,padding:12,marginBottom:10}}>
-          <div style={{fontSize:11,color:"#555",marginBottom:8}}>
-            Please enter Country Name / Number Range to search
-          </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:140,position:"relative"}}>
-              <input value={searchInput} onChange={e=>setSearchInput(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&applySearch()}
-                placeholder="Search..."
-                style={{width:"100%",padding:"8px 30px 8px 10px",border:"1px solid #CCC",
-                  borderRadius:3,fontSize:12,outline:"none",boxSizing:"border-box",
-                  background:"#FFF",color:"#333",height:36}}/>
-              {searchInput&&<button onClick={()=>{setSearchInput("");setSearch("");}}
-                style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
-                  background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#999",padding:2}}>×</button>}
-            </div>
-            <select value={serviceType} onChange={e=>setServiceType(e.target.value)}
-              style={{width:140,padding:"8px 10px",border:"1px solid #CCC",borderRadius:3,
-                fontSize:12,outline:"none",cursor:"pointer",background:"#FFF",color:"#333",height:36}}>
-              <option value="all">- All -</option>
-              <option value="inbound">Inbound</option>
-              <option value="outbound">Outbound</option>
-            </select>
-            <button onClick={applySearch}
-              style={{padding:"0 18px",background:"#642A91",color:"#FFF",border:"none",
-                borderRadius:3,fontSize:11,fontWeight:600,cursor:"pointer",
-                textTransform:"uppercase",letterSpacing:"0.5px",height:36,flexShrink:0}}>
-              APPLY
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:12}}>
+          {[["numbers","📋 Numbers"],["bulk","⚡ Bulk Manager"],["upload","⬆ Upload CSV"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:12,
+                background:tab===t?"#642A91":"#F0F0F0",
+                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
+                cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+              {l}
             </button>
+          ))}
+        </div>
+
+        {/* Result Banner */}
+        {result&&(
+          <div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+            background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+            border:"1px solid "+(result.success?"#10B981":"#EF4444"),
+            fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
+            {result.success?"✅ ":"❌ "}{result.message||result.error}
           </div>
-        </div>
+        )}
 
-        {/* Number Block Selector */}
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 0"}}>
-          <div style={{width:18,height:18,borderRadius:"50%",background:"#642A91",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            color:"#FFF",fontSize:13,fontWeight:700,flexShrink:0}}>+</div>
-          <span style={{fontSize:12,color:"#555"}}>Select number blocks from list</span>
-        </div>
+        {/* ── NUMBERS TAB ── */}
+        {tab==="numbers"&&(
+          <>
+            {/* Search */}
+            <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,padding:10,marginBottom:10}}>
+              <div style={{display:"flex",gap:6}}>
+                <input value={searchInput} onChange={e=>setSearchInput(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&setSearch(searchInput)}
+                  placeholder="Search by number, country or prefix..."
+                  style={{...inp,flex:1,height:34}}/>
+                <button onClick={()=>setSearch(searchInput)}
+                  style={{padding:"0 16px",background:"#642A91",color:"#FFF",border:"none",
+                    borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer",height:34,flexShrink:0}}>
+                  SEARCH
+                </button>
+                {search&&<button onClick={()=>{setSearch("");setSearchInput("");}}
+                  style={{padding:"0 12px",background:"#EEE",color:"#666",border:"none",
+                    borderRadius:4,fontSize:11,cursor:"pointer",height:34,flexShrink:0}}>
+                  CLEAR
+                </button>}
+              </div>
+            </div>
 
-
-
-        {/* Rule info */}
-        <div style={{fontSize:11,color:"#666",fontStyle:"italic",marginBottom:10}}>
-          * Click the country with an asterisk to see the rules
-        </div>
-
-        {/* Table */}
-        {loading?<div style={{background:"#FFF",padding:40,textAlign:"center",color:"#999",fontSize:12,border:"1px solid #E0E0E0"}}>Loading...</div>
-        :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:3,overflow:"hidden"}}>
-          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
-              <thead>
-                <tr>
-                  {["NUMBERS","COUNTRY","TARIFF","PAYMENT TERMS","SUPPLIER","DEL"].map((h,i)=>(
-                    <th key={i} style={{...thS,textAlign:i>=2&&i<=3?"center":"left"}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length===0
-                  ?<tr><td colSpan={7} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>
-                    No number blocks found
-                  </td></tr>
-                  :filtered.map((r,ri)=>{
-                    const nums=getNumbers(r);
-                    const isExp=expanded[r.id];
-                    const cur=r.currency||"EUR";
-                    const sym=currSym(cur);
-                    const tariff=sym+parseFloat(r.rate||0).toFixed(3);
-                    const supplier=r.supplier_name||"WTP";
-                    return(
-                      <React.Fragment key={r.id}>
-                        {/* Parent Row */}
-                        <tr style={{borderBottom:"1px solid #E8E8E8",background:isExp?"#F9F5FF":"#FFF",cursor:"pointer"}}
-                          onClick={(e)=>toggleRow(r.id,e)}>
-                          {/* NUMBERS */}
-                          <td style={{padding:"6px 10px",verticalAlign:"middle"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:7}}>
-                              <div style={{width:20,height:20,borderRadius:"50%",
-                                background:"#642A91",color:"#FFF",
-                                display:"flex",alignItems:"center",justifyContent:"center",
-                                fontSize:13,fontWeight:700,flexShrink:0,lineHeight:1}}>
-                                {isExp?"−":"+"}
+            {/* Table */}
+            {loading?<div style={{background:"#FFF",padding:40,textAlign:"center",color:"#999",fontSize:12,border:"1px solid #E0E0E0"}}>Loading...</div>
+            :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:3,overflow:"hidden"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+                  <thead>
+                    <tr>
+                      {["NUMBERS","COUNTRY","TARIFF","PAYMENT TERMS","SUPPLIER","DEL"].map((h,i)=>(
+                        <th key={i} style={thS}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Ranges */}
+                    {filteredRanges.map((r)=>{
+                      const nums=getNumbers(r);
+                      const isExp=expanded[r.id];
+                      const sym=currSym(r.currency||"EUR");
+                      return(
+                        <React.Fragment key={"r"+r.id}>
+                          <tr style={{borderBottom:"1px solid #E8E8E8",
+                            background:isExp?"#F9F5FF":"#FFF",cursor:"pointer"}}
+                            onClick={(e)=>toggleRow(r.id,e)}>
+                            <td style={{padding:"6px 10px"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                                <div style={{width:20,height:20,borderRadius:"50%",
+                                  background:"#642A91",color:"#FFF",
+                                  display:"flex",alignItems:"center",justifyContent:"center",
+                                  fontSize:13,fontWeight:700,flexShrink:0}}>
+                                  {isExp?"−":"+"}
+                                </div>
+                                <div>
+                                  <span style={{fontSize:12,fontWeight:700,color:"#1A1A1A",fontFamily:"monospace"}}>
+                                    {r.prefix||r.range_start}
+                                  </span>
+                                  <span style={{fontSize:11,color:"#AAA",marginLeft:5}}>
+                                    ({r.total_count||nums.length} numbers)
+                                  </span>
+                                </div>
                               </div>
-                              <div>
-                                <span style={{fontSize:12,fontWeight:700,color:"#1A1A1A",fontFamily:"monospace"}}>
-                                  {r.prefix||r.range_start}
-                                </span>
-                                <span style={{fontSize:11,color:"#AAA",marginLeft:5}}>
-                                  ({r.total_count||nums.length} numbers)
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          {/* COUNTRY */}
-                          <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600,verticalAlign:"middle"}}>
-                            {(r.country_name||"—").replace("ITLAY","Italy")}
-                            {r.has_rules&&<span style={{color:"#642A91"}}>*</span>}
-                          </td>
-
-                          {/* TARIFF */}
-                          <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontFamily:"monospace",textAlign:"center",verticalAlign:"middle"}}>
-                            {tariff}
-                          </td>
-                          {/* PAYMENT TERMS */}
-                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",textAlign:"center",verticalAlign:"middle"}}>
-                            {r.payment_terms||"Weekly"}
-                          </td>
-                          {/* SUPPLIER */}
-                          <td style={{padding:"6px 10px",fontSize:12,color:"#642A91",
-                            fontWeight:600,verticalAlign:"middle",maxWidth:100,
-                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                            title={supplier}>
-                            {supplier}
-                          </td>
-                          {/* DEL */}
-                          <td style={{padding:"6px 10px",textAlign:"center",verticalAlign:"middle"}}>
-                            <button onClick={(e)=>deleteRange(r.id,e)}
-                              title="Delete block"
-                              style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 6px",
-                                lineHeight:1}}>
-                              🗑
-                            </button>
-                          </td>
-                        </tr>
-                        {/* Child Rows */}
-                        {isExp&&(
-                          nums.length===0
-                          ?<tr style={{background:"#FAFAFA"}}>
-                            <td colSpan={7} style={{padding:"8px 10px 8px 38px",
-                              fontSize:11,color:"#999",fontStyle:"italic",
-                              borderBottom:"1px solid #F0F0F0"}}>
-                              No individual numbers in this range
+                            </td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{sym}{parseFloat(r.rate||0).toFixed(3)}</td>
+                            <td style={{padding:"4px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#642A91",fontWeight:600}}>{r.supplier_name||"—"}</td>
+                            <td style={{padding:"4px 10px",textAlign:"center"}}>
+                              <button onClick={(e)=>deleteRange(r.id,e)}
+                                style={{background:"none",border:"1px solid #CCC",borderRadius:3,
+                                  cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 6px"}}>🗑</button>
                             </td>
                           </tr>
-                          :nums.map((d,di)=>(
-                            <tr key={d.id} style={{
-                              background:di%2===0?"#FAFBFF":"#F5F3FF",
-                              borderBottom:"1px solid #EEE8FF"}}>
-                              <td colSpan={4} style={{padding:"4px 10px 4px 38px"}}>
-                                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                                  <span style={{fontSize:11,fontFamily:"monospace",
-                                    color:"#1A1A1A",fontWeight:500}}>{(d.number||"").replace("+","")}</span>
-                                  <span style={{fontSize:10,color:"#AAA",fontFamily:"monospace"}}>
-                                    {(d.created_at||"").slice(0,19)}
-                                  </span>
-                                  {d.customer_id&&(
-                                    <span style={{fontSize:10,padding:"1px 7px",borderRadius:3,
-                                      background:"#E8E0F5",color:"#642A91",fontWeight:600}}>
-                                      {d.customer_id}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td style={{padding:"6px 10px",fontSize:11,color:"#642A91",fontWeight:600}}>
-                                {d.supplier_name||r.supplier_name||"—"}
-                              </td>
-                              <td style={{padding:"6px 10px",textAlign:"center"}}>
-                                <button onClick={(e)=>deleteDid(d.id,e)}
-                                  style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                    cursor:"pointer",fontSize:11,color:"#642A91",padding:"1px 5px"}}>
-                                  🗑
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
+                          {isExp&&(nums.length===0
+                            ?<tr><td colSpan={6} style={{padding:"6px 10px 6px 38px",fontSize:11,color:"#999",fontStyle:"italic",background:"#FAFAFA"}}>No numbers in this range</td></tr>
+                            :nums.map((d,di)=>(
+                              <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
+                                <td colSpan={5} style={{padding:"3px 10px 3px 38px"}}>
+                                  <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
+                                  <span style={{fontSize:10,color:"#AAA",marginLeft:12}}>{(d.created_at||"").slice(0,10)}</span>
+                                </td>
+                                <td style={{padding:"4px 10px",textAlign:"center"}}>
+                                  <button onClick={(e)=>deleteDid(d.id,e)}
+                                    style={{background:"none",border:"1px solid #CCC",borderRadius:3,
+                                      cursor:"pointer",fontSize:11,color:"#642A91",padding:"1px 5px"}}>🗑</button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Ungrouped DIDs */}
+                    {ungroupedDids.length>0&&(
+                      <React.Fragment>
+                        <tr style={{background:"#F0F0F0"}}>
+                          <td colSpan={6} style={{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                            Individual Numbers ({ungroupedDids.length})
+                          </td>
+                        </tr>
+                        {(search?filteredDids.filter(d=>!ranges.some(r=>(d.number||"").replace("+","").startsWith(r.prefix||""))):ungroupedDids).map((d,i)=>(
+                          <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>
+                              {(d.number||"").replace("+","")}
+                            </td>
+                            <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>
+                              {currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}
+                            </td>
+                            <td style={{padding:"4px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
+                            <td style={{padding:"4px 10px",fontSize:12,color:"#642A91",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                            <td style={{padding:"4px 10px",textAlign:"center"}}>
+                              <button onClick={(e)=>deleteDid(d.id,e)}
+                                style={{background:"none",border:"1px solid #CCC",borderRadius:3,
+                                  cursor:"pointer",fontSize:12,color:"#642A91",padding:"2px 6px"}}>🗑</button>
+                            </td>
+                          </tr>
+                        ))}
                       </React.Fragment>
-                    );
-                  })
-                }
-              </tbody>
-            </table>
+                    )}
+                    {filteredRanges.length===0&&ungroupedDids.length===0&&(
+                      <tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>}
+          </>
+        )}
+
+        {/* ── BULK MANAGER TAB ── */}
+        {tab==="bulk"&&(
+          <>
+            <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,
+              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                Bulk Actions — {selected.size} selected
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                <select style={{...inp,flex:1,minWidth:120}} value={bulkAction} onChange={e=>setBulkAction(e.target.value)}>
+                  <option value="">Choose action...</option>
+                  <option value="supplier">Assign Supplier</option>
+                  <option value="delete">Delete</option>
+                </select>
+                {bulkAction==="supplier"&&(
+                  <select style={{...inp,flex:1,minWidth:120}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
+                    <option value="">Choose supplier...</option>
+                    {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                  </select>
+                )}
+                <button onClick={applyBulk} disabled={saving||selected.size===0}
+                  style={{padding:"9px 18px",borderRadius:20,border:"none",
+                    background:bulkAction==="delete"?"#EF4444":"#642A91",
+                    color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                  {saving?"Applying...":"Apply"}
+                </button>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={selectAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #642A91",
+                  background:"#FFF",color:"#642A91",fontSize:11,fontWeight:700,cursor:"pointer"}}>Select All</button>
+                <button onClick={clearAll} style={{padding:"5px 12px",borderRadius:20,border:"1px solid #DDD",
+                  background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>Clear</button>
+                <span style={{fontSize:11,color:"#999",alignSelf:"center"}}>{dids.length} total DIDs</span>
+              </div>
+            </div>
+            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
+            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{background:"#F8F9FA"}}>
+                      <th style={{...thS,width:40}}><input type="checkbox"
+                        checked={selected.size===dids.length&&dids.length>0}
+                        onChange={e=>e.target.checked?selectAll():clearAll()}
+                        style={{accentColor:"#642A91"}}/></th>
+                      {["Number","Country","Tariff","Supplier","Status"].map((h,i)=>(
+                        <th key={i} style={thS}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dids.map((d,i)=>(
+                      <tr key={d.id} style={{borderBottom:"1px solid #F5F5F5",
+                        background:selected.has(d.id)?"rgba(100,42,145,0.05)":i%2===0?"#FFF":"#FAFAFA",
+                        cursor:"pointer"}} onClick={()=>toggleSelect(d.id)}>
+                        <td style={{padding:"8px 12px"}}>
+                          <input type="checkbox" checked={selected.has(d.id)} onChange={()=>toggleSelect(d.id)}
+                            style={{accentColor:"#642A91"}}/>
+                        </td>
+                        <td style={{padding:"4px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
+                        <td style={{padding:"4px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                        <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
+                        <td style={{padding:"4px 10px",fontSize:12,color:"#642A91",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                        <td style={{padding:"8px 12px"}}>
+                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                            background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                            color:d.status==="active"?"#10B981":"#EF4444"}}>
+                            {d.status||"active"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>}
+          </>
+        )}
+
+        {/* ── UPLOAD CSV TAB ── */}
+        {tab==="upload"&&(
+          <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Upload CSV File</div>
+            <div style={{background:"#F8F9FA",border:"2px dashed #E0E0E0",borderRadius:10,
+              padding:30,textAlign:"center",marginBottom:14,cursor:"pointer"}}
+              onClick={()=>document.getElementById("csv-upload-main").click()}>
+              <div style={{fontSize:28,marginBottom:8}}>📂</div>
+              <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
+                {uploadFile?uploadFile.name:"Click to select CSV file"}
+              </div>
+              <div style={{fontSize:11,color:"#999"}}>One phone number per line — E.164 format (+393199052141)</div>
+              <input id="csv-upload-main" type="file" accept=".csv,.txt" style={{display:"none"}}
+                onChange={e=>setUploadFile(e.target.files[0])}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Assign to Supplier</div>
+                <select style={{...inp,width:"100%"}} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
+                  <option value="">Auto-detect</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
+                <select style={{...inp,width:"100%"}} value={uploadCurrency} onChange={e=>setUploadCurrency(e.target.value)}>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Default Rate/min</div>
+                <input style={{...inp,width:"100%"}} value={uploadRate} onChange={e=>setUploadRate(e.target.value)} placeholder="0.070"/>
+              </div>
+            </div>
+            <button onClick={uploadCSV} disabled={uploading||!uploadFile}
+              style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
+                background:uploading?"#999":"#642A91",color:"#FFF",fontSize:14,
+                fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+              {uploading?"Uploading...":"⬆ Upload & Import"}
+            </button>
           </div>
-        </div>}
+        )}
       </div>
 
-      {/* Sticky Bottom Bar */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,
-        background:"#FFF",borderTop:"1px solid #DDD",
-        padding:"10px 16px",display:"flex",gap:10,
+      {/* Sticky Bottom */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#FFF",
+        borderTop:"1px solid #DDD",padding:"10px 16px",display:"flex",gap:10,
         boxShadow:"0 -2px 8px rgba(0,0,0,0.08)",zIndex:50}}>
         <button style={{padding:"9px 20px",borderRadius:4,border:"none",
           background:"#642A91",color:"#FFF",fontSize:12,fontWeight:600,
-          cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px",fontFamily:"inherit"}}>
+          cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px"}}>
           SAVE CHANGES
         </button>
         <button onClick={downloadExcel}
-          style={{padding:"9px 20px",borderRadius:4,
-            border:"2px solid #642A91",background:"#FFF",
-            color:"#642A91",fontSize:12,fontWeight:600,
-            cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px",fontFamily:"inherit"}}>
+          style={{padding:"9px 20px",borderRadius:4,border:"2px solid #642A91",
+            background:"#FFF",color:"#642A91",fontSize:12,fontWeight:600,
+            cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px"}}>
           DOWNLOAD EXCEL
         </button>
       </div>
@@ -4075,7 +3955,6 @@ export default function App(){
       case "suppliers":    return <SuppliersPage token={token}/>;
       case "didinventory": return <DIDInventoryPage token={token}/>;
       case "didperformance":return <DIDPerformancePage token={token}/>;
-      case "bulkdid":       return <BulkDIDPage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
       case "ivraudio":      return <IVRAudioManagerPage token={token}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
