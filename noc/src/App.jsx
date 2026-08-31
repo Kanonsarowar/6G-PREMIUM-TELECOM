@@ -124,7 +124,7 @@ function MobileDrawer({page,setPage,user,logout,onClose}){
               {g.items.map(n=>{
                 const active=page===n.id;
                 return(
-                  <button key={n.id} onClick={()=>{navigateTo(n.id);onClose();}}
+                  <button key={n.id} onClick={()=>{setPage(n.id);onClose();}}
                     style={{display:"flex",alignItems:"center",gap:12,width:"100%",
                       padding:"13px 16px",borderRadius:12,marginBottom:2,cursor:"pointer",
                       background:active?"#2CADA6":"transparent",
@@ -207,7 +207,7 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
             {g.items.map(n=>{
               const active=page===n.id;
               return(
-                <button key={n.id} onClick={()=>navigateTo(n.id)}
+                <button key={n.id} onClick={()=>setPage(n.id)}
                   title={!open?n.label:undefined}
                   style={{display:"flex",alignItems:"center",gap:12,width:"100%",
                     padding:open?"12px 16px":"13px 0",
