@@ -667,10 +667,31 @@ Route::get('/v1/live-calls', function() {
             ->orWhere('number', '+'.$exten)
             ->first();
 
-        // Detect supplier from channel
+        // Detect supplier from channel using Asterisk endpoint name
         $trunk_name = 'Unknown';
-        if(str_contains($channel,'STANDARD')) $trunk_name = 'WTP';
-        elseif(str_contains($channel,'MEDIATEL')) $trunk_name = 'Mediatel';
+        // Map Asterisk endpoint names to code names
+        $endpointMap = [
+            'STANDARD'   => 'PROFESSOR',
+            'MEDIATEL'   => 'Tokyo',
+            'PHONEGROUP' => 'Berlin',
+            'GAMA'       => 'Nairobi',
+        ];
+        foreach($endpointMap as $endpoint => $codeName){
+            if(str_contains(strtoupper($channel), $endpoint)){
+                $trunk_name = $codeName;
+                break;
+            }
+        }
+        // Also try to match from trunks table by IP
+        if($trunk_name === 'Unknown'){
+            $trunks = DB::table('trunks')->where('is_active',1)->get();
+            foreach($trunks as $t){
+                if(str_contains(strtoupper($channel), strtoupper($t->name))){
+                    $trunk_name = $t->nickname ?? $t->name;
+                    break;
+                }
+            }
+        }
 
         // Calculate start time from duration
         $start_time = date('H:i:s', time() - (int)$duration);

@@ -1,29 +1,49 @@
-#!/usr/bin/php
 <?php
-$agi = [];
-while(!feof(STDIN)){
-    $line = trim(fgets(STDIN));
-    if($line === "") break;
-    if(preg_match('/^agi_(\w+):\s*(.*)$/', $line, $m))
-        $agi[$m[1]] = $m[2];
+// Read AGI environment
+$env = [];
+while (($line = fgets(STDIN)) !== false) {
+    $line = trim($line);
+    if ($line === '') break;
+    if (preg_match('/^agi_(\w+):\s*(.*)$/', $line, $m))
+        $env[$m[1]] = $m[2];
 }
 
-$did        = preg_replace('/^\+|^00/', '', $argv[1] ?? $agi['extension'] ?? '');
-$call_start = $argv[2] ?? time();
-$billsec    = (int)($argv[3] ?? 0);
-$tariff     = (float)($argv[4] ?? 0.090);
-$ivr        = $argv[5] ?? 'custom/6g-premium-telecom';
-$src        = preg_replace('/^\+|^00/', '', $agi['callerid'] ?? 'unknown');
-$revenue    = round(($billsec / 60) * $tariff, 6);
+$src       = $env['callerid'] ?? $argv[1] ?? '';
+$did       = $env['extension'] ?? $argv[2] ?? '';
+$billsec   = intval($argv[3] ?? 0);
+$ivr       = $argv[4] ?? 'custom/6g-premium-telecom';
+$channel   = $env['channel'] ?? $argv[5] ?? '';
+$call_start= time() - $billsec;
 
-// Log for debugging
-file_put_contents('/tmp/cdr_debug.log',
-    date('Y-m-d H:i:s')." DID=$did SRC=$src BILLSEC=$billsec TARIFF=$tariff REV=$revenue\n",
-    FILE_APPEND);
+// Detect supplier from channel name
+$trunk_name = 'PROFESSOR';
+$endpointMap = [
+    'STANDARD'   => 'PROFESSOR',
+    'MEDIATEL'   => 'Tokyo',
+    'PHONEGROUP' => 'Berlin',
+    'GAMA'       => 'Nairobi',
+];
+foreach($endpointMap as $endpoint => $codeName){
+    if(stripos($channel, $endpoint) !== false){
+        $trunk_name = $codeName;
+        break;
+    }
+}
 
+// Get tariff from DB
 try {
     $pdo = new PDO('mysql:host=127.0.0.1;dbname=telecom_api', 'telecom_user', 'Kanon@DB2026');
-    $pdo->prepare("INSERT INTO cdrs 
+    
+    // Get DID tariff and currency
+    $did_row = $pdo->prepare("SELECT tariff, currency FROM dids WHERE number=? OR number=? LIMIT 1");
+    $did_row->execute([$did, '+'.$did]);
+    $did_data = $did_row->fetch(PDO::FETCH_ASSOC);
+    
+    $tariff   = floatval($did_data['tariff'] ?? 0.07);
+    $currency = $did_data['currency'] ?? 'EUR';
+    $revenue  = round(($billsec / 60) * $tariff, 6);
+
+    $pdo->prepare("INSERT INTO cdrs
         (src, dst, did, caller, callee, billsec, duration, disposition, revenue, revenue_eur, ivr_context, trunk_name, call_start, currency, created_at, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,FROM_UNIXTIME(?),?,NOW(),NOW())")
         ->execute([
@@ -31,11 +51,14 @@ try {
             $billsec, $billsec,
             $billsec > 0 ? 'ANSWERED' : 'NO ANSWER',
             $revenue, $revenue,
-            $ivr, 'WTP', $call_start, 'EUR'
+            $ivr, $trunk_name, $call_start, $currency
         ]);
-    fwrite(STDOUT, "VERBOSE \"CDR saved: $did $billsec s revenue:$revenue\" 1\n");
+
+    fwrite(STDOUT, "VERBOSE \"CDR saved: $did $billsec s $trunk_name revenue:$revenue $currency\" 1\n");
+    file_put_contents('/tmp/cdr_debug.log', date('Y-m-d H:i:s')." | $did | {$billsec}s | $trunk_name | $revenue $currency\n", FILE_APPEND);
+
 } catch(Exception $e){
-    file_put_contents('/tmp/cdr_error.log', $e->getMessage()."\n", FILE_APPEND);
+    file_put_contents('/tmp/cdr_error.log', date('Y-m-d H:i:s')." | ".$e->getMessage()."\n", FILE_APPEND);
     fwrite(STDOUT, "VERBOSE \"CDR ERROR: ".$e->getMessage()."\" 1\n");
 }
 fgets(STDIN);
