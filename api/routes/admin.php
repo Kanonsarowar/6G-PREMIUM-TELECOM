@@ -21,12 +21,12 @@ Route::prefix('admin')->group(function () {
     Route::get('/customers', [CustomerController::class, 'index'])->name('customers.index');
 
     # Trunks
-    Route::get('/trunks', [TrunkController::class, 'index'])->name('trunks.index');
-    Route::get('/trunks/create', [TrunkController::class, 'create'])->name('trunks.create');
-    Route::post('/trunks', [TrunkController::class, 'store'])->name('trunks.store');
-    Route::get('/trunks/{id}/edit', [TrunkController::class, 'edit'])->name('trunks.edit');
-    Route::put('/trunks/{id}', [TrunkController::class, 'update'])->name('trunks.update');
-    Route::delete('/trunks/{id}', [TrunkController::class, 'destroy'])->name('trunks.destroy');
+    Route::get('/trunks', [TrunkController::class, 'index'])->name('trunks.index')->middleware('auth:sanctum');
+    Route::get('/trunks/create', [TrunkController::class, 'create'])->name('trunks.create')->middleware('auth:sanctum');
+    Route::post('/trunks', [TrunkController::class, 'store'])->name('trunks.store')->middleware('auth:sanctum');
+    Route::get('/trunks/{id}/edit', [TrunkController::class, 'edit'])->name('trunks.edit')->middleware('auth:sanctum');
+    Route::put('/trunks/{id}', [TrunkController::class, 'update'])->name('trunks.update')->middleware('auth:sanctum');
+    Route::delete('/trunks/{id}', [TrunkController::class, 'destroy'])->name('trunks.destroy')->middleware('auth:sanctum');
 
     # DID Routing
     Route::get('/dids', [DidRouteController::class, 'index'])->name('dids.index');
