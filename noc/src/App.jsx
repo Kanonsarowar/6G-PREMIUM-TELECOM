@@ -1903,7 +1903,8 @@ function DIDInventoryPage({token}){
                 const res=await fetch("https://6g-premium-telecom.com/api/v1/dids/smart-sync",{
                   method:"POST",headers:{Authorization:"Bearer "+token},body:fd
                 });
-                const d=await res.json();
+                let d;
+                try{d=await res.json();}catch(e){d={success:false,error:"Server error: "+res.status};}
                 setResult(d);setUploading(false);
                 if(d.success){setUploadFile(null);load();}
               }} disabled={uploading||!uploadFile||!uploadTrunk}

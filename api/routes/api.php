@@ -1623,6 +1623,7 @@ Route::post('/v1/dids/bulk-unassign', function(Request $r) {
 
 // ── Smart CSV Sync ─────────────────────────────────────────────
 Route::post('/v1/dids/smart-sync', function(Request $r) {
+    try {
     if(!$r->hasFile('file')) return response()->json(['error'=>'No file uploaded'],400);
     $trunkId = $r->trunk_id;
     if(!$trunkId) return response()->json(['error'=>'No supplier selected'],400);
@@ -1767,6 +1768,9 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
         }
     }
 
+    } catch(\Exception $e){
+        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
+    }
     return response()->json([
         'success'   => true,
         'added'     => $added,
