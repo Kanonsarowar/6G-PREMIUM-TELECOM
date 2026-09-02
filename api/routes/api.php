@@ -1,3 +1,19 @@
+
+// ── Auto-whitelist helper ──────────────────────────────────────
+function autoWhitelistSupplierIPs($host){
+    if(empty($host)) return;
+    $ips = array_filter(array_map('trim', explode(',', $host)));
+    foreach($ips as $ip){
+        if(!filter_var($ip, FILTER_VALIDATE_IP)) continue;
+        // UFW whitelist
+        exec("ufw allow from {$ip} to any port 5060 proto udp 2>/dev/null");
+        exec("ufw allow from {$ip} 2>/dev/null");
+        // Log
+        file_put_contents('/tmp/whitelist.log',
+            date('Y-m-d H:i:s')." Whitelisted: {$ip}\n", FILE_APPEND);
+    }
+}
+
 <?php
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -156,6 +172,8 @@ Route::middleware('auth:sanctum')->group(function() {
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        // Auto-whitelist supplier IPs
+        autoWhitelistSupplierIPs($r->host);
         return response()->json(['data'=>DB::table('trunks')->find($id),'success'=>true]);
     });
 
