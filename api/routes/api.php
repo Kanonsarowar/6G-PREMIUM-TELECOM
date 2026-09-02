@@ -1731,7 +1731,10 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
 
     // Remove numbers not in CSV anymore
     if(!empty($toRemove)){
-        $idsToRemove = $existingDids->filter(fn($d)=>in_array($d->number,$toRemove))->keys()->toArray();
+        $idsToRemove = $existingDids->filter(function($d) use ($toRemove){
+            $norm = '+'.ltrim($d->number,'+');
+            return in_array($norm,$toRemove);
+        })->keys()->toArray();
         DB::table('dids')->whereIn('id',$idsToRemove)->delete();
         $removed = count($idsToRemove);
     }
