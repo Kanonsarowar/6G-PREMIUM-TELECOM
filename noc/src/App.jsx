@@ -1889,21 +1889,64 @@ function NumberInventoryPage({token}){
 
               {/* Range Fields */}
               {(addForm.addType||"range")==="range"&&(
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Range Start *</div>
-                    <input style={inp} placeholder="393199052100" value={addForm.rangeStart||""}
-                      onChange={e=>setAddForm({...addForm,rangeStart:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Range End *</div>
-                    <input style={inp} placeholder="393199052199" value={addForm.rangeEnd||""}
-                      onChange={e=>setAddForm({...addForm,rangeEnd:e.target.value})}/>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {addForm.prefix&&(
+                    <div style={{padding:"8px 12px",background:"#F0FAFA",borderRadius:8,
+                      fontSize:12,color:"#2CADA6",fontWeight:600,letterSpacing:"0.3px"}}>
+                      🔢 Numbers will be: <span style={{fontFamily:"monospace"}}>{addForm.prefix} + [suffix]</span>
+                    </div>
+                  )}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                        {addForm.prefix?"Suffix Start *":"Range Start *"}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",border:"1px solid #E0E0E0",borderRadius:8,overflow:"hidden",background:"#FFF"}}>
+                        {addForm.prefix&&(
+                          <span style={{padding:"9px 8px",background:"#F5F5F5",color:"#999",
+                            fontSize:12,fontFamily:"monospace",borderRight:"1px solid #E0E0E0",
+                            whiteSpace:"nowrap"}}>{addForm.prefix}</span>
+                        )}
+                        <input style={{...inp,border:"none",borderRadius:0,flex:1}}
+                          placeholder={addForm.prefix?"0000":"393199052100"}
+                          value={addForm.rangeStartSuffix||""}
+                          onChange={e=>{
+                            const suffix=e.target.value.replace(/[^0-9]/g,"");
+                            const full=addForm.prefix?addForm.prefix+suffix:suffix;
+                            setAddForm({...addForm,rangeStartSuffix:suffix,rangeStart:full});
+                          }}/>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                        {addForm.prefix?"Suffix End *":"Range End *"}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",border:"1px solid #E0E0E0",borderRadius:8,overflow:"hidden",background:"#FFF"}}>
+                        {addForm.prefix&&(
+                          <span style={{padding:"9px 8px",background:"#F5F5F5",color:"#999",
+                            fontSize:12,fontFamily:"monospace",borderRight:"1px solid #E0E0E0",
+                            whiteSpace:"nowrap"}}>{addForm.prefix}</span>
+                        )}
+                        <input style={{...inp,border:"none",borderRadius:0,flex:1}}
+                          placeholder={addForm.prefix?"9999":"393199052199"}
+                          value={addForm.rangeEndSuffix||""}
+                          onChange={e=>{
+                            const suffix=e.target.value.replace(/[^0-9]/g,"");
+                            const full=addForm.prefix?addForm.prefix+suffix:suffix;
+                            setAddForm({...addForm,rangeEndSuffix:suffix,rangeEnd:full});
+                          }}/>
+                      </div>
+                    </div>
                   </div>
                   {addForm.rangeStart&&addForm.rangeEnd&&parseInt(addForm.rangeEnd)>=parseInt(addForm.rangeStart)&&(
-                    <div style={{gridColumn:"1/-1",padding:"8px 12px",background:"rgba(44,173,166,0.08)",
+                    <div style={{padding:"10px 12px",background:"rgba(44,173,166,0.08)",
                       borderRadius:8,fontSize:12,color:"#2CADA6",fontWeight:600}}>
-                      📊 Will generate {parseInt(addForm.rangeEnd)-parseInt(addForm.rangeStart)+1} numbers
+                      📊 Will generate <strong>{parseInt(addForm.rangeEnd)-parseInt(addForm.rangeStart)+1}</strong> numbers
+                      {addForm.prefix&&(
+                        <span style={{color:"#555",fontWeight:400,marginLeft:8,fontFamily:"monospace"}}>
+                          ({addForm.prefix}{addForm.rangeStartSuffix} → {addForm.prefix}{addForm.rangeEndSuffix})
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
