@@ -73,8 +73,10 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // ── DIDs ──────────────────────────────────────────────────
     Route::get('/v1/dids', function(Request $r) {
-        $q = DB::table('dids');
-        if($r->number) $q->where('number',$r->number);
+        $q = DB::table('dids')
+            ->leftJoin('trunks','dids.trunk_id','=','trunks.id')
+            ->select('dids.*','trunks.nickname as supplier_name');
+        if($r->number) $q->where('dids.number',$r->number);
         $dids = $q->get();
         return response()->json(['data'=>$dids,'total'=>$dids->count()]);
     });
@@ -82,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function() {
         $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
         if(DB::table('dids')->where('number',$num)->exists())
             return response()->json(['error'=>'Number already exists'],409);
+        $trunk = DB::table('trunks')->find($r->trunk_id);
         $id = DB::table('dids')->insertGetId([
             'number'        => $num,
             'trunk_id'      => $r->trunk_id,
@@ -97,7 +100,35 @@ Route::middleware('auth:sanctum')->group(function() {
             'created_at'    => now(),
             'updated_at'    => now(),
         ]);
-        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id)]);
+        // Auto create/update range
+        if($r->prefix){
+            $existing = DB::table('did_ranges')->where('prefix',$r->prefix)->first();
+            $stripped = ltrim($num,'+');
+            if($existing){
+                DB::table('did_ranges')->where('id',$existing->id)->update([
+                    'total_count' => DB::table('dids')->where('prefix',$r->prefix)->count(),
+                    'updated_at'  => now(),
+                ]);
+            } else {
+                DB::table('did_ranges')->insert([
+                    'batch_name'    => ($r->country_name??'Unknown').' '.($r->prefix??''),
+                    'prefix'        => $r->prefix,
+                    'range_start'   => $stripped,
+                    'range_end'     => $stripped,
+                    'country_code'  => $r->country_code??'XX',
+                    'country_name'  => $r->country_name??'Unknown',
+                    'rate'          => $r->tariff??0.07,
+                    'selling_price' => $r->tariff??0.07,
+                    'currency'      => $r->currency??'EUR',
+                    'payment_terms' => 'Weekly',
+                    'total_count'   => 1,
+                    'supplier_name' => $trunk->nickname??$trunk->name??'',
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
+                ]);
+            }
+        }
+        return response()->json(['success'=>true,'message'=>'Number added successfully','data'=>DB::table('dids')->find($id)]);
     });
     Route::delete('/v1/dids/{id}', function($id) {
         DB::table('dids')->where('id',$id)->delete();
