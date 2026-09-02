@@ -30,29 +30,34 @@ const fmtDual  = v => `$${eurToUsd(v)} / ${usdToSar(eurToUsd(v))}`;
 const getNavGroups=(role)=>{
   const isSuperAdmin = role === 'superadmin';
   return [
-  {key:"ops",label:"Operations",items:[
+  {key:"dashboard",label:"Dashboard",items:[
     {id:"dashboard",label:"Dashboard",icon:"▦"},
-    {id:"livecalls",label:"Live Calls",icon:"◉"},
-    {id:"cdr",label:"CDR Analytics",icon:"≡"},
-    {id:"revenue",label:"Revenue",icon:"◈"},
   ]},
-  {key:"voice",label:"Voice",items:[
-    ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
+  {key:"calls",label:"Calls & Revenue",items:[
+    {id:"livecalls",label:"Live Calls",icon:"◉"},
+    {id:"cdr",label:"CDR",icon:"≡"},
+    {id:"revenue",label:"Revenue",icon:"◈"},
+    {id:"quality",label:"Call Quality",icon:"📊"},
+  ]},
+  {key:"numbers",label:"Numbers & IVR",items:[
     {id:"didinventory",label:"Numbers",icon:"▤"},
-    {id:"didperformance",label:"DID Report",icon:"📈"},
+    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
-    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
+    {id:"didperformance",label:"DID Report",icon:"📈"},
   ]},
-  {key:"system",label:"System",items:[
-    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
-    {id:"quality",label:"Call Quality",icon:"📊"},
-    {id:"customers",label:"Customers",icon:"◷"},
+  {key:"partners",label:"Partners",items:[
+    ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
     {id:"resellers",label:"Resellers",icon:"👥"},
+    {id:"customers",label:"Customers",icon:"◷"},
+  ]},
+  {key:"network",label:"Networking",items:[
+    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
+    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
-    ...(isSuperAdmin?[{id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
     {id:"auditlog",label:"Audit Log",icon:"📜"},
-    {id:"settings",label:"Settings",icon:"⚙"}]:[]),
+    ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
 
