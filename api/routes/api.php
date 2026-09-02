@@ -78,6 +78,31 @@ Route::middleware('auth:sanctum')->group(function() {
         $dids = $q->get();
         return response()->json(['data'=>$dids,'total'=>$dids->count()]);
     });
+    Route::post('/v1/dids', function(Request $r) {
+        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
+        if(DB::table('dids')->where('number',$num)->exists())
+            return response()->json(['error'=>'Number already exists'],409);
+        $id = DB::table('dids')->insertGetId([
+            'number'        => $num,
+            'trunk_id'      => $r->trunk_id,
+            'prefix'        => $r->prefix??'',
+            'country_name'  => $r->country_name??'Unknown',
+            'country_code'  => $r->country_code??'XX',
+            'tariff'        => $r->tariff??0.07,
+            'selling_price' => $r->selling_price??$r->tariff??0.07,
+            'currency'      => $r->currency??'EUR',
+            'payment_terms' => $r->payment_terms??'Weekly',
+            'status'        => 'active',
+            'ivr_context'   => 'custom/6g-premium-telecom',
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id)]);
+    });
+    Route::delete('/v1/dids/{id}', function($id) {
+        DB::table('dids')->where('id',$id)->delete();
+        return response()->json(['success'=>true]);
+    });
 
     // ── DID Ranges ────────────────────────────────────────────
     Route::get('/v1/did-ranges', function() {
