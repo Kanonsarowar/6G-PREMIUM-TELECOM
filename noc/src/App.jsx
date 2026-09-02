@@ -1070,6 +1070,17 @@ function SuppliersPage({token}){
     panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""
   });
   const [saving,setSaving]=useState(false);
+  const [secretFlags,setSecretFlags]=useState({has_panel_password:false,has_api_key:false,has_api_secret:false});
+  const [syncing,setSyncing]=useState(false);
+  const [syncResult,setSyncResult]=useState(null);
+  const [liveCallsLoading,setLiveCallsLoading]=useState(false);
+  const [liveCalls,setLiveCalls]=useState(null);
+
+  const blankForm=()=>({name:"",nickname:"",host:"",port:"5060",transport:"udp",
+    codecs:"ulaw,alaw,g729",panel_url:"",panel_user:"",
+    panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:"",
+    api_url:"",api_key:"",api_secret:"",api_did:"0",api_livecalls:"0",
+    api_cdr:"0",api_balance:"0",api_did_path:"",api_livecalls_path:""});
 
   const load=()=>{
     apiFetch("/suppliers",token).then(d=>{setSuppliers(d.data||[]);setLoading(false);});
@@ -1084,29 +1095,61 @@ function SuppliersPage({token}){
       await apiFetch("/suppliers",token,{method:"POST",body:JSON.stringify(form)});
     }
     load();setEditing(false);setSelected(null);
-    setForm({name:"",nickname:"",host:"",port:"5060",transport:"udp",
-      codecs:"ulaw,alaw,g729",panel_url:"",panel_user:"",
-      panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""});
+    setForm(blankForm());
+    setSecretFlags({has_panel_password:false,has_api_key:false,has_api_secret:false});
     setSaving(false);
   };
 
   const del=async(id)=>{
     if(!window.confirm("Delete this supplier?")) return;
-    await apiFetch("/suppliers/"+id,token,{method:"DELETE"});
+    const res=await apiFetch("/suppliers/"+id,token,{method:"DELETE"});
+    if(res&&res.error){
+      alert(res.message||res.error);
+      return;
+    }
     load();setSelected(null);
   };
 
-  const selectSupplier=(s)=>{
-    setSelected(s);setEditing(false);
+  const selectSupplier=async(s)=>{
+    setEditing(false);setSyncResult(null);setLiveCalls(null);
+    // Fetch full authorized detail (list responses omit credentials)
+    const detail=await apiFetch("/suppliers/"+s.id,token);
+    const sup=(detail&&detail.data)?detail.data:s;
+    setSelected(sup);
     setForm({
-      name:s.name||"",nickname:s.nickname||"",host:s.host||"",
-      port:s.port||"5060",transport:s.transport||"udp",
-      codecs:s.codecs||"ulaw,alaw,g729",
-      panel_url:s.panel_url||"",panel_user:s.panel_user||"",
-      panel_password:s.panel_password||"",team_link:s.team_link||"",
-      sales_person:s.sales_person||"",whatsapp:s.whatsapp||"",
-      notes:s.notes||""
+      name:sup.name||"",nickname:sup.nickname||"",host:sup.host||"",
+      port:sup.port||"5060",transport:sup.transport||"udp",
+      codecs:sup.codecs||"ulaw,alaw,g729",
+      panel_url:sup.panel_url||"",panel_user:sup.panel_user||"",
+      panel_password:"",team_link:sup.team_link||"",
+      sales_person:sup.sales_person||"",whatsapp:sup.whatsapp||"",
+      notes:sup.notes||"",
+      api_url:sup.api_url||"",api_key:"",api_secret:"",
+      api_did:sup.api_did||"0",api_livecalls:sup.api_livecalls||"0",
+      api_cdr:sup.api_cdr||"0",api_balance:sup.api_balance||"0",
+      api_did_path:sup.api_did_path||"",api_livecalls_path:sup.api_livecalls_path||""
     });
+    setSecretFlags({
+      has_panel_password:!!sup.has_panel_password,
+      has_api_key:!!sup.has_api_key,
+      has_api_secret:!!sup.has_api_secret,
+    });
+  };
+
+  const syncDids=async()=>{
+    if(!selected) return;
+    setSyncing(true);setSyncResult(null);
+    const res=await apiFetch("/suppliers/"+selected.id+"/sync-dids",token,{method:"POST"});
+    setSyncResult(res);setSyncing(false);
+    if(res&&res.success) load();
+  };
+
+  const viewLiveCalls=async()=>{
+    if(!selected) return;
+    setLiveCallsLoading(true);
+    const res=await apiFetch("/suppliers/"+selected.id+"/live-calls",token);
+    setLiveCalls(res&&res.data?res.data:[]);
+    setLiveCallsLoading(false);
   };
 
   const inp={width:"100%",padding:"9px 12px",borderRadius:8,
@@ -1126,7 +1169,7 @@ function SuppliersPage({token}){
     <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Suppliers</div>
-        <button onClick={()=>{setSelected(null);setEditing(true);setForm({name:"",nickname:"",host:"",port:"5060",transport:"udp",codecs:"ulaw,alaw,g729",panel_url:"",panel_user:"",panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""}); }}
+        <button onClick={()=>{setSelected(null);setEditing(true);setForm(blankForm());setSecretFlags({has_panel_password:false,has_api_key:false,has_api_secret:false});setSyncResult(null);setLiveCalls(null); }}
           style={{padding:"9px 18px",borderRadius:20,border:"none",
             background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
           + Add Supplier
@@ -1164,6 +1207,20 @@ function SuppliersPage({token}){
               <div style={{display:"flex",gap:8}}>
                 {selected&&!editing&&(
                   <>
+                    {selected.api_url&&selected.api_did==="1"&&(
+                      <button onClick={syncDids} disabled={syncing}
+                        style={{padding:"6px 14px",borderRadius:20,border:"1px solid #6B2FBF",
+                          background:"#FFF",color:"#6B2FBF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                        {syncing?"Syncing...":"🔄 Sync DIDs"}
+                      </button>
+                    )}
+                    {selected.api_url&&selected.api_livecalls==="1"&&(
+                      <button onClick={viewLiveCalls} disabled={liveCallsLoading}
+                        style={{padding:"6px 14px",borderRadius:20,border:"1px solid #6B2FBF",
+                          background:"#FFF",color:"#6B2FBF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                        {liveCallsLoading?"Loading...":"📞 Live Calls"}
+                      </button>
+                    )}
                     <button onClick={()=>setEditing(true)}
                       style={{padding:"6px 14px",borderRadius:20,border:"1px solid #2CADA6",
                         background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>Edit</button>
@@ -1257,7 +1314,8 @@ function SuppliersPage({token}){
                   <Field label="Panel URL" k="panel_url" ph="https://panel.supplier.com"/>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <Field label="User" k="panel_user" ph="username"/>
-                    <Field label="Password" k="panel_password" ph="password" type="password"/>
+                    <Field label="Password" k="panel_password" type="password"
+                      ph={secretFlags.has_panel_password?"•••••••• (leave blank to keep)":"password"}/>
                   </div>
                   <Field label="Team Link" k="team_link" ph="https://t.me/supplier"/>
                   <Field label="Sales Person" k="sales_person" ph="John Smith"/>
@@ -1272,8 +1330,10 @@ function SuppliersPage({token}){
                   </div>
                   <Field label="API Base URL" k="api_url" ph="https://api.supplier.com/v1"/>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <Field label="API Key" k="api_key" ph="your-api-key"/>
-                    <Field label="API Secret" k="api_secret" ph="your-api-secret"/>
+                    <Field label="API Key" k="api_key"
+                      ph={secretFlags.has_api_key?"•••••••• (leave blank to keep)":"your-api-key"}/>
+                    <Field label="API Secret" k="api_secret"
+                      ph={secretFlags.has_api_secret?"•••••••• (leave blank to keep)":"your-api-secret"}/>
                   </div>
                   <div style={{marginBottom:10}}>
                     <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>API Features</div>
@@ -1340,7 +1400,7 @@ function SuppliersPage({token}){
                   {[
                     ["Panel",selected?.panel_url||"—"],
                     ["User",selected?.panel_user||"—"],
-                    ["Password",selected?.panel_password?"••••••":"—"],
+                    ["Password",selected?.has_panel_password?"••••••":"—"],
                     ["Team Link",selected?.team_link||"—"],
                     ["Sales Person",selected?.sales_person||"—"],
                     ["WhatsApp",selected?.whatsapp||"—"],
@@ -1356,6 +1416,36 @@ function SuppliersPage({token}){
                       borderRadius:8,fontSize:12,color:"#555"}}>{selected.notes}</div>
                   )}
                 </div>
+
+                {syncResult&&(
+                  <div style={{marginTop:14,padding:"14px 16px",borderRadius:10,
+                    background:syncResult.success?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
+                    border:"1px solid "+(syncResult.success?"#10B981":"#EF4444")}}>
+                    <div style={{fontSize:13,fontWeight:700,color:syncResult.success?"#10B981":"#EF4444",marginBottom:6}}>
+                      {syncResult.success?"✅ Sync Complete":"❌ Sync Failed"}
+                    </div>
+                    <div style={{fontSize:12,color:"#555"}}>{syncResult.message||syncResult.error}</div>
+                  </div>
+                )}
+
+                {liveCalls&&(
+                  <div style={{marginTop:14,padding:"14px 16px",borderRadius:10,
+                    background:"#F8F9FA",border:"1px solid #EEEEEE"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#6B2FBF",marginBottom:8}}>
+                      📞 Live Calls ({liveCalls.length})
+                    </div>
+                    {liveCalls.length===0
+                      ?<div style={{fontSize:12,color:"#999"}}>No active calls from this supplier.</div>
+                      :liveCalls.map((c,i)=>(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",
+                          padding:"7px 0",borderBottom:"1px solid #F0F0F0",fontSize:12,color:"#333"}}>
+                          <span>{c.src||c.caller||c.number||"—"}</span>
+                          <span style={{fontFamily:"monospace",color:"#666"}}>{c.dst||c.did||c.duration||""}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
               </div>
             )}
           </div>
