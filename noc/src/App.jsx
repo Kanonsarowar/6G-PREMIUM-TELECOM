@@ -1663,161 +1663,143 @@ function DIDInventoryPage({token}){
 
         {/* ── ADD NUMBER TAB ── */}
         {tab==="add"&&(
-          <div style={{fontFamily:"inherit"}}>
-            {/* Add Type Toggle */}
-            <div style={{display:"flex",gap:4,marginBottom:12}}>
-              {[["single","➕ Single Number"],["range","📦 Number Block/Range"]].map(([t,l])=>(
-                <button key={t} onClick={()=>setAddForm({...addForm,addType:t})}
-                  style={{padding:"9px 16px",borderRadius:20,border:"none",fontSize:12,
-                    background:(addForm.addType||"single")===t?"#2CADA6":"#F0F0F0",
-                    color:(addForm.addType||"single")===t?"#FFF":"#555",
-                    fontWeight:(addForm.addType||"single")===t?700:400,
-                    cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                  {l}
-                </button>
-              ))}
-            </div>
+          <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Add Numbers</div>
 
-            {/* Single Number Form */}
-            {(addForm.addType||"single")==="single"&&(
-              <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-                <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Add Single Number</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Phone Number *</div>
-                    <input style={inp} placeholder="393199052141" value={addForm.number}
-                      onChange={e=>setAddForm({...addForm,number:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Supplier *</div>
-                    <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
-                      <option value="">— Select —</option>
-                      {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Country Name</div>
-                    <input style={inp} placeholder="Italy" value={addForm.country_name}
-                      onChange={e=>setAddForm({...addForm,country_name:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Country Code</div>
-                    <input style={inp} placeholder="IT" value={addForm.country_code}
-                      onChange={e=>setAddForm({...addForm,country_code:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Prefix</div>
-                    <input style={inp} placeholder="39" value={addForm.prefix}
-                      onChange={e=>setAddForm({...addForm,prefix:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Tariff/min</div>
-                    <input style={inp} placeholder="0.070" value={addForm.tariff}
-                      onChange={e=>setAddForm({...addForm,tariff:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Currency</div>
-                    <select style={inp} value={addForm.currency} onChange={e=>setAddForm({...addForm,currency:e.target.value})}>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="USD">USD ($)</option>
-                    </select>
-                  </div>
-                </div>
-                <button onClick={addNumber} disabled={saving}
-                  style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
-                    background:saving?"#CCC":"#2CADA6",color:"#FFF",fontSize:14,
-                    fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                  {saving?"Adding...":"➕ Add Number"}
-                </button>
+            {/* Form Fields */}
+            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
+
+              {/* Supplier */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Supplier *</div>
+                <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
+                  <option value="">— Select Supplier —</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                </select>
               </div>
-            )}
 
-            {/* Range/Block Form */}
-            {addForm.addType==="range"&&(
-              <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-                <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>Add Number Block/Range</div>
-                <div style={{fontSize:12,color:"#999",marginBottom:16}}>
-                  Enter a range to generate all numbers between start and end automatically
+              {/* Country */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Country</div>
+                  <input style={inp} placeholder="e.g. Italy" value={addForm.country_name}
+                    onChange={e=>setAddForm({...addForm,country_name:e.target.value})}/>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Code</div>
+                  <input style={inp} placeholder="IT" value={addForm.country_code}
+                    onChange={e=>setAddForm({...addForm,country_code:e.target.value})}/>
+                </div>
+              </div>
+
+              {/* Tariff + Currency */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Tariff / min</div>
+                  <input style={inp} placeholder="0.070" value={addForm.tariff}
+                    onChange={e=>setAddForm({...addForm,tariff:e.target.value})}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
+                  <select style={inp} value={addForm.currency} onChange={e=>setAddForm({...addForm,currency:e.target.value})}>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="USD">USD ($)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Prefix */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Prefix</div>
+                <input style={inp} placeholder="e.g. 39" value={addForm.prefix}
+                  onChange={e=>setAddForm({...addForm,prefix:e.target.value})}/>
+              </div>
+
+              {/* Entry Type Toggle */}
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Entry Type</div>
+                <div style={{display:"flex",gap:6}}>
+                  {[["range","📦 Range/Block"],["single","🔢 Single Number"]].map(([t,l])=>(
+                    <button key={t} onClick={()=>setAddForm({...addForm,addType:t})}
+                      style={{flex:1,padding:"9px 8px",borderRadius:8,
+                        border:"2px solid "+((addForm.addType||"range")===t?"#2CADA6":"#E0E0E0"),
+                        background:(addForm.addType||"range")===t?"rgba(44,173,166,0.08)":"#FFF",
+                        color:(addForm.addType||"range")===t?"#2CADA6":"#666",
+                        fontSize:12,fontWeight:(addForm.addType||"range")===t?700:400,
+                        cursor:"pointer",fontFamily:"inherit"}}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Range Fields */}
+              {(addForm.addType||"range")==="range"&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                   <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Range Start *</div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Range Start *</div>
                     <input style={inp} placeholder="393199052100" value={addForm.rangeStart||""}
                       onChange={e=>setAddForm({...addForm,rangeStart:e.target.value})}/>
                   </div>
                   <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Range End *</div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Range End *</div>
                     <input style={inp} placeholder="393199052199" value={addForm.rangeEnd||""}
                       onChange={e=>setAddForm({...addForm,rangeEnd:e.target.value})}/>
                   </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Supplier *</div>
-                    <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
-                      <option value="">— Select —</option>
-                      {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Prefix</div>
-                    <input style={inp} placeholder="39" value={addForm.prefix}
-                      onChange={e=>setAddForm({...addForm,prefix:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Country Name</div>
-                    <input style={inp} placeholder="Italy" value={addForm.country_name}
-                      onChange={e=>setAddForm({...addForm,country_name:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Country Code</div>
-                    <input style={inp} placeholder="IT" value={addForm.country_code}
-                      onChange={e=>setAddForm({...addForm,country_code:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Tariff/min</div>
-                    <input style={inp} placeholder="0.070" value={addForm.tariff}
-                      onChange={e=>setAddForm({...addForm,tariff:e.target.value})}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Currency</div>
-                    <select style={inp} value={addForm.currency} onChange={e=>setAddForm({...addForm,currency:e.target.value})}>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="USD">USD ($)</option>
-                    </select>
-                  </div>
+                  {addForm.rangeStart&&addForm.rangeEnd&&parseInt(addForm.rangeEnd)>=parseInt(addForm.rangeStart)&&(
+                    <div style={{gridColumn:"1/-1",padding:"8px 12px",background:"rgba(44,173,166,0.08)",
+                      borderRadius:8,fontSize:12,color:"#2CADA6",fontWeight:600}}>
+                      📊 Will generate {parseInt(addForm.rangeEnd)-parseInt(addForm.rangeStart)+1} numbers
+                    </div>
+                  )}
                 </div>
-                {addForm.rangeStart&&addForm.rangeEnd&&(
-                  <div style={{padding:"8px 12px",background:"rgba(44,173,166,0.08)",borderRadius:8,
-                    fontSize:12,color:"#2CADA6",fontWeight:600,marginBottom:12}}>
-                    📊 Will generate {Math.max(0,parseInt(addForm.rangeEnd)-parseInt(addForm.rangeStart)+1)} numbers
-                  </div>
-                )}
-                <button onClick={async()=>{
-                  if(!addForm.rangeStart||!addForm.rangeEnd){alert("Enter range start and end");return;}
-                  if(!addForm.trunk_id){alert("Select a supplier");return;}
-                  const start=parseInt(addForm.rangeStart.replace(/[^0-9]/g,""));
-                  const end=parseInt(addForm.rangeEnd.replace(/[^0-9]/g,""));
-                  if(end<start){alert("Range end must be greater than start");return;}
-                  if(end-start>9999){alert("Maximum 10,000 numbers per range");return;}
-                  setSaving(true);
-                  const d=await apiFetch("/dids/add-range",token,{method:"POST",body:JSON.stringify({
-                    range_start:addForm.rangeStart,range_end:addForm.rangeEnd,
-                    trunk_id:addForm.trunk_id,prefix:addForm.prefix,
-                    country_name:addForm.country_name,country_code:addForm.country_code,
-                    tariff:addForm.tariff,currency:addForm.currency
-                  })});
-                  setResult(d);setSaving(false);
-                  if(d.success){setAddForm({...addForm,rangeStart:"",rangeEnd:""});load();}
-                }} disabled={saving}
-                  style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
-                    background:saving?"#CCC":"#2CADA6",color:"#FFF",fontSize:14,
-                    fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                  {saving?"Generating...":"📦 Add Number Block"}
-                </button>
-              </div>
-            )}
+              )}
+
+              {/* Single Number Field */}
+              {addForm.addType==="single"&&(
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Phone Number *</div>
+                  <input style={inp} placeholder="393199052141" value={addForm.number}
+                    onChange={e=>setAddForm({...addForm,number:e.target.value})}/>
+                </div>
+              )}
+            </div>
+
+            {/* Apply Button */}
+            <button onClick={async()=>{
+              if(!addForm.trunk_id){alert("Select a supplier");return;}
+              setSaving(true);setResult(null);
+              if((addForm.addType||"range")==="range"){
+                if(!addForm.rangeStart||!addForm.rangeEnd){alert("Enter range start and end");setSaving(false);return;}
+                const d=await apiFetch("/dids/add-range",token,{method:"POST",body:JSON.stringify({
+                  range_start:addForm.rangeStart,range_end:addForm.rangeEnd,
+                  trunk_id:addForm.trunk_id,prefix:addForm.prefix,
+                  country_name:addForm.country_name,country_code:addForm.country_code,
+                  tariff:addForm.tariff,currency:addForm.currency
+                })});
+                setResult(d);setSaving(false);
+                if(d.success) load();
+              } else {
+                if(!addForm.number){alert("Enter a number");setSaving(false);return;}
+                const num="+"+addForm.number.replace(/[^0-9]/g,"");
+                const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
+                  number:num,trunk_id:addForm.trunk_id,
+                  country_name:addForm.country_name,country_code:addForm.country_code,
+                  prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
+                  currency:addForm.currency,payment_terms:"Weekly",status:"active",
+                  ivr_context:"custom/6g-premium-telecom"
+                })});
+                setResult(d);setSaving(false);
+                if(d.success||d.data) load();
+              }
+            }} disabled={saving}
+              style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
+                background:saving?"#CCC":"#2CADA6",color:"#FFF",fontSize:15,
+                fontWeight:700,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.5px"}}>
+              {saving?"Processing...":"✅ APPLY"}
+            </button>
           </div>
         )}
-
         {/* ── ASSIGN RESELLER TAB ── */}
         {tab==="assign"&&(
           <>
