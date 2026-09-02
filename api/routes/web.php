@@ -15,14 +15,14 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/admin/live-interrogation', function () {
     return view('admin.live-interrogation');
-});
+})->middleware('auth:sanctum');
 
 Route::get('/', function () {
     return redirect('/admin/live-interrogation');
 });
 use App\Http\Controllers\IvrController;
 
-Route::prefix('admin')->group(function () {
+Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('/ivr', [IvrController::class, 'index']);
     Route::get('/ivr/create', [IvrController::class, 'create']);
     Route::post('/ivr/store', [IvrController::class, 'store']);

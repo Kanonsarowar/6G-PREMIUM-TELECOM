@@ -11,7 +11,7 @@ use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\CdrController;
 use App\Http\Controllers\DidRouteController;
 
-Route::prefix('admin')->group(function () {
+Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 
     # Dashboard
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard.index');
