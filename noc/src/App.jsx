@@ -1939,7 +1939,7 @@ function DIDInventoryPage({token}){
       </div>
       {/* Sticky Bottom */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#FFF",
-        borderTop:"1px solid #DDD",padding:"10px 16px",display:"flex",gap:10,
+        borderTop:"1px solid #DDD",padding:"10px 16px 24px",display:"flex",gap:10,
         boxShadow:"0 -2px 8px rgba(0,0,0,0.08)",zIndex:50}}>
         <button style={{padding:"9px 20px",borderRadius:4,border:"none",
           background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:600,

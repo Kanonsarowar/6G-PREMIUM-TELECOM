@@ -1703,7 +1703,7 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
     $added=0; $removed=0;
 
     // Add new numbers
-    foreach($toAdd as $num){
+    foreach($toAdd as $num){ $num = '+'.ltrim($num,'+');
         $stripped = ltrim($num,'+');
         $cc='XX'; $cn='Unknown'; $detectedPrefix='';
         foreach([3,2,1] as $len){
@@ -1778,10 +1778,10 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
         'success'   => true,
         'added'     => $added,
         'removed'   => $removed,
-        'unchanged' => count($csvNumbers)-count($toAdd),
+        'unchanged' => count($csvNorm)-count($toAdd),
         'total_csv' => count($csvNumbers),
         'total_db'  => DB::table('dids')->where('trunk_id',$trunkId)->count(),
         'supplier'  => $trunk->nickname??$trunk->name,
-        'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNumbers)-count($toAdd))." unchanged",
+        'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNorm)-count($toAdd))." unchanged",
     ]);
 });
