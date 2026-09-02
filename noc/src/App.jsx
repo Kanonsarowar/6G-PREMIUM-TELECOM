@@ -562,39 +562,175 @@ function CDRPage({token}){
   const [cdrs,setCdrs]=useState([]);
   const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState("");
-  useEffect(()=>{apiFetch("/cdr?per_page=100",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
-  const filtered=cdrs.filter(c=>!search||(c.src||"").includes(search)||(c.did||"").includes(search));
+  const [dateFrom,setDateFrom]=useState("");
+  const [dateTo,setDateTo]=useState("");
+  const [filterSupplier,setFilterSupplier]=useState("");
+
+  const load=()=>{
+    apiFetch("/cdr?per_page=500",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});
+  };
+  useEffect(()=>{load();},[token]);
+
+  const filtered=cdrs.filter(c=>{
+    if(search&&!(c.src||"").includes(search)&&!(c.did||"").includes(search)) return false;
+    if(filterSupplier&&(c.trunk_name||"")!==filterSupplier) return false;
+    if(dateFrom&&(c.call_start||c.created_at||"")<dateFrom) return false;
+    if(dateTo&&(c.call_start||c.created_at||"")>dateTo+"Z") return false;
+    return true;
+  });
+
+  const totalSec=filtered.reduce((a,c)=>a+parseInt(c.billsec||0),0);
+  const totalRev=filtered.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
+  const suppliers=[...new Set(cdrs.map(c=>c.trunk_name).filter(Boolean))];
+
+  const downloadCSV=()=>{
+    const rows=[["Date","CLI","PRN","Sec","Revenue","Currency","Supplier","Disposition"]];
+    filtered.forEach(c=>rows.push([
+      (c.call_start||c.created_at||"").slice(0,19),
+      c.src||"",c.did||"",c.billsec||0,
+      parseFloat(c.revenue||0).toFixed(4),
+      c.currency||"EUR",c.trunk_name||"",c.disposition||""
+    ]));
+    const csv=rows.map(r=>r.join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download="cdr.csv";a.click();
+  };
+
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap",
+    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
+
   return(
-    <div style={{padding:16}}>
-      <div style={{marginBottom:12,fontSize:16,fontWeight:800}}>CDR Analytics</div>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..."
-        style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-          background:"rgba(255,255,255,0.06)",color:C.text,fontSize:12,outline:"none",
-          boxSizing:"border-box",marginBottom:12}}/>
-      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-        :filtered.length===0?<div style={{textAlign:"center",padding:40,color:C.muted}}>No records</div>
-        :filtered.map((c,i)=>(
-          <Card key={i} style={{padding:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-              <span style={{fontSize:12,fontWeight:700,color:C.blue,fontFamily:"monospace"}}>{c.src||"—"}</span>
-              <span style={{fontSize:11,color:c.disposition==="ANSWERED"?C.green:C.red,fontWeight:700}}>
-                {c.disposition==="ANSWERED"?"OK":"FAIL"}
-              </span>
+    <div style={{paddingBottom:20,minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      {/* Header */}
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>CDR</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{filtered.length} records · {totalSec}s · €{totalRev.toFixed(4)}</div>
+        </div>
+        <button onClick={downloadCSV}
+          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
+            background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          ⬇ Export
+        </button>
+      </div>
+
+      <div style={{padding:"12px 16px"}}>
+        {/* Filters */}
+        <div style={{background:"#FFF",borderRadius:8,padding:12,marginBottom:12,
+          boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="Search CLI or PRN..."
+              style={{padding:"8px 12px",borderRadius:6,border:"1px solid #E0E0E0",
+                fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+                style={{padding:"8px 10px",borderRadius:6,border:"1px solid #E0E0E0",
+                  fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+              <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+                style={{padding:"8px 10px",borderRadius:6,border:"1px solid #E0E0E0",
+                  fontSize:12,outline:"none",fontFamily:"inherit"}}/>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:10}}>
-              <span style={{color:C.muted}}>DID: <span style={{color:C.text,fontFamily:"monospace"}}>{c.did||"—"}</span></span>
-              <span style={{color:C.muted}}>Dur: <span style={{color:C.text}}>{c.billsec||0}s</span></span>
-              <span style={{color:C.muted}}>Rev: <span style={{color:C.yellow}}>€{c.revenue||"0.00"}</span></span>
-              <span style={{color:C.muted}}>{(c.call_start||"").slice(5,16)}</span>
+            <select value={filterSupplier} onChange={e=>setFilterSupplier(e.target.value)}
+              style={{padding:"8px 10px",borderRadius:6,border:"1px solid #E0E0E0",
+                fontSize:12,outline:"none",cursor:"pointer",fontFamily:"inherit"}}>
+              <option value="">All Suppliers</option>
+              {suppliers.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+          {[
+            {label:"Calls",value:filtered.length,color:"#2CADA6"},
+            {label:"Seconds",value:totalSec,color:"#3B82F6"},
+            {label:"Revenue",value:"€"+totalRev.toFixed(3),color:"#10B981"},
+          ].map((s,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:8,padding:"10px 12px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}>
+              <div style={{fontSize:18,fontWeight:800,color:s.color}}>{s.value}</div>
+              <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{s.label}</div>
             </div>
-          </Card>
-        ))}
+          ))}
+        </div>
+
+        {/* CDR Table */}
+        {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+        :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+          boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+              <thead>
+                <tr>
+                  {["DATE","CLI","PRN","SEC","REVENUE","CURRENCY","SUPPLIER","STATUS"].map((h,i)=>(
+                    <th key={i} style={thS}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length===0
+                  ?<tr><td colSpan={8} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No records found</td></tr>
+                  :filtered.map((c,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
+                      background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"6px 10px",fontSize:11,color:"#555",whiteSpace:"nowrap"}}>
+                        {(c.call_start||c.created_at||"").slice(0,19)}
+                      </td>
+                      <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",
+                        fontWeight:600,color:"#1A1A1A"}}>{c.src||"—"}</td>
+                      <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",
+                        color:"#2CADA6",fontWeight:600}}>{c.did||"—"}</td>
+                      <td style={{padding:"6px 10px",fontSize:12,color:"#333",textAlign:"center"}}>
+                        {c.billsec||0}
+                      </td>
+                      <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",
+                        color:"#10B981",fontWeight:600}}>
+                        {parseFloat(c.revenue||0).toFixed(4)}
+                      </td>
+                      <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>
+                        {c.currency||"EUR"}
+                      </td>
+                      <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
+                        {c.trunk_name||"—"}
+                      </td>
+                      <td style={{padding:"6px 10px"}}>
+                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                          background:c.disposition==="ANSWERED"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+                          color:c.disposition==="ANSWERED"?"#10B981":"#EF4444"}}>
+                          {c.disposition==="ANSWERED"?"OK":"FAIL"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+              {filtered.length>0&&(
+                <tfoot>
+                  <tr style={{background:"#F8F9FA",borderTop:"2px solid #E0E0E0"}}>
+                    <td colSpan={3} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#555"}}>
+                      TOTAL ({filtered.length} calls)
+                    </td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#333",textAlign:"center"}}>
+                      {totalSec}
+                    </td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
+                      {totalRev.toFixed(4)}
+                    </td>
+                    <td colSpan={3}/>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>}
       </div>
     </div>
   );
 }
-
 // ── Revenue ───────────────────────────────────────────────────────
 function RevenuePage({token}){
   const [data,setData]=useState({usd:{calls:0,minutes:0,revenue:0},eur:{calls:0,minutes:0,revenue:0},total_calls:0,total_minutes:0});
