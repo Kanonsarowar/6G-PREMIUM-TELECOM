@@ -40,7 +40,7 @@ const getNavGroups=(role)=>{
     {id:"quality",label:"Call Quality",icon:"📊"},
   ]},
   {key:"numbers",label:"Numbers & IVR",items:[
-    {id:"didinventory",label:"Numbers",icon:"▤"},
+    {id:"numbers",label:"Numbers",icon:"▤"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
@@ -1523,7 +1523,7 @@ const COUNTRIES=[
   {name:"Zambia",code:"ZM",prefix:"260"},
   {name:"Zimbabwe",code:"ZW",prefix:"263"},
 ];
-function DIDInventoryPage({token}){
+function NumberInventoryPage({token}){
   const [dids,setDids]=useState([]);
   const [ranges,setRanges]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
@@ -4133,7 +4133,7 @@ export default function App(){
       "cdr":"cdr","cdr-analytics":"cdr",
       "revenue":"revenue",
       "suppliers":"suppliers",
-      "numbers":"didinventory","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance","bulk-did":"bulkdid","bulk-manager":"bulkdid",
+      "numbers":"numbers","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance","bulk-did":"bulkdid","bulk-manager":"bulkdid",
       "ivr":"ivr","ivraudio":"audio-manager","ivr-library":"ivr","audio-manager":"ivraudio","ivr-audio":"ivraudio",
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
@@ -4148,7 +4148,7 @@ export default function App(){
   const navigateTo=(p)=>{
     const urlMap={
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
-      "revenue":"revenue","suppliers":"suppliers","didinventory":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
+      "revenue":"revenue","suppliers":"suppliers","numbers":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
@@ -4323,7 +4323,7 @@ export default function App(){
       case "cdr":          return <CDRPage token={token}/>;
       case "revenue":      return <RevenuePage token={token}/>;
       case "suppliers":    return <SuppliersPage token={token}/>;
-      case "didinventory": return <DIDInventoryPage token={token}/>;
+      case "numbers": return <NumberInventoryPage token={token}/>;
       case "didperformance":return <DIDPerformancePage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
       case "ivraudio":      return <IVRAudioManagerPage token={token}/>;
