@@ -55,32 +55,7 @@ const getNavGroups=(role)=>{
     {id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
-const NAV_GROUPS=[
-  {key:"ops",label:"Operations",items:[
-    {id:"dashboard",label:"Dashboard",icon:"▦"},
-    {id:"livecalls",label:"Live Calls",icon:"◉"},
-    {id:"cdr",label:"CDR Analytics",icon:"≡"},
-    {id:"revenue",label:"Revenue",icon:"◈"},
-  ]},
-  {key:"voice",label:"Voice",items:[
-    {id:"suppliers",label:"Suppliers",icon:"⬡"},
-    {id:"didinventory",label:"Numbers",icon:"▤"},
-    {id:"didperformance",label:"DID Report",icon:"📈"},
-    {id:"ivr",label:"IVR Library",icon:"♫"},
-    {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
-    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
-  ]},
-  {key:"system",label:"System",items:[
-    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
-    {id:"quality",label:"Call Quality",icon:"📊"},
-    {id:"customers",label:"Customers",icon:"◷"},
-    {id:"resellers",label:"Resellers",icon:"👥"},
-    {id:"testlabs",label:"Test Number",icon:"⚗"},
-    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
-    {id:"auditlog",label:"Audit Log",icon:"📜"},
-    {id:"settings",label:"Settings",icon:"⚙"},
-  ]},
-];
+
 const apiFetch=async(path,token,opts={})=>{
   try{
     const r=await fetch(`${API}${path}`,{
