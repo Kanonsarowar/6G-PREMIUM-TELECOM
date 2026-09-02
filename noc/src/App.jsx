@@ -313,7 +313,7 @@ function DashboardPage({token}){
   const [stats,setStats]=useState({calls:0,revenue:0,dids:0,live:0,minutes:0,
     today_calls:0,today_revenue:0,today_minutes:0,asr:0,suppliers:0,today_countries:0});
   const [loading,setLoading]=useState(true);
-  useEffect(()=>{
+  const loadDash=()=>{
     Promise.all([
       apiFetch("/billing/current-revenue",token),
       apiFetch("/dids",token),
@@ -339,6 +339,11 @@ function DashboardPage({token}){
       });
       setLoading(false);
     });
+  };
+  useEffect(()=>{
+    loadDash();
+    const t=setInterval(loadDash,10000);
+    return()=>clearInterval(t);
   },[token]);
   const now=new Date();
   const todayCards=[
