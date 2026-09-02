@@ -1375,35 +1375,41 @@ function DIDPerformancePage({token}){
 }
 // ── DID Inventory ─────────────────────────────────────────────────
 function DIDInventoryPage({token}){
-  const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
+  const [ranges,setRanges]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
   const [resellers,setResellers]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("numbers");
   const [expanded,setExpanded]=useState({});
   const [search,setSearch]=useState("");
-  const [searchInput,setSearchInput]=useState("");
-  const [tab,setTab]=useState("numbers");
   const [selected,setSelected]=useState(new Set());
-  const [bulkAction,setBulkAction]=useState("");
-  const [bulkValue,setBulkValue]=useState("");
-  const [uploading,setUploading]=useState(false);
-  const [saving,setSaving]=useState(false);
   const [result,setResult]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const [uploading,setUploading]=useState(false);
   const [uploadFile,setUploadFile]=useState(null);
   const [uploadTrunk,setUploadTrunk]=useState("");
-  const [uploadRate,setUploadRate]=useState("0.070");
+  const [uploadRate,setUploadRate]=useState("0.07");
   const [uploadCurrency,setUploadCurrency]=useState("EUR");
+  // Add number form
+  const [addForm,setAddForm]=useState({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"EUR",trunk_id:""});
+  // Assign reseller
+  const [assignReseller,setAssignReseller]=useState("");
+  // Test number
+  const [testNum,setTestNum]=useState("");
+  const [testResult,setTestResult]=useState(null);
+  const [testing,setTesting]=useState(false);
 
   const load=()=>{
+    setLoading(true);
     Promise.all([
-      apiFetch("/did-ranges",token),
       apiFetch("/dids",token),
+      apiFetch("/did-ranges",token),
       apiFetch("/suppliers",token),
       apiFetch("/resellers",token),
-    ]).then(([r,d,s,res])=>{
-      setRanges(r.data||[]);
+    ]).then(([d,r,s,res])=>{
       setDids(d.data||[]);
+      setRanges(r.data||[]);
       setSuppliers(s.data||[]);
       setResellers(res.data||[]);
       setLoading(false);
@@ -1411,7 +1417,22 @@ function DIDInventoryPage({token}){
   };
   useEffect(()=>{load();},[token]);
 
-  const toggleRow=(id,e)=>{e.stopPropagation();setExpanded(ex=>({...ex,[id]:!ex[id]}));};
+  const toggleRow=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
+  const toggleSelect=(id)=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
+  const clearSel=()=>setSelected(new Set());
+  const currSym=(c)=>c==="EUR"?"€":"$";
+
+  const getNumbers=(r)=>dids.filter(d=>{
+    const n=(d.number||"").replace("+","");
+    return n.startsWith(r.prefix?.replace(/\s/g,"")||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
+  });
+
+  const filteredRanges=search?ranges.filter(r=>(r.prefix||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase())):ranges;
+  const ungroupedDids=dids.filter(d=>{
+    const n=(d.number||"").replace("+","");
+    return !ranges.some(r=>n.startsWith(r.prefix?.replace(/\s/g,"")||""));
+  });
 
   const deleteRange=async(id,e)=>{
     e.stopPropagation();
@@ -1419,7 +1440,6 @@ function DIDInventoryPage({token}){
     await apiFetch("/did-ranges/"+id,token,{method:"DELETE"});
     load();
   };
-
   const deleteDid=async(id,e)=>{
     e.stopPropagation();
     if(!window.confirm("Delete this number?")) return;
@@ -1427,79 +1447,77 @@ function DIDInventoryPage({token}){
     load();
   };
 
-  const getNumbers=(r)=>dids.filter(d=>{
-    const n=(d.number||"").replace("+","");
-    return n.startsWith(r.prefix||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
-  });
-
-  // All DIDs not in any range
-  const ungroupedDids=dids.filter(d=>{
-    const n=(d.number||"").replace("+","");
-    return !ranges.some(r=>n.startsWith(r.prefix||"")||(n>=(r.range_start||"")&&n<=(r.range_end||"")));
-  });
-
-  const filteredRanges=searchInput
-    ?ranges.filter(r=>(r.prefix||"").includes(searchInput)||(r.country_name||"").toLowerCase().includes(searchInput.toLowerCase()))
-    :ranges;
-
-  const filteredDids=searchInput
-    ?dids.filter(d=>(d.number||"").includes(searchInput)||(d.country_name||"").toLowerCase().includes(searchInput.toLowerCase()))
-    :dids;
-
-  // Bulk management
-  const toggleSelect=(id)=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
-  const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
-  const clearAll=()=>setSelected(new Set());
-
-  const applyBulk=async()=>{
-    if(selected.size===0){alert("Select at least one DID");return;}
-    if(!bulkAction){alert("Choose an action");return;}
+  const addNumber=async()=>{
+    if(!addForm.number){alert("Enter a number");return;}
+    if(!addForm.trunk_id){alert("Select a supplier");return;}
     setSaving(true);
-    const ids=[...selected];
-    let d;
-    if(bulkAction==="supplier"){
-      d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",body:JSON.stringify({ids,trunk_id:bulkValue})});
-    } else if(bulkAction==="ivr"){
-      d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids,ivr_context:bulkValue})});
-    } else if(bulkAction==="delete"){
-      if(!window.confirm("Delete "+selected.size+" DIDs?")) {setSaving(false);return;}
-      d=await apiFetch("/dids/bulk-delete",token,{method:"POST",body:JSON.stringify({ids})});
-    }
-    setResult(d);setSaving(false);clearAll();load();
+    const num = "+"+addForm.number.replace(/[^0-9]/g,"");
+    const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
+      number:num,trunk_id:addForm.trunk_id,
+      country_name:addForm.country_name,country_code:addForm.country_code,
+      prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
+      currency:addForm.currency,payment_terms:"Weekly",status:"active",
+      ivr_context:"custom/6g-premium-telecom"
+    })});
+    setResult(d);setSaving(false);
+    if(d.success||d.data){setAddForm({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"EUR",trunk_id:""});load();}
   };
 
-  const uploadCSV=async()=>{
-    if(!uploadFile){alert("Select a CSV file");return;}
-    setUploading(true);setResult(null);
-    const fd=new FormData();
-    fd.append("file",uploadFile);
-    if(uploadTrunk) fd.append("trunk_id",uploadTrunk);
-    fd.append("rate",uploadRate);
-    fd.append("currency",uploadCurrency);
-    const r=await fetch("https://6g-premium-telecom.com/api/v1/dids/bulk-upload",{
-      method:"POST",headers:{Authorization:"Bearer "+token},body:fd
-    });
-    const d=await r.json();
-    setResult(d);setUploading(false);load();
+  const assignToReseller=async()=>{
+    if(selected.size===0){alert("Select numbers first");return;}
+    if(!assignReseller){alert("Select a reseller");return;}
+    setSaving(true);
+    const d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",
+      body:JSON.stringify({ids:[...selected],trunk_id:assignReseller})});
+    setResult(d);setSaving(false);clearSel();load();
+  };
+
+  const unassignFromReseller=async()=>{
+    if(selected.size===0){alert("Select numbers first");return;}
+    if(!window.confirm("Unassign "+selected.size+" numbers from reseller?")) return;
+    setSaving(true);
+    const d=await apiFetch("/dids/bulk-unassign",token,{method:"POST",
+      body:JSON.stringify({ids:[...selected]})});
+    setResult(d);setSaving(false);clearSel();load();
+  };
+
+  const deleteSelected=async()=>{
+    if(selected.size===0){alert("Select numbers first");return;}
+    if(!window.confirm("Delete "+selected.size+" numbers permanently?")) return;
+    setSaving(true);
+    const d=await apiFetch("/dids/bulk-delete",token,{method:"POST",
+      body:JSON.stringify({ids:[...selected]})});
+    setResult(d);setSaving(false);clearSel();load();
+  };
+
+  const testNumber=async()=>{
+    if(!testNum){alert("Enter a number to test");return;}
+    setTesting(true);setTestResult(null);
+    const num=testNum.replace(/[^0-9+]/g,"");
+    const d=await apiFetch("/dids/test?number="+encodeURIComponent(num),token);
+    setTestResult(d);setTesting(false);
   };
 
   const downloadExcel=()=>{
-    const rows=[["Number","Country","Tariff","Currency","Payment Terms"]];
-    dids.forEach(d=>rows.push([d.number,d.country_name||"",d.tariff||"",d.currency||"",d.payment_terms||""]));
+    const rows=[["Number","Country","Tariff","Currency","Payment Terms","Supplier"]];
+    dids.forEach(d=>rows.push([d.number,d.country_name||"",d.tariff||"",d.currency||"",d.payment_terms||"",d.supplier_name||""]));
     const csv=rows.map(r=>r.join(",")).join("\n");
     const blob=new Blob([csv],{type:"text/csv"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download="numbers.csv";a.click();
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="numbers.csv";a.click();
   };
 
   const inp={padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
-    background:"#FFF",color:"#333",fontSize:13,outline:"none",fontFamily:"inherit"};
-
+    background:"#FFF",color:"#333",fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
     padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap",
     borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
-
-  const currSym=(cur)=>cur==="EUR"?"€":"$";
+  const tabs=[
+    {id:"numbers",label:"📋 Numbers"},
+    {id:"add",label:"➕ Add Number"},
+    {id:"assign",label:"👤 Assign Reseller"},
+    {id:"delete",label:"🗑 Delete"},
+    {id:"upload",label:"⬆ Upload CSV"},
+  ];
 
   return(
     <div style={{paddingBottom:70,minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
@@ -1519,14 +1537,14 @@ function DIDInventoryPage({token}){
 
       <div style={{padding:"12px 16px"}}>
         {/* Tabs */}
-        <div style={{display:"flex",gap:4,marginBottom:12}}>
-          {[["numbers","📋 Numbers"],["bulk","⚡ Bulk Manager"],["upload","⬆ Upload CSV"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTab(t)}
-              style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:12,
-                background:tab===t?"#2CADA6":"#F0F0F0",
-                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
-                cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
-              {l}
+        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+          {tabs.map(t=>(
+            <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
+              style={{padding:"8px 12px",borderRadius:20,border:"none",fontSize:11,
+                background:tab===t.id?"#2CADA6":"#F0F0F0",
+                color:tab===t.id?"#FFF":"#555",fontWeight:tab===t.id?700:400,
+                cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>
+              {t.label}
             </button>
           ))}
         </div>
@@ -1537,95 +1555,72 @@ function DIDInventoryPage({token}){
             background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
             border:"1px solid "+(result.success?"#10B981":"#EF4444"),
             fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
-            {result.success?"✅ ":"❌ "}{result.message||result.error}
+            {result.success?"✅ ":"❌ "}{result.message||result.error||JSON.stringify(result)}
           </div>
         )}
 
         {/* ── NUMBERS TAB ── */}
         {tab==="numbers"&&(
           <>
-            {/* Search */}
-            <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,padding:10,marginBottom:10}}>
-              <div style={{display:"flex",gap:6}}>
-                <input value={searchInput} onChange={e=>setSearchInput(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&setSearch(searchInput)}
-                  placeholder="Search by number, country or prefix..."
-                  style={{...inp,flex:1,height:34}}/>
-                <button onClick={()=>setSearch(searchInput)}
-                  style={{padding:"0 16px",background:"#2CADA6",color:"#FFF",border:"none",
-                    borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer",height:34,flexShrink:0}}>
-                  SEARCH
-                </button>
-                {search&&<button onClick={()=>{setSearch("");setSearchInput("");}}
-                  style={{padding:"0 12px",background:"#EEE",color:"#666",border:"none",
-                    borderRadius:4,fontSize:11,cursor:"pointer",height:34,flexShrink:0}}>
-                  CLEAR
-                </button>}
-              </div>
+            <div style={{display:"flex",gap:6,marginBottom:10}}>
+              <input value={search} onChange={e=>setSearch(e.target.value)}
+                placeholder="Search by number, country or prefix..."
+                style={{...inp,flex:1}}/>
+              {search&&<button onClick={()=>setSearch("")}
+                style={{padding:"9px 12px",borderRadius:8,border:"1px solid #DDD",
+                  background:"#FFF",color:"#666",fontSize:12,cursor:"pointer"}}>Clear</button>}
             </div>
-
-            {/* Table */}
-            {loading?<div style={{background:"#FFF",padding:40,textAlign:"center",color:"#999",fontSize:12,border:"1px solid #E0E0E0"}}>Loading...</div>
-            :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:3,overflow:"hidden"}}>
+            {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
+            :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
                   <thead>
-                    <tr>
-                      {["NUMBERS","COUNTRY","TARIFF","PAYMENT TERMS","SUPPLIER","DEL"].map((h,i)=>(
-                        <th key={i} style={thS}>{h}</th>
-                      ))}
-                    </tr>
+                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","DEL"].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}</tr>
                   </thead>
                   <tbody>
-                    {/* Ranges */}
-                    {filteredRanges.map((r)=>{
+                    {filteredRanges.map(r=>{
                       const nums=getNumbers(r);
                       const isExp=expanded[r.id];
-                      const sym=currSym(r.currency||"EUR");
                       return(
                         <React.Fragment key={"r"+r.id}>
-                          <tr style={{borderBottom:"1px solid #E8E8E8",
-                            background:isExp?"#F9F5FF":"#FFF",cursor:"pointer"}}
-                            onClick={(e)=>toggleRow(r.id,e)}>
+                          <tr style={{borderBottom:"1px solid #E8E8E8",background:isExp?"#F0FAFA":"#FFF",cursor:"pointer"}}
+                            onClick={()=>toggleRow(r.id)}>
                             <td style={{padding:"6px 10px"}}>
                               <div style={{display:"flex",alignItems:"center",gap:7}}>
-                                <div style={{width:20,height:20,borderRadius:"50%",
-                                  background:"#2CADA6",color:"#FFF",
-                                  display:"flex",alignItems:"center",justifyContent:"center",
-                                  fontSize:13,fontWeight:700,flexShrink:0}}>
-                                  {isExp?"−":"+"}
-                                </div>
-                                <div>
-                                  <span style={{fontSize:13,fontWeight:800,color:"#1A1A1A",fontFamily:"monospace",whiteSpace:"nowrap"}}>
-                                    {r.prefix||r.range_start}
-                                  </span>
-                                  <span style={{fontSize:11,color:"#AAA",marginLeft:5}}>({r.total_count||nums.length})</span>
-                                </div>
+                                <div style={{width:20,height:20,borderRadius:"50%",background:"#2CADA6",
+                                  color:"#FFF",display:"flex",alignItems:"center",justifyContent:"center",
+                                  fontSize:13,fontWeight:700,flexShrink:0}}>{isExp?"−":"+"}</div>
+                                <span style={{fontSize:12,fontWeight:800,color:"#1A1A1A",fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                                  {r.prefix||r.range_start}
+                                </span>
+                                <span style={{fontSize:11,color:"#AAA"}}>({r.total_count||nums.length})</span>
                               </div>
                             </td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{sym}{parseFloat(r.rate||0).toFixed(3)}</td>
-                            <td style={{padding:"4px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
-                            <td style={{padding:"4px 10px",textAlign:"center"}}>
-                              <button onClick={(e)=>deleteRange(r.id,e)}
+                            <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
+                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(r.currency||"EUR")}{parseFloat(r.rate||0).toFixed(3)}</td>
+                            <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
+                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
+                            <td style={{padding:"6px 10px",textAlign:"center"}}>
+                              <button onClick={e=>deleteRange(r.id,e)}
                                 style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#2CADA6",padding:"2px 6px"}}>🗑</button>
+                                  cursor:"pointer",fontSize:12,color:"#EF4444",padding:"2px 6px"}}>🗑</button>
                             </td>
                           </tr>
                           {isExp&&(nums.length===0
-                            ?<tr><td colSpan={6} style={{padding:"4px 10px 4px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#FAFAFA"}}>No numbers in this range</td></tr>
+                            ?<tr><td colSpan={6} style={{padding:"6px 10px 6px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#F9F9F9"}}>No numbers</td></tr>
                             :nums.map((d,di)=>(
-                              <tr key={d.id} style={{background:di%2===0?"#FAF5FF":"#F5F0FF",borderBottom:"1px solid #EEE8FF"}}>
-                                <td style={{padding:"3px 10px 3px 37px",whiteSpace:"nowrap"}}>
+                              <tr key={d.id} style={{background:di%2===0?"#F5FFFE":"#EFFFFE",borderBottom:"1px solid #E0F5F5"}}>
+                                <td style={{padding:"4px 10px 4px 37px",whiteSpace:"nowrap"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
-                                  <span style={{fontSize:10,color:"#AAA",marginLeft:8,display:"inline"}}>— {(d.created_at||"").slice(0,10)}</span>
+                                  <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
                                 </td>
                                 <td colSpan={4}/>
-                                <td style={{padding:"3px 10px",textAlign:"center"}}>
-                                  <button onClick={(e)=>deleteDid(d.id,e)}
+                                <td style={{padding:"4px 10px",textAlign:"center"}}>
+                                  <button onClick={e=>deleteDid(d.id,e)}
                                     style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                      cursor:"pointer",fontSize:11,color:"#2CADA6",padding:"1px 5px"}}>🗑</button>
+                                      cursor:"pointer",fontSize:11,color:"#EF4444",padding:"1px 5px"}}>🗑</button>
                                 </td>
                               </tr>
                             ))
@@ -1633,29 +1628,24 @@ function DIDInventoryPage({token}){
                         </React.Fragment>
                       );
                     })}
-                    {/* Ungrouped DIDs */}
                     {ungroupedDids.length>0&&(
                       <React.Fragment>
                         <tr style={{background:"#F0F0F0"}}>
-                          <td colSpan={6} style={{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                          <td colSpan={6} style={{padding:"5px 10px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase"}}>
                             Individual Numbers ({ungroupedDids.length})
                           </td>
                         </tr>
-                        {(search?filteredDids.filter(d=>!ranges.some(r=>(d.number||"").replace("+","").startsWith(r.prefix||""))):ungroupedDids).map((d,i)=>(
+                        {ungroupedDids.map((d,i)=>(
                           <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>
-                              {(d.number||"").replace("+","")}
-                            </td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#333",fontFamily:"monospace"}}>
-                              {currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}
-                            </td>
-                            <td style={{padding:"4px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"4px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
-                            <td style={{padding:"4px 10px",textAlign:"center"}}>
-                              <button onClick={(e)=>deleteDid(d.id,e)}
+                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
+                            <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                            <td style={{padding:"5px 10px",textAlign:"center"}}>
+                              <button onClick={e=>deleteDid(d.id,e)}
                                 style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#2CADA6",padding:"2px 6px"}}>🗑</button>
+                                  cursor:"pointer",fontSize:12,color:"#EF4444",padding:"2px 6px"}}>🗑</button>
                             </td>
                           </tr>
                         ))}
@@ -1671,194 +1661,228 @@ function DIDInventoryPage({token}){
           </>
         )}
 
-        {/* ── BULK MANAGER TAB ── */}
-        {tab==="bulk"&&(
+        {/* ── ADD NUMBER TAB ── */}
+        {tab==="add"&&(
+          <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Add Single Number</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Phone Number *</div>
+                <input style={inp} placeholder="393199052141" value={addForm.number}
+                  onChange={e=>setAddForm({...addForm,number:e.target.value})}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Supplier *</div>
+                <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
+                  <option value="">— Select —</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Country Name</div>
+                <input style={inp} placeholder="Italy" value={addForm.country_name}
+                  onChange={e=>setAddForm({...addForm,country_name:e.target.value})}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Country Code</div>
+                <input style={inp} placeholder="IT" value={addForm.country_code}
+                  onChange={e=>setAddForm({...addForm,country_code:e.target.value})}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Prefix</div>
+                <input style={inp} placeholder="39" value={addForm.prefix}
+                  onChange={e=>setAddForm({...addForm,prefix:e.target.value})}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Tariff/min</div>
+                <input style={inp} placeholder="0.070" value={addForm.tariff}
+                  onChange={e=>setAddForm({...addForm,tariff:e.target.value})}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:5,textTransform:"uppercase"}}>Currency</div>
+                <select style={inp} value={addForm.currency} onChange={e=>setAddForm({...addForm,currency:e.target.value})}>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </div>
+            </div>
+            <button onClick={addNumber} disabled={saving}
+              style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
+                background:saving?"#CCC":"#2CADA6",color:"#FFF",fontSize:14,
+                fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+              {saving?"Adding...":"➕ Add Number"}
+            </button>
+          </div>
+        )}
+
+        {/* ── ASSIGN RESELLER TAB ── */}
+        {tab==="assign"&&(
           <>
-            {/* Action Bar */}
             <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,
               boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>
-                  {selected.size>0
-                    ?<span style={{color:"#2CADA6"}}>{selected.size} numbers selected</span>
-                    :"Select numbers to assign or unassign"}
-                </div>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={selectAll}
-                    style={{padding:"4px 12px",borderRadius:20,border:"1px solid #2CADA6",
-                      background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                    All
-                  </button>
-                  <button onClick={clearAll}
-                    style={{padding:"4px 12px",borderRadius:20,border:"1px solid #DDD",
-                      background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>
-                    Clear
-                  </button>
-                </div>
+              <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>
+                Assign/Unassign Reseller — <span style={{color:"#2CADA6"}}>{selected.size} selected</span>
               </div>
-              {/* Action Buttons */}
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {/* Assign to Reseller */}
-                <div style={{display:"flex",gap:6,flex:1,minWidth:200}}>
-                  <select style={{...inp,flex:1}} value={bulkValue} onChange={e=>setBulkValue(e.target.value)}>
-                    <option value="">— Select Reseller —</option>
-                    {(resellers||[]).map(r=>(
-                      <option key={r.id} value={r.id}>{r.name}{r.company?" ("+r.company+")":""}</option>
-                    ))}
-                  </select>
-                  <button onClick={async()=>{
-                    if(selected.size===0){alert("Select numbers first");return;}
-                    if(!bulkValue){alert("Select a reseller");return;}
-                    setSaving(true);
-                    const d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",
-                      body:JSON.stringify({ids:[...selected],trunk_id:bulkValue})});
-                    setResult(d);setSaving(false);clearAll();load();
-                  }} disabled={saving||selected.size===0||!bulkValue}
-                    style={{padding:"9px 16px",borderRadius:8,border:"none",
-                      background:saving||selected.size===0||!bulkValue?"#CCC":"#2CADA6",
-                      color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer",
-                      flexShrink:0,fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                    {saving?"...":"👤 Assign"}
-                  </button>
-                </div>
-                {/* Unassign */}
-                <button onClick={async()=>{
-                  if(selected.size===0){alert("Select numbers first");return;}
-                  if(!window.confirm("Remove "+selected.size+" numbers from reseller and keep in your panel?")) return;
-                  setSaving(true);
-                  const d=await apiFetch("/dids/bulk-unassign",token,{method:"POST",
-                    body:JSON.stringify({ids:[...selected]})});
-                  setResult(d);setSaving(false);clearAll();load();
-                }} disabled={saving||selected.size===0}
-                  style={{padding:"9px 16px",borderRadius:8,
-                    border:"2px solid #F5A623",background:"#FFF",
-                    color:"#F5A623",fontSize:12,fontWeight:700,cursor:"pointer",
-                    flexShrink:0,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                <select style={{...inp,flex:1,minWidth:140}} value={assignReseller} onChange={e=>setAssignReseller(e.target.value)}>
+                  <option value="">— Select Reseller —</option>
+                  {resellers.map(r=><option key={r.id} value={r.id}>{r.name}{r.company?" ("+r.company+")":""}</option>)}
+                </select>
+                <button onClick={assignToReseller} disabled={saving||selected.size===0||!assignReseller}
+                  style={{padding:"9px 16px",borderRadius:8,border:"none",
+                    background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,
+                    cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
+                  👤 Assign
+                </button>
+                <button onClick={unassignFromReseller} disabled={saving||selected.size===0}
+                  style={{padding:"9px 16px",borderRadius:8,border:"2px solid #F5A623",
+                    background:"#FFF",color:"#F5A623",fontSize:12,fontWeight:700,
+                    cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
                   🔄 Unassign
                 </button>
-                {/* Delete */}
-                <button onClick={async()=>{
-                  if(selected.size===0){alert("Select numbers first");return;}
-                  if(!window.confirm("Delete "+selected.size+" numbers permanently?")) return;
-                  setSaving(true);
-                  const d=await apiFetch("/dids/bulk-delete",token,{method:"POST",
-                    body:JSON.stringify({ids:[...selected]})});
-                  setResult(d);setSaving(false);clearAll();load();
-                }} disabled={saving||selected.size===0}
-                  style={{padding:"9px 16px",borderRadius:8,
-                    border:"2px solid #EF4444",background:"#FFF",
-                    color:"#EF4444",fontSize:12,fontWeight:700,cursor:"pointer",
-                    flexShrink:0,fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                  🗑 Delete
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={selectAll} style={{padding:"4px 12px",borderRadius:20,
+                  border:"1px solid #2CADA6",background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                  Select All
+                </button>
+                <button onClick={clearSel} style={{padding:"4px 12px",borderRadius:20,
+                  border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>
+                  Clear
                 </button>
               </div>
             </div>
-
-            {/* Result */}
-            {result&&(
-              <div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
-                background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-                border:"1px solid "+(result.success?"#10B981":"#EF4444"),
-                fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
-                {result.success?"✅ ":"❌ "}{result.message||result.error}
-              </div>
-            )}
-
-            {/* DID Table */}
             {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",
-              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
                   <thead>
                     <tr style={{background:"#F8F9FA"}}>
                       <th style={{...thS,width:36,textAlign:"center"}}>
-                        <input type="checkbox"
-                          checked={selected.size===dids.length&&dids.length>0}
-                          onChange={e=>e.target.checked?selectAll():clearAll()}
+                        <input type="checkbox" checked={selected.size===dids.length&&dids.length>0}
+                          onChange={e=>e.target.checked?selectAll():clearSel()}
                           style={{accentColor:"#2CADA6"}}/>
                       </th>
-                      {["NUMBER","COUNTRY","TARIFF","SUPPLIER","RESELLER","STATUS"].map((h,i)=>(
-                        <th key={i} style={thS}>{h}</th>
-                      ))}
+                      {["NUMBER","COUNTRY","SUPPLIER","STATUS"].map((h,i)=><th key={i} style={thS}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {dids.length===0
-                      ?<tr><td colSpan={7} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>
-                      :dids.map((d,i)=>(
-                        <tr key={d.id}
-                          onClick={()=>toggleSelect(d.id)}
-                          style={{borderBottom:"1px solid #F5F5F5",cursor:"pointer",
-                            background:selected.has(d.id)?"rgba(44,173,166,0.06)":i%2===0?"#FFF":"#FAFAFA"}}>
-                          <td style={{padding:"6px 12px",textAlign:"center"}}>
-                            <input type="checkbox" checked={selected.has(d.id)}
-                              onChange={()=>toggleSelect(d.id)}
-                              style={{accentColor:"#2CADA6"}}/>
-                          </td>
-                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>
-                            {(d.number||"").replace("+","")}
-                          </td>
-                          <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>
-                            {currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}
-                          </td>
-                          <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
-                            {d.supplier_name||"PROFESSOR"}
-                          </td>
-                          <td style={{padding:"6px 10px",fontSize:12,color:"#8B5CF6",fontWeight:600}}>
-                            {d.customer_id?
-                              <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,
-                                background:"rgba(139,92,246,0.1)",color:"#8B5CF6",fontWeight:700}}>
-                                Assigned
-                              </span>
-                              :<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,
-                                background:"#F5F5F5",color:"#999"}}>
-                                In Panel
-                              </span>
-                            }
-                          </td>
-                          <td style={{padding:"6px 10px"}}>
-                            <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
-                              background:d.status==="active"?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-                              color:d.status==="active"?"#10B981":"#EF4444"}}>
-                              {d.status||"active"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    }
+                    {dids.map((d,i)=>(
+                      <tr key={d.id} onClick={()=>toggleSelect(d.id)}
+                        style={{borderBottom:"1px solid #F5F5F5",cursor:"pointer",
+                          background:selected.has(d.id)?"rgba(44,173,166,0.06)":i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"6px 12px",textAlign:"center"}}>
+                          <input type="checkbox" checked={selected.has(d.id)}
+                            onChange={()=>toggleSelect(d.id)} style={{accentColor:"#2CADA6"}}/>
+                        </td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                        <td style={{padding:"6px 10px"}}>
+                          {d.customer_id
+                            ?<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,background:"rgba(139,92,246,0.1)",color:"#8B5CF6",fontWeight:700}}>Assigned</span>
+                            :<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,background:"#F5F5F5",color:"#999"}}>In Panel</span>
+                          }
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
               <div style={{padding:"8px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
                 fontSize:11,color:"#999",display:"flex",justifyContent:"space-between"}}>
-                <span>{dids.length} total numbers</span>
+                <span>{dids.length} total</span>
                 <span>{dids.filter(d=>d.customer_id).length} assigned · {dids.filter(d=>!d.customer_id).length} in panel</span>
               </div>
             </div>}
           </>
         )}
+
+        {/* ── DELETE TAB ── */}
+        {tab==="delete"&&(
+          <>
+            <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,
+              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>
+                Delete Numbers — <span style={{color:"#EF4444"}}>{selected.size} selected</span>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                <button onClick={deleteSelected} disabled={saving||selected.size===0}
+                  style={{padding:"9px 16px",borderRadius:8,border:"none",
+                    background:selected.size===0?"#CCC":"#EF4444",color:"#FFF",
+                    fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  🗑 Delete {selected.size>0?"("+selected.size+")":"Selected"}
+                </button>
+                <button onClick={selectAll} style={{padding:"9px 16px",borderRadius:8,
+                  border:"1px solid #EF4444",background:"#FFF",color:"#EF4444",
+                  fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  Select All
+                </button>
+                <button onClick={clearSel} style={{padding:"9px 16px",borderRadius:8,
+                  border:"1px solid #DDD",background:"#FFF",color:"#666",
+                  fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+                  Clear
+                </button>
+              </div>
+            </div>
+            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
+            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{background:"#FFF5F5"}}>
+                      <th style={{...thS,width:36,textAlign:"center"}}>
+                        <input type="checkbox" checked={selected.size===dids.length&&dids.length>0}
+                          onChange={e=>e.target.checked?selectAll():clearSel()}
+                          style={{accentColor:"#EF4444"}}/>
+                      </th>
+                      {["NUMBER","COUNTRY","TARIFF","SUPPLIER"].map((h,i)=><th key={i} style={thS}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dids.map((d,i)=>(
+                      <tr key={d.id} onClick={()=>toggleSelect(d.id)}
+                        style={{borderBottom:"1px solid #F5F5F5",cursor:"pointer",
+                          background:selected.has(d.id)?"rgba(239,68,68,0.05)":i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"6px 12px",textAlign:"center"}}>
+                          <input type="checkbox" checked={selected.has(d.id)}
+                            onChange={()=>toggleSelect(d.id)} style={{accentColor:"#EF4444"}}/>
+                        </td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>}
+          </>
+        )}
+
         {/* ── UPLOAD CSV TAB ── */}
         {tab==="upload"&&(
           <div style={{fontFamily:"inherit"}}>
             <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
               <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>Upload Supplier DID List</div>
-              <div style={{fontSize:12,color:"#999",marginBottom:20}}>Select supplier then upload their CSV file</div>
+              <div style={{fontSize:12,color:"#999",marginBottom:20}}>Select supplier then upload their CSV file — server auto-detects format</div>
               <div style={{marginBottom:16}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:"#2CADA6",color:"#FFF",
+                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
                   <div style={{fontSize:12,fontWeight:700,color:"#333"}}>Select Supplier</div>
                 </div>
-                <select style={{width:"100%",padding:"11px 12px",border:"1px solid #E0E0E0",borderRadius:8,fontSize:14,outline:"none",cursor:"pointer",background:"#FFF",color:"#333",fontFamily:"inherit"}}
-                  value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
-                  <option value="">--- Choose Supplier ---</option>
-                  {suppliers.map(s=>(<option key={s.id} value={s.id}>{s.nickname||s.name}</option>))}
+                <select style={inp} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
+                  <option value="">— Choose Supplier —</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
                 </select>
               </div>
               <div style={{marginBottom:20}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",background:uploadTrunk?"#2CADA6":"#CCC",color:"#FFF",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
+                  <div style={{width:22,height:22,borderRadius:"50%",
+                    background:uploadTrunk?"#2CADA6":"#CCC",color:"#FFF",
+                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
                   <div style={{fontSize:12,fontWeight:700,color:uploadTrunk?"#333":"#999"}}>Upload CSV File</div>
                 </div>
                 <div onClick={()=>uploadTrunk&&document.getElementById("csv-sync-input").click()}
@@ -1881,29 +1905,26 @@ function DIDInventoryPage({token}){
                 if(!uploadFile||!uploadTrunk) return;
                 setUploading(true);setResult(null);
                 const fd=new FormData();
-                fd.append("file",uploadFile);
-                fd.append("trunk_id",uploadTrunk);
-                fd.append("rate","0.07");
-                fd.append("currency","EUR");
+                fd.append("file",uploadFile);fd.append("trunk_id",uploadTrunk);
+                fd.append("rate",uploadRate);fd.append("currency",uploadCurrency);
                 const res=await fetch("https://6g-premium-telecom.com/api/v1/dids/smart-sync",{
                   method:"POST",headers:{Authorization:"Bearer "+token},body:fd
                 });
-                let d;
-                try{d=await res.json();}catch(e){d={success:false,error:"Server error: "+res.status};}
+                let d;try{d=await res.json();}catch(e){d={success:false,error:"Server error: "+res.status};}
                 setResult(d);setUploading(false);
-                if(d.success){setUploadFile(null);load();}
+                if(d.success)load();
               }} disabled={uploading||!uploadFile||!uploadTrunk}
                 style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
                   background:uploading||!uploadFile||!uploadTrunk?"#CCC":"#2CADA6",
                   color:"#FFF",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                {uploading?"Syncing...":"Sync Numbers"}
+                {uploading?"Syncing...":"🔄 Sync Numbers"}
               </button>
               {result&&(
                 <div style={{marginTop:14,padding:"14px 16px",borderRadius:10,
                   background:result.success?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
                   border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
                   <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444",marginBottom:8}}>
-                    {result.success?"Sync Complete":"Sync Failed"}
+                    {result.success?"✅ Sync Complete":"❌ Failed"}
                   </div>
                   {result.success&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
@@ -1922,15 +1943,11 @@ function DIDInventoryPage({token}){
           </div>
         )}
       </div>
+
       {/* Sticky Bottom */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#FFF",
         borderTop:"1px solid #DDD",padding:"10px 16px 24px",display:"flex",gap:10,
         boxShadow:"0 -2px 8px rgba(0,0,0,0.08)",zIndex:50}}>
-        <button style={{padding:"9px 20px",borderRadius:4,border:"none",
-          background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:600,
-          cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px"}}>
-          SAVE CHANGES
-        </button>
         <button onClick={downloadExcel}
           style={{padding:"9px 20px",borderRadius:4,border:"2px solid #2CADA6",
             background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:600,
