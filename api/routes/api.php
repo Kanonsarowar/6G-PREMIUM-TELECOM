@@ -1784,4 +1784,8 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
         'supplier'  => $trunk->nickname??$trunk->name,
         'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNorm)-count($toAdd))." unchanged",
     ]);
+    } catch(\Exception $e){
+        \Illuminate\Support\Facades\Log::error('Smart sync error: '.$e->getMessage());
+        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
+    }
 });
