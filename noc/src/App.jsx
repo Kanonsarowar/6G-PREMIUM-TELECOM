@@ -1374,6 +1374,155 @@ function DIDPerformancePage({token}){
   );
 }
 // ── DID Inventory ─────────────────────────────────────────────────
+const COUNTRIES=[
+  {name:"Afghanistan",code:"AF",prefix:"93"},
+  {name:"Albania",code:"AL",prefix:"355"},
+  {name:"Algeria",code:"DZ",prefix:"213"},
+  {name:"Andorra",code:"AD",prefix:"376"},
+  {name:"Angola",code:"AO",prefix:"244"},
+  {name:"Argentina",code:"AR",prefix:"54"},
+  {name:"Armenia",code:"AM",prefix:"374"},
+  {name:"Australia",code:"AU",prefix:"61"},
+  {name:"Austria",code:"AT",prefix:"43"},
+  {name:"Azerbaijan",code:"AZ",prefix:"994"},
+  {name:"Bahrain",code:"BH",prefix:"973"},
+  {name:"Bangladesh",code:"BD",prefix:"880"},
+  {name:"Belarus",code:"BY",prefix:"375"},
+  {name:"Belgium",code:"BE",prefix:"32"},
+  {name:"Benin",code:"BJ",prefix:"229"},
+  {name:"Bolivia",code:"BO",prefix:"591"},
+  {name:"Bosnia",code:"BA",prefix:"387"},
+  {name:"Brazil",code:"BR",prefix:"55"},
+  {name:"Bulgaria",code:"BG",prefix:"359"},
+  {name:"Burkina Faso",code:"BF",prefix:"226"},
+  {name:"Cameroon",code:"CM",prefix:"237"},
+  {name:"Canada",code:"CA",prefix:"1"},
+  {name:"Chad",code:"TD",prefix:"235"},
+  {name:"Chile",code:"CL",prefix:"56"},
+  {name:"China",code:"CN",prefix:"86"},
+  {name:"Colombia",code:"CO",prefix:"57"},
+  {name:"Comoros",code:"KM",prefix:"269"},
+  {name:"Congo",code:"CG",prefix:"242"},
+  {name:"Costa Rica",code:"CR",prefix:"506"},
+  {name:"Croatia",code:"HR",prefix:"385"},
+  {name:"Cuba",code:"CU",prefix:"53"},
+  {name:"Cyprus",code:"CY",prefix:"357"},
+  {name:"Czech Republic",code:"CZ",prefix:"420"},
+  {name:"Denmark",code:"DK",prefix:"45"},
+  {name:"Diego Garcia",code:"IO",prefix:"246"},
+  {name:"Dominican Republic",code:"DO",prefix:"1809"},
+  {name:"Ecuador",code:"EC",prefix:"593"},
+  {name:"Egypt",code:"EG",prefix:"20"},
+  {name:"Estonia",code:"EE",prefix:"372"},
+  {name:"Ethiopia",code:"ET",prefix:"251"},
+  {name:"Finland",code:"FI",prefix:"358"},
+  {name:"France",code:"FR",prefix:"33"},
+  {name:"Gambia",code:"GM",prefix:"220"},
+  {name:"Georgia",code:"GE",prefix:"995"},
+  {name:"Germany",code:"DE",prefix:"49"},
+  {name:"Ghana",code:"GH",prefix:"233"},
+  {name:"Greece",code:"GR",prefix:"30"},
+  {name:"Guatemala",code:"GT",prefix:"502"},
+  {name:"Guinea",code:"GN",prefix:"224"},
+  {name:"Haiti",code:"HT",prefix:"509"},
+  {name:"Honduras",code:"HN",prefix:"504"},
+  {name:"Hungary",code:"HU",prefix:"36"},
+  {name:"Iceland",code:"IS",prefix:"354"},
+  {name:"India",code:"IN",prefix:"91"},
+  {name:"Indonesia",code:"ID",prefix:"62"},
+  {name:"Iran",code:"IR",prefix:"98"},
+  {name:"Iraq",code:"IQ",prefix:"964"},
+  {name:"Ireland",code:"IE",prefix:"353"},
+  {name:"Israel",code:"IL",prefix:"972"},
+  {name:"Italy",code:"IT",prefix:"39"},
+  {name:"Jamaica",code:"JM",prefix:"1876"},
+  {name:"Japan",code:"JP",prefix:"81"},
+  {name:"Jordan",code:"JO",prefix:"962"},
+  {name:"Kazakhstan",code:"KZ",prefix:"7"},
+  {name:"Kenya",code:"KE",prefix:"254"},
+  {name:"Kuwait",code:"KW",prefix:"965"},
+  {name:"Kyrgyzstan",code:"KG",prefix:"996"},
+  {name:"Latvia",code:"LV",prefix:"371"},
+  {name:"Lebanon",code:"LB",prefix:"961"},
+  {name:"Libya",code:"LY",prefix:"218"},
+  {name:"Lithuania",code:"LT",prefix:"370"},
+  {name:"Luxembourg",code:"LU",prefix:"352"},
+  {name:"Macedonia",code:"MK",prefix:"389"},
+  {name:"Madagascar",code:"MG",prefix:"261"},
+  {name:"Malawi",code:"MW",prefix:"265"},
+  {name:"Malaysia",code:"MY",prefix:"60"},
+  {name:"Maldives",code:"MV",prefix:"960"},
+  {name:"Mali",code:"ML",prefix:"223"},
+  {name:"Malta",code:"MT",prefix:"356"},
+  {name:"Mauritania",code:"MR",prefix:"222"},
+  {name:"Mauritius",code:"MU",prefix:"230"},
+  {name:"Mexico",code:"MX",prefix:"52"},
+  {name:"Moldova",code:"MD",prefix:"373"},
+  {name:"Mongolia",code:"MN",prefix:"976"},
+  {name:"Montenegro",code:"ME",prefix:"382"},
+  {name:"Morocco",code:"MA",prefix:"212"},
+  {name:"Mozambique",code:"MZ",prefix:"258"},
+  {name:"Myanmar",code:"MM",prefix:"95"},
+  {name:"Namibia",code:"NA",prefix:"264"},
+  {name:"Nepal",code:"NP",prefix:"977"},
+  {name:"Netherlands",code:"NL",prefix:"31"},
+  {name:"New Zealand",code:"NZ",prefix:"64"},
+  {name:"Nicaragua",code:"NI",prefix:"505"},
+  {name:"Niger",code:"NE",prefix:"227"},
+  {name:"Nigeria",code:"NG",prefix:"234"},
+  {name:"Norway",code:"NO",prefix:"47"},
+  {name:"Oman",code:"OM",prefix:"968"},
+  {name:"Pakistan",code:"PK",prefix:"92"},
+  {name:"Palestine",code:"PS",prefix:"970"},
+  {name:"Panama",code:"PA",prefix:"507"},
+  {name:"Paraguay",code:"PY",prefix:"595"},
+  {name:"Peru",code:"PE",prefix:"51"},
+  {name:"Philippines",code:"PH",prefix:"63"},
+  {name:"Poland",code:"PL",prefix:"48"},
+  {name:"Portugal",code:"PT",prefix:"351"},
+  {name:"Qatar",code:"QA",prefix:"974"},
+  {name:"Romania",code:"RO",prefix:"40"},
+  {name:"Russia",code:"RU",prefix:"7"},
+  {name:"Rwanda",code:"RW",prefix:"250"},
+  {name:"Saudi Arabia",code:"SA",prefix:"966"},
+  {name:"Satellite",code:"SAT",prefix:"88"},
+  {name:"Senegal",code:"SN",prefix:"221"},
+  {name:"Serbia",code:"RS",prefix:"381"},
+  {name:"Seychelles",code:"SC",prefix:"248"},
+  {name:"Sierra Leone",code:"SL",prefix:"232"},
+  {name:"Singapore",code:"SG",prefix:"65"},
+  {name:"Slovakia",code:"SK",prefix:"421"},
+  {name:"Slovenia",code:"SI",prefix:"386"},
+  {name:"Somalia",code:"SO",prefix:"252"},
+  {name:"South Africa",code:"ZA",prefix:"27"},
+  {name:"South Korea",code:"KR",prefix:"82"},
+  {name:"Spain",code:"ES",prefix:"34"},
+  {name:"Sri Lanka",code:"LK",prefix:"94"},
+  {name:"Sudan",code:"SD",prefix:"249"},
+  {name:"Sweden",code:"SE",prefix:"46"},
+  {name:"Switzerland",code:"CH",prefix:"41"},
+  {name:"Syria",code:"SY",prefix:"963"},
+  {name:"Taiwan",code:"TW",prefix:"886"},
+  {name:"Tajikistan",code:"TJ",prefix:"992"},
+  {name:"Tanzania",code:"TZ",prefix:"255"},
+  {name:"Thailand",code:"TH",prefix:"66"},
+  {name:"Togo",code:"TG",prefix:"228"},
+  {name:"Tunisia",code:"TN",prefix:"216"},
+  {name:"Turkey",code:"TR",prefix:"90"},
+  {name:"Turkmenistan",code:"TM",prefix:"993"},
+  {name:"Uganda",code:"UG",prefix:"256"},
+  {name:"UK",code:"GB",prefix:"44"},
+  {name:"Ukraine",code:"UA",prefix:"380"},
+  {name:"UAE",code:"AE",prefix:"971"},
+  {name:"Uruguay",code:"UY",prefix:"598"},
+  {name:"USA",code:"US",prefix:"1"},
+  {name:"Uzbekistan",code:"UZ",prefix:"998"},
+  {name:"Venezuela",code:"VE",prefix:"58"},
+  {name:"Vietnam",code:"VN",prefix:"84"},
+  {name:"Yemen",code:"YE",prefix:"967"},
+  {name:"Zambia",code:"ZM",prefix:"260"},
+  {name:"Zimbabwe",code:"ZW",prefix:"263"},
+];
 function DIDInventoryPage({token}){
   const [dids,setDids]=useState([]);
   const [ranges,setRanges]=useState([]);
@@ -1679,17 +1828,22 @@ function DIDInventoryPage({token}){
               </div>
 
               {/* Country */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Country</div>
-                  <input style={inp} placeholder="e.g. Italy" value={addForm.country_name}
-                    onChange={e=>setAddForm({...addForm,country_name:e.target.value})}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Code</div>
-                  <input style={inp} placeholder="IT" value={addForm.country_code}
-                    onChange={e=>setAddForm({...addForm,country_code:e.target.value})}/>
-                </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Country</div>
+                <select style={inp} value={addForm.country_name}
+                  onChange={e=>{
+                    const c=COUNTRIES.find(x=>x.name===e.target.value);
+                    setAddForm({...addForm,
+                      country_name:e.target.value,
+                      country_code:c?.code||"",
+                      prefix:addForm.prefix||c?.prefix||""
+                    });
+                  }}>
+                  <option value="">— Select Country —</option>
+                  {COUNTRIES.map(c=>(
+                    <option key={c.code+c.name} value={c.name}>{c.name} (+{c.prefix})</option>
+                  ))}
+                </select>
               </div>
 
               {/* Tariff + Currency */}
