@@ -1940,7 +1940,7 @@ function NumberInventoryPage({token}){
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
                   <thead>
-                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","DEL"].map((h,i)=>(
+                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","IVR","DEL"].map((h,i)=>(
                       <th key={i} style={thS}>{h}</th>
                     ))}</tr>
                   </thead>
