@@ -29,6 +29,7 @@ const usdToSar = v => (parseFloat(v||0)*3.75).toFixed(2);
 const fmtDual  = v => `$${eurToUsd(v)} / ${usdToSar(eurToUsd(v))}`;
 const getNavGroups=(role)=>{
   const isSuperAdmin = role === 'superadmin';
+  const isManager = role === 'superadmin' || role === 'admin';
   return [
   {key:"dashboard",label:"Dashboard",items:[
     {id:"dashboard",label:"Dashboard",icon:"▦"},
@@ -40,8 +41,8 @@ const getNavGroups=(role)=>{
     {id:"quality",label:"Call Quality",icon:"📊"},
   ]},
   {key:"numbers",label:"Numbers & IVR",items:[
-    {id:"numbers",label:"Numbers",icon:"▤"},
-    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
+    ...(isManager?[{id:"numbers",label:"Numbers",icon:"▤"}]:[]),
+    ...(isManager?[{id:"connectivr",label:"Connect IVR",icon:"⇌"}]:[]),
     {id:"ivr",label:"IVR Library",icon:"♫"},
     {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
     {id:"didperformance",label:"DID Report",icon:"📈"},
@@ -2638,6 +2639,7 @@ function ConnectIVRPage({token}){
   const [ivr,setIvr]=useState("");
   const [applying,setApplying]=useState(false);
   const [msg,setMsg]=useState("");
+  const [msgOk,setMsgOk]=useState(true);
 
   useEffect(()=>{
     apiFetch("/did-ranges",token).then(d=>setRanges(d.data||[]));
@@ -2651,14 +2653,21 @@ function ConnectIVRPage({token}){
   const apply=async()=>{
     setApplying(true);setMsg("");
     const ivrCtx=ivr.startsWith("custom/")?ivr:`custom/${ivr}`;
-    if(range==="ALL"){
-      await apiFetch("/did-ranges/bulk-ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
+    const d = range==="ALL"
+      ? await apiFetch("/did-ranges/bulk-ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})})
+      : await apiFetch(`/did-ranges/${range}/ivr`,token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
+    if(d&&d.success){
+      setMsgOk(true);
+      setMsg("✅ IVR applied successfully!");
+      setStep(1);setIvr("");
+    } else if(d&&(d.status===401||d.error==="Unauthorized")){
+      setMsgOk(false);
+      setMsg("❌ You don't have permission to apply IVR changes.");
     } else {
-      await apiFetch(`/did-ranges/${range}/ivr`,token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
+      setMsgOk(false);
+      setMsg("❌ "+((d&&d.error)||"Failed to apply IVR — please try again."));
     }
-    setMsg("✅ IVR applied successfully!");
     setApplying(false);
-    setStep(1);setIvr("");
   };
 
   return(
@@ -2751,8 +2760,8 @@ function ConnectIVRPage({token}){
                 </div>
               ))}
             </div>
-            {msg&&<div style={{padding:"10px 12px",borderRadius:8,background:`${C.green}10`,
-              border:`1px solid ${C.green}30`,fontSize:12,color:C.green}}>{msg}</div>}
+            {msg&&<div style={{padding:"10px 12px",borderRadius:8,background:msgOk?`${C.green}10`:`${C.red}10`,
+              border:`1px solid ${msgOk?C.green:C.red}30`,fontSize:12,color:msgOk?C.green:C.red}}>{msg}</div>}
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setStep(2)}
                 style={{flex:1,padding:"12px",borderRadius:8,border:`1px solid ${C.border}`,
