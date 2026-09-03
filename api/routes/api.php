@@ -100,19 +100,25 @@ Route::middleware('auth:sanctum')->group(function() {
             'created_at'    => now(),
             'updated_at'    => now(),
         ]);
+        // Auto-detect prefix if not provided
+        $autoPrefix = $r->prefix;
+        if(!$autoPrefix){
+            $stripped2 = ltrim($num,'+');
+            $autoPrefix = substr($stripped2, 0, strlen($stripped2)-4);
+        }
         // Auto create/update range
-        if($r->prefix){
-            $existing = DB::table('did_ranges')->where('prefix',$r->prefix)->first();
+        if($autoPrefix){
+            $existing = DB::table('did_ranges')->where('prefix',$autoPrefix)->first();
             $stripped = ltrim($num,'+');
             if($existing){
                 DB::table('did_ranges')->where('id',$existing->id)->update([
-                    'total_count' => DB::table('dids')->where('prefix',$r->prefix)->count(),
+                    'total_count' => DB::table('dids')->where('prefix',$autoPrefix)->count(),
                     'updated_at'  => now(),
                 ]);
             } else {
                 DB::table('did_ranges')->insert([
-                    'batch_name'    => ($r->country_name??'Unknown').' '.($r->prefix??''),
-                    'prefix'        => $r->prefix,
+                    'batch_name'    => ($r->country_name??'Unknown').' '.$autoPrefix,
+                    'prefix'        => $autoPrefix,
                     'range_start'   => $stripped,
                     'range_end'     => $stripped,
                     'country_code'  => $r->country_code??'XX',
