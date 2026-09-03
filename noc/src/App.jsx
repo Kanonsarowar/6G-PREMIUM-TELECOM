@@ -43,7 +43,6 @@ const getNavGroups=(role)=>{
     {id:"numbers",label:"Numbers",icon:"▤"},
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
-    {id:"ivraudio",label:"Audio Manager",icon:"🎵"},
     {id:"didperformance",label:"DID Report",icon:"📈"},
   ]},
   {key:"partners",label:"Partners",items:[
@@ -4586,7 +4585,6 @@ export default function App(){
       case "numbers": return <NumberInventoryPage token={token}/>;
       case "didperformance":return <DIDPerformancePage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
-      case "ivraudio":      return <IVRAudioManagerPage token={token}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
       case "customers":    return <CustomersPage token={token}/>;
