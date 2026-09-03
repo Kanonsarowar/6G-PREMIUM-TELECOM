@@ -672,7 +672,7 @@ Route::post('/v1/ivr-lib/upload', function(Request $r) {
     // Convert to slin if needed
     $slinFile = $path.$name.'.slin';
     if($file->getClientOriginalExtension() !== 'slin'){
-        exec("sox {$path}{$filename} -r 8000 -c 1 -e signed-integer -b 16 {$slinFile} 2>&1");
+        exec("sox {$path}{$filename} -r 8000 -c 1 -e signed-integer -b 16 -t raw {$slinFile} 2>&1");
     }
     
     // Save to DB
