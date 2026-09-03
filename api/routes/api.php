@@ -846,6 +846,15 @@ Route::get('/v1/live-calls', function() {
 Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
     $count = DB::table('dids')->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+    // Copy selected IVR file as default
+    $ivrName = str_replace('custom/','',$ivr);
+    $srcSlin = "/var/lib/asterisk/sounds/custom/{$ivrName}.slin";
+    $dstSlin = "/var/lib/asterisk/sounds/custom/6g-premium-telecom.slin";
+    if(file_exists($srcSlin) && $ivrName !== '6g-premium-telecom'){
+        copy($srcSlin, $dstSlin);
+        exec("chown asterisk:asterisk {$dstSlin}");
+        exec("chmod 644 {$dstSlin}");
+    }
     DB::table('did_ranges')->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
 });
