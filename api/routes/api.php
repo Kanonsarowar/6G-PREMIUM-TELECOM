@@ -668,7 +668,7 @@ Route::post('/v1/ivr-lib/upload', function(Request $r) {
     $displayName = $r->display_name ?? $r->name;
     
     // Save to asterisk custom sounds
-    $path = '/var/lib/asterisk/sounds/custom/';
+    $path = '/usr/share/asterisk/sounds/custom/';
     if(!is_dir($path)) mkdir($path,0755,true);
     
     $filename = $name.'.'.$file->getClientOriginalExtension();
@@ -857,8 +857,6 @@ Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
         // Copy to all Asterisk sound locations
         foreach([
             "/usr/share/asterisk/sounds/custom/6g-premium-telecom.slin",
-            "/usr/local/share/asterisk/sounds/6g-premium-telecom.slin",
-            "/var/lib/asterisk/sounds/custom/6g-premium-telecom.slin",
         ] as $altDst){
             @copy($srcSlin, $altDst);
             exec("chown asterisk:asterisk {$altDst} 2>/dev/null");
@@ -1478,11 +1476,11 @@ Route::get('/v1/ivr-lib/preview/{id}', function($id) {
     $ivr = DB::table('ivrs')->find($id);
     if(!$ivr) return response()->json(['error'=>'Not found'],404);
     $paths = [
-        "/var/lib/asterisk/sounds/custom/{$ivr->name}.mp3",
-        "/var/lib/asterisk/sounds/custom/{$ivr->name}.wav",
-        "/var/lib/asterisk/sounds/custom/{$ivr->audio_file}",
         "/usr/share/asterisk/sounds/custom/{$ivr->name}.mp3",
         "/usr/share/asterisk/sounds/custom/{$ivr->name}.wav",
+        "/usr/share/asterisk/sounds/custom/{$ivr->audio_file}",
+        "/var/lib/asterisk/sounds/custom/{$ivr->name}.mp3",
+        "/var/lib/asterisk/sounds/custom/{$ivr->name}.wav",
     ];
     foreach($paths as $path){
         if(file_exists($path)){
