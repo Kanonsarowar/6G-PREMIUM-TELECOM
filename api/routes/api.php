@@ -669,10 +669,20 @@ Route::post('/v1/ivr-lib/upload', function(Request $r) {
     $filename = $name.'.'.$file->getClientOriginalExtension();
     $file->move($path,$filename);
     
-    // Convert to slin if needed
+    // Convert to multiple formats for Asterisk compatibility
     $slinFile = $path.$name.'.slin';
+    $ulFile   = $path.$name.'.ul';
+    $wavFile  = $path.$name.'.wav';
     if($file->getClientOriginalExtension() !== 'slin'){
-        exec("sox {$path}{$filename} -r 8000 -c 1 -e signed-integer -b 16 -t raw {$slinFile} 2>&1");
+        // Convert to slin (raw signed 16-bit 8kHz)
+        exec("ffmpeg -i {$path}{$filename} -ar 8000 -ac 1 -acodec pcm_s16le -f s16le {$slinFile} -y 2>&1");
+        // Convert to ulaw
+        exec("ffmpeg -i {$path}{$filename} -ar 8000 -ac 1 -acodec pcm_mulaw -f mulaw {$ulFile} -y 2>&1");
+        // Convert to wav 8kHz
+        exec("ffmpeg -i {$path}{$filename} -ar 8000 -ac 1 {$wavFile} -y 2>&1");
+        // Fix permissions
+        exec("chown asterisk:asterisk {$slinFile} {$ulFile} {$wavFile} 2>&1");
+        exec("chmod 644 {$slinFile} {$ulFile} {$wavFile} 2>&1");
     }
     
     // Save to DB
