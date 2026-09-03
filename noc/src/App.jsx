@@ -360,8 +360,8 @@ function DashboardPage({token}){
   const todayCards=[
     {label:"TODAY CALLS",value:stats.today_calls,color:"#3B82F6",icon:"📞"},
     {label:"TODAY MINUTES",value:stats.today_minutes,color:"#06B6D4",icon:"⏱"},
-    {label:"TODAY REVENUE",value:"$"+eurToUsd(stats.today_revenue),color:"#F5A623",icon:"💰"},
-    {label:"TODAY REVENUE €",value:"€"+stats.today_revenue,color:"#3B82F6",icon:"💶"},
+    ...(parseFloat(stats.today_eur||0)>0?[{label:"TODAY EUR",value:"€"+parseFloat(stats.today_eur).toFixed(4),color:"#10B981",icon:"💶"}]:[]),
+    ...(parseFloat(stats.today_usd||0)>0?[{label:"TODAY USD",value:"$"+parseFloat(stats.today_usd).toFixed(4),color:"#F5A623",icon:"💵"}]:[]),
     {label:"ACTIVE DIDS",value:stats.dids,color:"#8B5CF6",icon:"📱"},
     {label:"COUNTRIES",value:stats.today_countries,color:"#06B6D4",icon:"🌍"},
   ];
