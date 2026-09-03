@@ -496,67 +496,126 @@ function DashboardPage({token}){
 // ── Live Calls ────────────────────────────────────────────────────
 function LiveCallsPage({token}){
   const [calls,setCalls]=useState([]);
-  const [loading,setLoading]=useState(true);
+  const [loading,setLoading]=useState(false);
+  const [tick,setTick]=useState(0);
+
+  const load=()=>{
+    setLoading(true);
+    apiFetch("/live-calls",token).then(d=>{
+      setCalls(d.data||d||[]);
+      setLoading(false);
+    });
+  };
+
   useEffect(()=>{
-    const load=()=>apiFetch("/live-calls",token).then(d=>{setCalls(d.data||d||[]);setLoading(false);});
-    load();const t=setInterval(load,5000);return()=>clearInterval(t);
+    load();
+    const t=setInterval(()=>{load();setTick(k=>k+1);},5000);
+    return()=>clearInterval(t);
   },[token]);
-  const thS={fontSize:9,color:C.muted,fontWeight:700,letterSpacing:"1px",padding:"8px 10px",textAlign:"left",borderBottom:"1px solid rgba(255,255,255,0.07)",whiteSpace:"nowrap"};
-  const tdS={fontSize:11,padding:"10px 10px",borderBottom:"1px solid rgba(255,255,255,0.04)",whiteSpace:"nowrap"};
+
+  const fmt=(sec)=>{
+    const h=Math.floor(sec/3600);
+    const m=Math.floor((sec%3600)/60);
+    const s=sec%60;
+    return [h,m,s].map(v=>String(v).padStart(2,"0")).join(":");
+  };
+
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap",
+    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
+
   return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:16,fontWeight:800}}>Live Calls</div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:9,color:C.green,fontWeight:700,letterSpacing:"1px"}}>● AUTO REFRESH 5s</span>
-          <span style={{background:C.green+"20",color:C.green,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20}}>{calls.length} ACTIVE</span>
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      {/* Header */}
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Live Calls</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>
+            {calls.length>0
+              ?<span style={{color:"#10B981",fontWeight:700}}>● {calls.length} active</span>
+              :"● No active calls"}
+            <span style={{marginLeft:8}}>Auto-refresh 5s</span>
+          </div>
         </div>
+        <button onClick={load}
+          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
+            background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          ↻ Refresh
+        </button>
       </div>
-      {loading?<div style={{textAlign:"center",padding:40,color:C.muted}}>Loading...</div>
-      :calls.length===0
-        ?<Card style={{padding:40,textAlign:"center"}}>
-          <div style={{fontSize:32,marginBottom:8}}>📡</div>
-          <div style={{color:C.muted,fontSize:13}}>No active calls right now</div>
-          <div style={{color:C.muted,fontSize:11,marginTop:4}}>Refreshing every 5 seconds...</div>
-        </Card>
-        :<Card style={{padding:0,overflow:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
-            <thead>
-              <tr>
-                {["STATUS","CALL ID","DID","CALLER ID","COUNTRY","SUPPLIER","TRUNK","IVR","STATE","START TIME","DURATION","SERVER"].map((h,i)=>(
-                  <th key={i} style={thS}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {calls.map((call,i)=>{
-                const isUp=call.state==="Up"||call.billsec>0;
-                const sc=isUp?C.green:C.yellow;
-                return(
-                  <tr key={i} style={{background:i%2===0?"transparent":"rgba(255,255,255,0.01)"}}>
-                    <td style={tdS}><span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:sc,display:"inline-block"}}/><span style={{fontSize:10,color:sc,fontWeight:700}}>{isUp?"ACTIVE":"RINGING"}</span></span></td>
-                    <td style={{...tdS,color:C.muted,fontFamily:"monospace",fontSize:10}}>{(call.channel||"—").substring(0,20)}</td>
-                    <td style={{...tdS,color:C.green,fontFamily:"monospace",fontWeight:700}}>{call.did||call.dst||"—"}</td>
-                    <td style={{...tdS,fontFamily:"monospace"}}>{call.src||"—"}</td>
-                    <td style={tdS}>{call.country||"—"}</td>
-                    <td style={{...tdS,color:C.yellow,fontWeight:700}}>{call.trunk_name||"—"}</td>
-                    <td style={{...tdS,color:C.muted}}>{call.trunk_name||"—"}</td>
-                    <td style={{...tdS,fontSize:10}}>{(call.ivr_context||"—").replace("custom/","")}</td>
-                    <td style={{...tdS,color:sc,fontWeight:700}}>{call.state||"—"}</td>
-                    <td style={{...tdS,color:C.muted,fontSize:10}}>{call.start_time||"—"}</td>
-                    <td style={{...tdS,color:C.yellow,fontFamily:"monospace",fontWeight:700}}>{call.billsec||0}s</td>
-                    <td style={{...tdS,color:C.muted,fontSize:10}}>195.200.14.165</td>
+
+      <div style={{padding:"12px 16px"}}>
+        {calls.length===0?(
+          <div style={{background:"#FFF",borderRadius:10,padding:60,textAlign:"center",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:36,marginBottom:12}}>📞</div>
+            <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>No Active Calls</div>
+            <div style={{fontSize:12,color:"#999"}}>Waiting for incoming calls...</div>
+          </div>
+        ):(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+                <thead>
+                  <tr>
+                    {["SL","CLI","PRN","PREFIX","COUNTRY","IVR","SUPPLIER","DURATION"].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Card>
-      }
+                </thead>
+                <tbody>
+                  {calls.map((c,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
+                      background:i%2===0?"#FFF":"#F9FFFE"}}>
+                      <td style={{padding:"8px 10px",fontSize:12,color:"#999",fontWeight:600}}>
+                        {i+1}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",
+                        fontWeight:600,color:"#1A1A1A"}}>
+                        {(c.src||c.callerid||"—")}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",
+                        color:"#2CADA6",fontWeight:700}}>
+                        {(c.did||c.exten||"—").replace("+","")}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:12,color:"#555",fontFamily:"monospace"}}>
+                        {c.prefix||((c.did||"").replace("+","").slice(0,4))||"—"}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:12,color:"#333"}}>
+                        {c.country||c.country_name||"—"}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#555",
+                        maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                        title={c.ivr||c.ivr_context||"—"}>
+                        {(c.ivr||c.ivr_context||"—").replace("custom/","")}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
+                        {c.supplier||c.trunk_name||"—"}
+                      </td>
+                      <td style={{padding:"8px 10px"}}>
+                        <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+                          background:"rgba(16,185,129,0.1)",color:"#10B981",fontFamily:"monospace"}}>
+                          ● {fmt(parseInt(c.duration||c.billsec||0))}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{padding:"8px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
+              fontSize:11,color:"#999",display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:"#10B981",fontWeight:700}}>{calls.length} active calls</span>
+              <span>Last updated: {new Date().toLocaleTimeString()}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
 // ── CDR ───────────────────────────────────────────────────────────
 function CDRPage({token}){
   const [cdrs,setCdrs]=useState([]);
