@@ -2586,6 +2586,14 @@ function IVRPage({token,setPage}){
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
+                <button onClick={()=>{
+                  const a=new Audio("https://6g-premium-telecom.com/api/v1/ivr-lib/preview/"+ivr.id);
+                  a.play();
+                }}
+                  style={{padding:"5px 10px",borderRadius:6,border:"1px solid #2CADA6",
+                    background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  ▶ Play
+                </button>
                 <button onClick={()=>setPage&&setPage("connectivr")}
                   style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.green}40`,
                     background:`${C.green}10`,color:C.green,fontSize:10,fontWeight:700,cursor:"pointer"}}>
