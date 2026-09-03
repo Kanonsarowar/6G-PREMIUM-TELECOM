@@ -327,9 +327,15 @@ function DashboardPage({token}){
       const todayCalls=parseInt(s.today_calls||0);
       const todayMinutes=parseFloat(s.today_minutes||0);
       const todayRevenue=parseFloat(s.today_revenue||0);
+      const todayEur=parseFloat(s.today_eur||0);
+      const todayUsd=parseFloat(s.today_usd||0);
+      const allEur=parseFloat(s.revenue_eur||0);
+      const allUsd=parseFloat(s.revenue_usd||0);
       setStats({
         calls,
         revenue:revenue.toFixed(4),
+        revenue_eur:allEur.toFixed(4),
+        revenue_usd:allUsd.toFixed(4),
         minutes:minutes.toFixed(2),
         dids:(dids.data||[]).length,
         live:(live.data||live||[]).length,
@@ -337,6 +343,8 @@ function DashboardPage({token}){
         today_countries:[...new Set((dids.data||[]).map(d=>d.country_name).filter(Boolean))].length,
         today_calls:todayCalls,
         today_revenue:todayRevenue.toFixed(4),
+        today_eur:todayEur.toFixed(4),
+        today_usd:todayUsd.toFixed(4),
         today_minutes:todayMinutes.toFixed(2),
         asr:todayCalls>0?Math.min(98,Math.round(70+Math.random()*20)):0,
       });

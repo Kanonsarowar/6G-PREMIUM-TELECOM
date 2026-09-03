@@ -176,13 +176,25 @@ Route::middleware('auth:sanctum')->group(function() {
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
             ->whereDate('call_start', $today)
             ->first();
+        $todayEur = DB::table('cdrs')
+            ->whereDate('call_start', $today)->where('currency','EUR')
+            ->sum('revenue');
+        $todayUsd = DB::table('cdrs')
+            ->whereDate('call_start', $today)->where('currency','USD')
+            ->sum('revenue');
+        $allEur = DB::table('cdrs')->where('currency','EUR')->sum('revenue');
+        $allUsd = DB::table('cdrs')->where('currency','USD')->sum('revenue');
         return response()->json(['data'=>[
             'calls'         => $data->calls??0,
             'minutes'       => $data->minutes??0,
             'revenue'       => $data->revenue??0,
+            'revenue_eur'   => $allEur??0,
+            'revenue_usd'   => $allUsd??0,
             'today_calls'   => $todayData->calls??0,
             'today_minutes' => $todayData->minutes??0,
             'today_revenue' => $todayData->revenue??0,
+            'today_eur'     => $todayEur??0,
+            'today_usd'     => $todayUsd??0,
         ]]);
     });
 
