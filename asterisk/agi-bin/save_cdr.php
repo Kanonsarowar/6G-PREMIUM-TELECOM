@@ -30,8 +30,21 @@ foreach($endpointMap as $endpoint => $codeName){
     }
 }
 
+// Credentials are not stored in this file. They live in a protected,
+// non-repo config file — see asterisk/agi-bin/db-config.example.php for
+// the expected format and setup instructions.
+define('AGI_DB_CONFIG_PATH', '/etc/6g-premium-telecom/agi-db.php');
+
 try {
-    $pdo = new PDO('mysql:host=127.0.0.1;dbname=telecom_api', 'telecom_user', 'Kanon@DB2026');
+    $dbConfig = @include AGI_DB_CONFIG_PATH;
+    if (!is_array($dbConfig) || empty($dbConfig['host']) || empty($dbConfig['database']) || empty($dbConfig['username'])) {
+        throw new Exception('AGI DB config missing or invalid: '.AGI_DB_CONFIG_PATH);
+    }
+    $pdo = new PDO(
+        "mysql:host={$dbConfig['host']};dbname={$dbConfig['database']}",
+        $dbConfig['username'],
+        $dbConfig['password'] ?? ''
+    );
 
     // Get DID tariff and currency
     $stmt = $pdo->prepare("SELECT tariff, currency FROM dids WHERE number=? OR number=? LIMIT 1");

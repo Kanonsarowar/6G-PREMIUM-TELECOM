@@ -8,5 +8,10 @@ api/storage/logs/*.log
 noc/node_modules/
 noc/dist/
 
+# Asterisk AGI credentials (real file must live outside the repo — see
+# asterisk/agi-bin/db-config.example.php — this is defense-in-depth only)
+asterisk/agi-bin/db-config.php
+asterisk/agi-bin/agi-db.php
+
 # Logs
 *.log
