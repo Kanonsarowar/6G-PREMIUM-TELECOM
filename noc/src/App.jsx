@@ -2458,6 +2458,21 @@ function NumberInventoryPage({token}){
 }
 // ── IVR Page ──────────────────────────────────────────────────────
 function IVRPage({token,setPage}){
+  const [playingId,setPlayingId]=React.useState(null);
+  const audioRef=React.useRef(null);
+  const playPause=(ivr)=>{
+    if(playingId===ivr.id){
+      audioRef.current?.pause();
+      setPlayingId(null);
+    } else {
+      if(audioRef.current) audioRef.current.pause();
+      const a=new Audio("https://6g-premium-telecom.com/api/v1/ivr-lib/preview/"+ivr.id);
+      a.onended=()=>setPlayingId(null);
+      a.play();
+      audioRef.current=a;
+      setPlayingId(ivr.id);
+    }
+  };
   const [ivrs,setIvrs]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showUpload,setShowUpload]=useState(false);
@@ -2586,13 +2601,10 @@ function IVRPage({token,setPage}){
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
-                <button onClick={()=>{
-                  const a=new Audio("https://6g-premium-telecom.com/api/v1/ivr-lib/preview/"+ivr.id);
-                  a.play();
-                }}
+                <button onClick={()=>playPause(ivr)}
                   style={{padding:"5px 10px",borderRadius:6,border:"1px solid #2CADA6",
                     background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>
-                  ▶ Play
+                  {playingId===ivr.id?"⏸ Pause":"▶ Play"}
                 </button>
                 <button onClick={()=>setPage&&setPage("connectivr")}
                   style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.green}40`,
