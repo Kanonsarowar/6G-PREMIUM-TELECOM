@@ -143,8 +143,13 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // ── DID Ranges ────────────────────────────────────────────
     Route::get('/v1/did-ranges', function() {
-        $ranges = DB::table('did_ranges')->paginate(50);
-        return response()->json($ranges);
+        $ranges = DB::table('did_ranges')->get();
+        // Add IVR context from first matching DID
+        foreach($ranges as $r){
+            $did = DB::table('dids')->where('prefix', preg_replace('/\s+/','',$r->prefix??''))->first();
+            $r->ivr_context = $did->ivr_context ?? 'custom/6g-premium-telecom';
+        }
+        return response()->json(['data'=>$ranges,'total'=>count($ranges)]);
     });
 
     Route::post('/v1/did-ranges/import-range', function(Request $r) {
