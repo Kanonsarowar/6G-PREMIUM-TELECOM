@@ -1453,9 +1453,11 @@ Route::get('/v1/ivr-lib/preview/{id}', function($id) {
     $ivr = DB::table('ivrs')->find($id);
     if(!$ivr) return response()->json(['error'=>'Not found'],404);
     $paths = [
-        "/usr/share/asterisk/sounds/custom/{$ivr->name}.wav",
+        "/var/lib/asterisk/sounds/custom/{$ivr->name}.mp3",
+        "/var/lib/asterisk/sounds/custom/{$ivr->name}.wav",
+        "/var/lib/asterisk/sounds/custom/{$ivr->audio_file}",
         "/usr/share/asterisk/sounds/custom/{$ivr->name}.mp3",
-        "/usr/share/asterisk/sounds/custom/{$ivr->audio_file}",
+        "/usr/share/asterisk/sounds/custom/{$ivr->name}.wav",
     ];
     foreach($paths as $path){
         if(file_exists($path)){
