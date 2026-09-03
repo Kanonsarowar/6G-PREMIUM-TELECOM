@@ -324,6 +324,9 @@ function DashboardPage({token}){
       const calls=parseInt(s.calls||0);
       const minutes=parseFloat(s.minutes||0);
       const revenue=parseFloat(s.revenue||0);
+      const todayCalls=parseInt(s.today_calls||0);
+      const todayMinutes=parseFloat(s.today_minutes||0);
+      const todayRevenue=parseFloat(s.today_revenue||0);
       setStats({
         calls,
         revenue:revenue.toFixed(4),
@@ -332,10 +335,10 @@ function DashboardPage({token}){
         live:(live.data||live||[]).length,
         suppliers:(sup.data||[]).length,
         today_countries:[...new Set((dids.data||[]).map(d=>d.country_name).filter(Boolean))].length,
-        today_calls:calls,
-        today_revenue:revenue.toFixed(4),
-        today_minutes:minutes.toFixed(2),
-        asr:calls>0?Math.min(98,Math.round(70+Math.random()*20)):0,
+        today_calls:todayCalls,
+        today_revenue:todayRevenue.toFixed(4),
+        today_minutes:todayMinutes.toFixed(2),
+        asr:todayCalls>0?Math.min(98,Math.round(70+Math.random()*20)):0,
       });
       setLoading(false);
     });

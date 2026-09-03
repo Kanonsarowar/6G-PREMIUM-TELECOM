@@ -168,10 +168,22 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // ── Revenue ───────────────────────────────────────────────
     Route::get('/v1/billing/current-revenue', function() {
+        $today = date('Y-m-d');
         $data = DB::table('cdrs')
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
             ->first();
-        return response()->json(['data'=>$data]);
+        $todayData = DB::table('cdrs')
+            ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+            ->whereDate('call_start', $today)
+            ->first();
+        return response()->json(['data'=>[
+            'calls'         => $data->calls??0,
+            'minutes'       => $data->minutes??0,
+            'revenue'       => $data->revenue??0,
+            'today_calls'   => $todayData->calls??0,
+            'today_minutes' => $todayData->minutes??0,
+            'today_revenue' => $todayData->revenue??0,
+        ]]);
     });
 
     Route::get('/v1/billing/invoices', function() {
