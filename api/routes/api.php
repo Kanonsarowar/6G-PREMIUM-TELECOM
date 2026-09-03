@@ -778,6 +778,7 @@ Route::get('/v1/live-calls', function() {
         $calls[] = [
             'channel'     => $channel,
             'src'         => $callerid ?: ($parts[7]??'Unknown'),
+            'prefix'      => $did->prefix ?? substr(ltrim($exten,'+'),0,strlen(ltrim($exten,'+'))-4),
             'did'         => $exten,
             'dst'         => $exten,
             'context'     => $context,

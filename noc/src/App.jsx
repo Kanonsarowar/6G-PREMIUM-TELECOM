@@ -569,42 +569,49 @@ function LiveCallsPage({token}){
                   </tr>
                 </thead>
                 <tbody>
-                  {calls.map((c,i)=>(
+                  {calls.map((c,i)=>{
+                    const did=(c.did||c.exten||"").replace("+","");
+                    const prefix=c.prefix||(did.slice(0,did.length>10?did.length-4:4))||"—";
+                    const dur=fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)));
+                    const ivr=(c.ivr||c.ivr_context||"—").replace("custom/","");
+                    const cli=(c.src||c.callerid||"—");
+                    return(
                     <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
                       background:i%2===0?"#FFF":"#F9FFFE"}}>
-                      <td style={{padding:"8px 10px",fontSize:12,color:"#999",fontWeight:600}}>
+                      <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>
                         {i+1}
                       </td>
-                      <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",
-                        fontWeight:600,color:"#1A1A1A"}}>
-                        {(c.src||c.callerid||"—")}
+                      <td style={{padding:"6px 8px",fontSize:11,fontFamily:"monospace",
+                        fontWeight:600,color:"#1A1A1A",whiteSpace:"nowrap"}}>
+                        {cli}
                       </td>
-                      <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",
-                        color:"#2CADA6",fontWeight:700}}>
-                        {(c.did||c.exten||"—").replace("+","")}
+                      <td style={{padding:"6px 8px",fontSize:11,fontFamily:"monospace",
+                        color:"#2CADA6",fontWeight:700,whiteSpace:"nowrap"}}>
+                        {did}
                       </td>
-                      <td style={{padding:"8px 10px",fontSize:12,color:"#555",fontFamily:"monospace"}}>
-                        {c.prefix||((c.did||"").replace("+","").slice(0,4))||"—"}
+                      <td style={{padding:"6px 8px",fontSize:11,color:"#555",
+                        fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                        {prefix}
                       </td>
-                      <td style={{padding:"8px 10px",fontSize:12,color:"#333"}}>
+                      <td style={{padding:"6px 8px",fontSize:11,color:"#333",whiteSpace:"nowrap"}}>
                         {c.country||c.country_name||"—"}
                       </td>
-                      <td style={{padding:"8px 10px",fontSize:11,color:"#555",
-                        maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                        title={c.ivr||c.ivr_context||"—"}>
-                        {(c.ivr||c.ivr_context||"—").replace("custom/","")}
+                      <td style={{padding:"6px 8px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>
+                        {ivr}
                       </td>
-                      <td style={{padding:"8px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
+                      <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",
+                        fontWeight:600,whiteSpace:"nowrap"}}>
                         {c.supplier||c.trunk_name||"—"}
                       </td>
-                      <td style={{padding:"8px 10px"}}>
-                        <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-                          background:"rgba(16,185,129,0.1)",color:"#10B981",fontFamily:"monospace"}}>
-                          ● {fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)))}
+                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
+                        <span style={{padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:700,
+                          background:"rgba(16,185,129,0.1)",color:"#10B981",
+                          fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                          ●{dur}
                         </span>
                       </td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>
