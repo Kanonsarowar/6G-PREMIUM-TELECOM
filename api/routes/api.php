@@ -730,9 +730,11 @@ Route::get('/v1/live-calls', function() {
         $priority = $parts[3] ?? '';
         $appname  = $parts[4] ?? '';
         $state    = $parts[6] ?? '';
-        // Duration in Asterisk concise is field 8 (seconds since answer)
-        $duration = intval($parts[8] ?? 0);
-        // Sanity check - max 24 hours
+        // Asterisk concise format: chan!ctx!ext!pri!state!app!data!cid!???!???!???!duration!???!uniqueid
+        // Duration is field 11
+        $duration = intval($parts[11] ?? 0);
+        $callerid = trim($parts[7] ?? '','"');
+        // Sanity check
         if($duration > 86400) $duration = 0;
         
         // Only show from-carrier context
@@ -775,7 +777,7 @@ Route::get('/v1/live-calls', function() {
 
         $calls[] = [
             'channel'     => $channel,
-            'src'         => $parts[8] ?? 'Unknown',
+            'src'         => $callerid ?: ($parts[7]??'Unknown'),
             'did'         => $exten,
             'dst'         => $exten,
             'context'     => $context,
