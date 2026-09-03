@@ -514,10 +514,13 @@ function LiveCallsPage({token}){
   },[token]);
 
   const fmt=(sec)=>{
-    const h=Math.floor(sec/3600);
-    const m=Math.floor((sec%3600)/60);
-    const s=sec%60;
-    return [h,m,s].map(v=>String(v).padStart(2,"0")).join(":");
+    const s=Math.max(0,parseInt(sec)||0);
+    if(s>86400) return "00:00"; // sanity check
+    const h=Math.floor(s/3600);
+    const m=Math.floor((s%3600)/60);
+    const ss=s%60;
+    return h>0?[h,m,ss].map(v=>String(v).padStart(2,"0")).join(":"): 
+               [m,ss].map(v=>String(v).padStart(2,"0")).join(":");
   };
 
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
@@ -597,7 +600,7 @@ function LiveCallsPage({token}){
                       <td style={{padding:"8px 10px"}}>
                         <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
                           background:"rgba(16,185,129,0.1)",color:"#10B981",fontFamily:"monospace"}}>
-                          ● {fmt(parseInt(c.duration||c.billsec||0))}
+                          ● {fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)))}
                         </span>
                       </td>
                     </tr>

@@ -728,9 +728,12 @@ Route::get('/v1/live-calls', function() {
         $context  = $parts[1] ?? '';
         $exten    = $parts[2] ?? '';
         $priority = $parts[3] ?? '';
-        $state    = $parts[6] ?? '';
-        $duration = $parts[7] ?? 0;
         $appname  = $parts[4] ?? '';
+        $state    = $parts[6] ?? '';
+        // Duration in Asterisk concise is field 8 (seconds since answer)
+        $duration = intval($parts[8] ?? 0);
+        // Sanity check - max 24 hours
+        if($duration > 86400) $duration = 0;
         
         // Only show from-carrier context
         if($context !== 'from-carrier' && !str_contains($channel,'from-carrier')) continue;
@@ -745,10 +748,10 @@ Route::get('/v1/live-calls', function() {
         $trunk_name = 'Unknown';
         // Map Asterisk endpoint names to code names
         $endpointMap = [
-            'STANDARD'   => 'PROFESSOR',
-            'MEDIATEL'   => 'Tokyo',
-            'PHONEGROUP' => 'Berlin',
-            'GAMA'       => 'Nairobi',
+            'STANDARD'   => 'WTP',
+            'MEDIATEL'   => 'Mediatel',
+            'PHONEGROUP' => 'Phonegroup',
+            'GAMA'       => 'Gama',
         ];
         foreach($endpointMap as $endpoint => $codeName){
             if(str_contains(strtoupper($channel), $endpoint)){
@@ -778,6 +781,7 @@ Route::get('/v1/live-calls', function() {
             'context'     => $context,
             'state'       => $state,
             'billsec'     => (int)$duration,
+            'seconds'     => (int)$duration,
             'ivr_context' => $did->ivr_context ?? 'custom/6g-premium-telecom',
             'country'     => $did->country_name ?? '—',
             'trunk_name'  => $trunk_name,
