@@ -1967,6 +1967,9 @@ function NumberInventoryPage({token}){
                             <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(r.currency||"EUR")}{parseFloat(r.rate||0).toFixed(3)}</td>
                             <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
                             <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
+                            <td style={{padding:"6px 10px",fontSize:10,color:"#888",whiteSpace:"nowrap"}}>
+                              {(r.ivr_context||"—").replace("custom/","")}
+                            </td>
                             <td style={{padding:"6px 10px",textAlign:"center"}}>
                               <button onClick={e=>deleteRange(r.id,e)}
                                 style={{background:"none",border:"1px solid #CCC",borderRadius:3,
