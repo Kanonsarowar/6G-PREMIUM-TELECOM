@@ -360,16 +360,16 @@ function DashboardPage({token}){
   const todayCards=[
     {label:"TODAY CALLS",value:stats.today_calls,color:"#3B82F6",icon:"📞"},
     {label:"TODAY MINUTES",value:stats.today_minutes,color:"#06B6D4",icon:"⏱"},
-    ...(parseFloat(stats.today_eur||0)>0?[{label:"TODAY EUR",value:"€"+parseFloat(stats.today_eur).toFixed(4),color:"#10B981",icon:"💶"}]:[]),
-    ...(parseFloat(stats.today_usd||0)>0?[{label:"TODAY USD",value:"$"+parseFloat(stats.today_usd).toFixed(4),color:"#F5A623",icon:"💵"}]:[]),
+    {label:"TODAY EUR",value:"€"+parseFloat(stats.today_eur||0).toFixed(4),color:"#10B981",icon:"💶"},
+    {label:"TODAY USD",value:"$"+parseFloat(stats.today_usd||0).toFixed(4),color:"#F5A623",icon:"💵"},
     {label:"ACTIVE DIDS",value:stats.dids,color:"#8B5CF6",icon:"📱"},
     {label:"COUNTRIES",value:stats.today_countries,color:"#06B6D4",icon:"🌍"},
   ];
   const allTimeCards=[
     {label:"TOTAL CALLS",value:stats.calls,color:"#3B82F6"},
     {label:"TOTAL MINUTES",value:stats.minutes,color:"#06B6D4"},
-    ...(parseFloat(stats.revenue_eur||0)>0?[{label:"TOTAL EUR",value:"€"+parseFloat(stats.revenue_eur).toFixed(4),color:"#10B981"}]:[]),
-    ...(parseFloat(stats.revenue_usd||0)>0?[{label:"TOTAL USD",value:"$"+parseFloat(stats.revenue_usd).toFixed(4),color:"#F5A623"}]:[]),
+    {label:"TOTAL EUR",value:"€"+parseFloat(stats.revenue_eur||0).toFixed(4),color:"#10B981"},
+    {label:"TOTAL USD",value:"$"+parseFloat(stats.revenue_usd||0).toFixed(4),color:"#F5A623"},
     {label:"TOTAL DIDS",value:stats.dids,color:"#8B5CF6"},
   ];
   const barMax=Math.max(parseFloat(stats.today_calls||1),parseFloat(stats.calls||1));
