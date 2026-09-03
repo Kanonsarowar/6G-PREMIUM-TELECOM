@@ -854,14 +854,16 @@ Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
         copy($srcSlin, $dstSlin);
         exec("chown asterisk:asterisk {$dstSlin}");
         exec("chmod 644 {$dstSlin}");
-        // Also copy to alternate location
-        $altDst = "/usr/local/share/asterisk/sounds/6g-premium-telecom.slin";
-        copy($srcSlin, $altDst);
-        exec("chown asterisk:asterisk {$altDst}");
-        exec("chmod 644 {$altDst}");
-        // Remove old mp3/wav from alternate location
-        @unlink("/usr/local/share/asterisk/sounds/6g-premium-telecom.mp3");
-        @unlink("/usr/local/share/asterisk/sounds/6g-premium-telecom.wav");
+        // Copy to all Asterisk sound locations
+        foreach([
+            "/usr/share/asterisk/sounds/custom/6g-premium-telecom.slin",
+            "/usr/local/share/asterisk/sounds/6g-premium-telecom.slin",
+            "/var/lib/asterisk/sounds/custom/6g-premium-telecom.slin",
+        ] as $altDst){
+            @copy($srcSlin, $altDst);
+            exec("chown asterisk:asterisk {$altDst} 2>/dev/null");
+            exec("chmod 644 {$altDst} 2>/dev/null");
+        }
     }
     DB::table('did_ranges')->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
