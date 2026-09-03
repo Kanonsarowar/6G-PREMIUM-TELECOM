@@ -368,7 +368,8 @@ function DashboardPage({token}){
   const allTimeCards=[
     {label:"TOTAL CALLS",value:stats.calls,color:"#3B82F6"},
     {label:"TOTAL MINUTES",value:stats.minutes,color:"#06B6D4"},
-    {label:"TOTAL REVENUE",value:"€"+stats.revenue,color:"#F5A623"},
+    ...(parseFloat(stats.revenue_eur||0)>0?[{label:"TOTAL EUR",value:"€"+parseFloat(stats.revenue_eur).toFixed(4),color:"#10B981"}]:[]),
+    ...(parseFloat(stats.revenue_usd||0)>0?[{label:"TOTAL USD",value:"$"+parseFloat(stats.revenue_usd).toFixed(4),color:"#F5A623"}]:[]),
     {label:"TOTAL DIDS",value:stats.dids,color:"#8B5CF6"},
   ];
   const barMax=Math.max(parseFloat(stats.today_calls||1),parseFloat(stats.calls||1));
