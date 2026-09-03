@@ -680,14 +680,15 @@ Route::post('/v1/ivr-lib/upload', function(Request $r) {
     $wavFile  = $path.$name.'.wav';
     if($file->getClientOriginalExtension() !== 'slin'){
         // Convert to slin (raw signed 16-bit 8kHz)
-        exec("ffmpeg -i {$path}{$filename} -ar 8000 -ac 1 -acodec pcm_s16le -f s16le {$slinFile} -y 2>&1");
-        // Convert to ulaw
-        exec("ffmpeg -i {$path}{$filename} -ar 8000 -ac 1 -acodec pcm_mulaw -f mulaw {$ulFile} -y 2>&1");
-        // Convert to wav 8kHz
-        exec("ffmpeg -i {$path}{$filename} -ar 8000 -ac 1 {$wavFile} -y 2>&1");
-        // Fix permissions
-        exec("chown asterisk:asterisk {$slinFile} {$ulFile} {$wavFile} 2>&1");
-        exec("chmod 644 {$slinFile} {$ulFile} {$wavFile} 2>&1");
+        $src = escapeshellarg($path.$filename);
+        $dst_slin = escapeshellarg($slinFile);
+        $dst_ul = escapeshellarg($ulFile);
+        $dst_wav = escapeshellarg($wavFile);
+        exec("ffmpeg -i {$src} -ar 8000 -ac 1 -acodec pcm_s16le -f s16le {$dst_slin} -y 2>&1", $out1);
+        exec("ffmpeg -i {$src} -ar 8000 -ac 1 -acodec pcm_mulaw -f mulaw {$dst_ul} -y 2>&1", $out2);
+        exec("ffmpeg -i {$src} -ar 8000 -ac 1 {$dst_wav} -y 2>&1", $out3);
+        exec("chown asterisk:asterisk {$dst_slin} {$dst_ul} {$dst_wav} 2>&1");
+        exec("chmod 644 {$dst_slin} {$dst_ul} {$dst_wav} 2>&1");
     }
     
     // Save to DB
