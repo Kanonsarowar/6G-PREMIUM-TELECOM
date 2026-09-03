@@ -725,15 +725,23 @@ Route::get('/v1/sip/activity', function() {
         'pjsip'    => $pjsip,
         'timestamp'=> now()->toDateTimeString(),
     ]);
-});
+})->middleware('auth:sanctum');
 
 // Enable Asterisk verbose logging
 Route::post('/v1/sip/verbose', function(Request $r) {
-    $level = $r->level ?? 3;
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $allowedLevels = [0, 1, 2, 3, 4, 5];
+    $r->validate(['level' => 'required|integer|in:0,1,2,3,4,5']);
+    $level = (int) $r->level;
+    if (!in_array($level, $allowedLevels, true)) {
+        return response()->json(['error'=>'Invalid verbose level'],422);
+    }
     exec("asterisk -rx 'core set verbose {$level}' 2>/dev/null", $out);
     exec("asterisk -rx 'core set debug {$level}' 2>/dev/null", $out2);
     return response()->json(['success'=>true,'level'=>$level]);
-});
+})->middleware('auth:sanctum');
 
 // Get Asterisk full log stream
 Route::get('/v1/sip/log', function() {
@@ -743,7 +751,7 @@ Route::get('/v1/sip/log', function() {
         exec("tail -200 {$log}", $lines);
     }
     return response()->json(['data'=>array_slice($lines,-100),'total'=>count($lines)]);
-});
+})->middleware('auth:sanctum');
 
 // Live calls from Asterisk
 Route::get('/v1/live-calls', function() {
