@@ -171,6 +171,10 @@ Route::middleware('auth:sanctum')->group(function() {
     });
 
     Route::post('/v1/did-ranges/import-range', function(Request $r) {
+        if (!isSupplierManager($r->user())) {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
+        $r->validate(['range_start' => 'required', 'range_end' => 'required']);
         $start = preg_replace('/[^0-9]/','', $r->range_start);
         $end   = preg_replace('/[^0-9]/','', $r->range_end);
         $count = (int)$end - (int)$start + 1;
@@ -385,84 +389,9 @@ Route::middleware('auth:sanctum')->group(function() {
 
 });
 
-// Import Range — store range and generate numbers
-Route::post('/v1/did-ranges/import-range', function(Request $r) {
-    $start  = preg_replace('/[^0-9]/','',$r->range_start);
-    $end    = preg_replace('/[^0-9]/','',$r->range_end);
-    $count  = (int)$end - (int)$start + 1;
-    $prefix = substr($start,0,-4);
-
-    if($count > 100000) return response()->json(['error'=>'Range too large (max 100,000)'],400);
-
-    // Insert range record
-    $rangeId = DB::table('did_ranges')->insertGetId([
-        'batch_name'    => $r->batch_name ?? ($r->country_name.' '.$prefix),
-        'country_code'  => $r->country_code,
-        'country_name'  => $r->country_name,
-        'prefix'        => $prefix,
-        'range_start'   => $start,
-        'range_end'     => $end,
-        'rate'          => $r->tariff ?? 0.063,
-        'selling_price' => $r->selling_price ?? 0.07,
-        'currency'      => 'EUR',
-        'payment_terms' => $r->payment_terms ?? 'Daily',
-        'supplier_name' => $r->supplier,
-        'trunk_id'      => $r->trunk_id ?? 1,
-        'default_ivr'   => $r->default_ivr ?? 'custom/telephone-convo',
-        'total_count'   => $count,
-        'is_active'     => 1,
-        'created_at'    => now(),
-        'updated_at'    => now(),
-    ]);
-
-    // Generate individual numbers
-    $imported = 0;
-    $batch = [];
-    for($i=(int)$start; $i<=(int)$end; $i++){
-        $number = '+'.$i;
-        $batch[] = [
-            'number'           => $number,
-            'e164_number'      => $number,
-            'country_code'     => $r->country_code,
-            'country_name'     => $r->country_name,
-            'prefix'           => $prefix,
-            'tariff'           => $r->tariff ?? 0.063,
-            'selling_price'    => $r->selling_price ?? 0.07,
-            'currency'         => 'EUR',
-            'payment_terms'    => $r->payment_terms ?? 'Daily',
-            'lifecycle_status' => 'available',
-            'status'           => 'active',
-            'ivr_context'      => $r->default_ivr ?? 'custom/telephone-convo',
-            'trunk_id'         => $r->trunk_id ?? 1,
-            'batch_id'         => $rangeId,
-            'created_at'       => now(),
-            'updated_at'       => now(),
-        ];
-        // Insert in batches of 1000
-        if(count($batch) >= 1000){
-            DB::table('dids')->insertOrIgnore($batch);
-            $imported += count($batch);
-            $batch = [];
-        }
-    }
-    if(!empty($batch)){
-        DB::table('dids')->insertOrIgnore($batch);
-        $imported += count($batch);
-    }
-
-    DB::table('did_ranges')->where('id',$rangeId)->update(['imported_count'=>$imported]);
-
-    return response()->json([
-        'success' => true,
-        'range_id'=> $rangeId,
-        'imported'=> $imported,
-        'total'   => $count,
-        'message' => "Range imported — $imported numbers (+$start → +$end)",
-    ]);
-});
-
 // Add single DID
 Route::post('/v1/dids/add', function(Request $r) {
+    $r->validate(['number' => 'required|string']);
     if(DB::table('dids')->where('number',$r->number)->exists())
         return response()->json(['error'=>'Number already exists'],400);
     $id = DB::table('dids')->insertGetId([
@@ -483,7 +412,7 @@ Route::post('/v1/dids/add', function(Request $r) {
         'updated_at'      => now(),
     ]);
     return response()->json(['success'=>true,'id'=>$id,'number'=>$r->number]);
-});
+})->middleware('auth:sanctum');
 
 // Revenue by currency
 Route::get('/v1/billing/revenue-by-currency', function() {
@@ -677,9 +606,13 @@ Route::get('/v1/invoices/supplier', function() {
 // Route Prefixes
 Route::get('/v1/route-prefixes', function() {
     return response()->json(['data'=>DB::table('route_prefixes')->orderBy('priority')->get()]);
-});
+})->middleware('auth:sanctum');
 
 Route::post('/v1/route-prefixes', function(Request $r) {
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['prefix' => 'required|string']);
     $id = DB::table('route_prefixes')->insertGetId([
         'prefix'       => $r->prefix,
         'country_code' => $r->country_code,
@@ -695,14 +628,26 @@ Route::post('/v1/route-prefixes', function(Request $r) {
     ]);
     // Update AGI script with new prefix
     return response()->json(['success'=>true,'id'=>$id]);
-});
+})->middleware('auth:sanctum');
 
-Route::delete('/v1/route-prefixes/{id}', function($id) {
+Route::delete('/v1/route-prefixes/{id}', function(Request $r, $id) {
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    if (!DB::table('route_prefixes')->where('id',$id)->exists()) {
+        return response()->json(['error'=>'Route prefix not found'],404);
+    }
     DB::table('route_prefixes')->delete($id);
     return response()->json(['success'=>true]);
-});
+})->middleware('auth:sanctum');
 
 Route::put('/v1/route-prefixes/{id}', function(Request $r, $id) {
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    if (!DB::table('route_prefixes')->where('id',$id)->exists()) {
+        return response()->json(['error'=>'Route prefix not found'],404);
+    }
     DB::table('route_prefixes')->where('id',$id)->update([
         'ivr_context'  => $r->ivr_context,
         'is_active'    => $r->is_active ?? 1,
@@ -710,7 +655,7 @@ Route::put('/v1/route-prefixes/{id}', function(Request $r, $id) {
         'updated_at'   => now(),
     ]);
     return response()->json(['success'=>true]);
-});
+})->middleware('auth:sanctum');
 
 // IVR Upload
 Route::post('/v1/ivr-lib/upload', function(Request $r) {
@@ -877,29 +822,35 @@ Route::get('/v1/live-calls', function() {
     return response()->json(['data'=>$calls,'total'=>count($calls)]);
 }, ['middleware'=>['auth:sanctum']]);
 
-// Bulk update IVR for all DIDs
+// Bulk update IVR for all DIDs (explicit global operation, e.g. "Connect IVR" → range=ALL)
 Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
-    $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
-    $count = DB::table('dids')->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
-    DB::table('did_ranges')->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['ivr_context' => 'required|string']);
+    $count = DB::table('dids')->update(['ivr_context'=>$r->ivr_context,'updated_at'=>now()]);
+    DB::table('did_ranges')->update(['default_ivr'=>$r->ivr_context,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
-});
+})->middleware('auth:sanctum');
 
 // Update IVR for specific range
 Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
-    $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['ivr_context' => 'required|string']);
     $range = DB::table('did_ranges')->find($id);
     if(!$range) return response()->json(['error'=>'Range not found'],404);
-    
+
     // Update DIDs in this range
     $count = DB::table('dids')
         ->where('number','>=',$range->range_start)
         ->where('number','<=',$range->range_end)
-        ->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
-    
-    DB::table('did_ranges')->where('id',$id)->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
+        ->update(['ivr_context'=>$r->ivr_context,'updated_at'=>now()]);
+
+    DB::table('did_ranges')->where('id',$id)->update(['default_ivr'=>$r->ivr_context,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
-});
+})->middleware('auth:sanctum');
 
 // Live calls from Asterisk AMI - override existing
 
@@ -1208,11 +1159,14 @@ Route::get('/v1/did-performance', function() {
 // ── Bulk DID Management ────────────────────────────────────────
 // Bulk delete DIDs
 Route::post('/v1/dids/bulk-delete', function(Request $r) {
-    $ids = $r->ids ?? [];
-    if(empty($ids)) return response()->json(['error'=>'No IDs provided'],400);
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
+    $ids = $r->ids;
     $deleted = DB::table('dids')->whereIn('id',$ids)->delete();
     return response()->json(['success'=>true,'deleted'=>$deleted]);
-});
+})->middleware('auth:sanctum');
 
 // Bulk assign supplier
 Route::post('/v1/dids/bulk-supplier', function(Request $r) {
@@ -1228,17 +1182,23 @@ Route::post('/v1/dids/bulk-supplier', function(Request $r) {
 
 // Bulk assign IVR
 Route::post('/v1/dids/bulk-ivr', function(Request $r) {
-    $ids = $r->ids ?? [];
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['ids' => 'required|array', 'ids.*' => 'integer', 'ivr_context' => 'required|string']);
+    $ids = $r->ids;
     $ivr = $r->ivr_context;
-    if(empty($ids)||!$ivr) return response()->json(['error'=>'Missing ids or ivr_context'],400);
     $updated = DB::table('dids')->whereIn('id',$ids)->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
     // Update Asterisk extensions
     $numbers = DB::table('dids')->whereIn('id',$ids)->pluck('number');
     return response()->json(['success'=>true,'updated'=>$updated,'numbers'=>$numbers]);
-});
+})->middleware('auth:sanctum');
 
 // Upload CSV/Excel of DIDs
 Route::post('/v1/dids/bulk-upload', function(Request $r) {
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
     if(!$r->hasFile('file')) return response()->json(['error'=>'No file uploaded'],400);
     $file = $r->file('file');
     $content = file_get_contents($file->getRealPath());
@@ -1280,7 +1240,7 @@ Route::post('/v1/dids/bulk-upload', function(Request $r) {
     }
     return response()->json(['success'=>true,'imported'=>$imported,'skipped'=>$skipped,
         'errors'=>array_slice($errors,0,10),'message'=>"$imported imported, $skipped skipped"]);
-});
+})->middleware('auth:sanctum');
 
 // Export DIDs as CSV
 Route::get('/v1/dids/export-csv', function() {
@@ -1298,7 +1258,7 @@ Route::get('/v1/dids/export-csv', function() {
     }
     return response($csv,200,['Content-Type'=>'text/csv',
         'Content-Disposition'=>'attachment; filename="dids-export-'.date('Y-m-d').'.csv"']);
-});
+})->middleware('auth:sanctum');
 
 // ── IVR Audio Manager ──────────────────────────────────────────
 Route::get('/v1/ivr-lib/preview/{id}', function($id) {
@@ -1585,22 +1545,45 @@ Route::delete('/v1/audit-logs/clear', function(Request $r) {
 
 // Unassign DIDs from reseller
 Route::post('/v1/dids/bulk-unassign', function(Request $r) {
-    $ids = $r->ids ?? [];
-    if(empty($ids)) return response()->json(['error'=>'No IDs provided'],400);
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
+    $ids = $r->ids;
     $updated = DB::table('dids')->whereIn('id',$ids)->update([
         'customer_id' => null,
         'updated_at'  => now(),
     ]);
     return response()->json(['success'=>true,'updated'=>$updated,'message'=>$updated.' DIDs unassigned and returned to panel']);
-});
+})->middleware('auth:sanctum');
+
+// Assign DIDs to a reseller/customer (writes customer_id — NOT trunk_id, which is the Supplier link)
+Route::post('/v1/dids/bulk-customer', function(Request $r) {
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
+    $r->validate(['ids' => 'required|array', 'ids.*' => 'integer', 'customer_id' => 'required|integer']);
+    if (!DB::table('customers')->where('id',$r->customer_id)->exists()) {
+        return response()->json(['error'=>'Customer not found'],404);
+    }
+    $updated = DB::table('dids')->whereIn('id',$r->ids)->update([
+        'customer_id' => $r->customer_id,
+        'updated_at'  => now(),
+    ]);
+    return response()->json(['success'=>true,'updated'=>$updated,'message'=>$updated.' DIDs assigned to reseller']);
+})->middleware('auth:sanctum');
 
 // ── Smart CSV Sync ─────────────────────────────────────────────
 Route::post('/v1/dids/smart-sync', function(Request $r) {
+    if (!isSupplierManager($r->user())) {
+        return response()->json(['error'=>'Unauthorized'],403);
+    }
     if(!$r->hasFile('file')) return response()->json(['error'=>'No file uploaded'],400);
     $trunkId = $r->trunk_id;
     if(!$trunkId) return response()->json(['error'=>'No supplier selected'],400);
 
     $trunk = DB::table('trunks')->find($trunkId);
+    if(!$trunk) return response()->json(['error'=>'Supplier not found'],404);
     $content = file_get_contents($r->file('file')->getRealPath());
     $lines = array_filter(array_map('trim', explode("\n", str_replace("\r","",$content))));
 
@@ -1746,10 +1729,10 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
         'success'   => true,
         'added'     => $added,
         'removed'   => $removed,
-        'unchanged' => count($csvNorm)-count($toAdd),
+        'unchanged' => count($csvNumbers)-count($toAdd),
         'total_csv' => count($csvNumbers),
         'total_db'  => DB::table('dids')->where('trunk_id',$trunkId)->count(),
         'supplier'  => $trunk->nickname??$trunk->name,
-        'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNorm)-count($toAdd))." unchanged",
+        'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNumbers)-count($toAdd))." unchanged",
     ]);
-});
+})->middleware('auth:sanctum');

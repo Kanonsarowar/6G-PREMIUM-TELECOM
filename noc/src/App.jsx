@@ -1842,8 +1842,8 @@ function NumberInventoryPage({token}){
     if(selected.size===0){alert("Select numbers first");return;}
     if(!assignReseller){alert("Select a reseller");return;}
     setSaving(true);
-    const d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",
-      body:JSON.stringify({ids:[...selected],trunk_id:assignReseller})});
+    const d=await apiFetch("/dids/bulk-customer",token,{method:"POST",
+      body:JSON.stringify({ids:[...selected],customer_id:assignReseller})});
     setResult(d);setSaving(false);clearSel();load();
   };
 
