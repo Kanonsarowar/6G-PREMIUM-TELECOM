@@ -13,5 +13,9 @@ noc/dist/
 asterisk/agi-bin/db-config.php
 asterisk/agi-bin/agi-db.php
 
+# Asterisk PJSIP auth credentials (real file must live outside the repo —
+# see asterisk/conf/pjsip_auth.example.conf — this is defense-in-depth only)
+asterisk/conf/pjsip_auth.conf
+
 # Logs
 *.log
