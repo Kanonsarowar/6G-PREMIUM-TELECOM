@@ -55,7 +55,13 @@ const getNavGroups=(role)=>{
     {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
     {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
+  ]},
+  {key:"security",label:"Security",items:[
+    {id:"fraudcontrol",label:"Fraud Control",icon:"🛡"},
     {id:"auditlog",label:"Audit Log",icon:"📜"},
+  ]},
+  {key:"system",label:"System",items:[
+    {id:"systemhealth",label:"System Health",icon:"♥"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
@@ -4617,6 +4623,8 @@ export default function App(){
       case "quality":       return <CallQualityPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
+      case "fraudcontrol":  return <FraudControlPage token={token}/>;
+      case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       default:             return <DashboardPage token={token}/>;
     }
@@ -4656,6 +4664,37 @@ export default function App(){
             </span>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Fraud Control ─────────────────────────────────────────────
+function FraudControlPage({token}){
+  return(
+    <div style={{padding:16,fontFamily:"Arial,sans-serif"}}>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>🛡 Fraud Control</div>
+      <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        <div style={{color:"#999",textAlign:"center",padding:40}}>Coming Soon — Fraud detection and blocking rules</div>
+      </div>
+    </div>
+  );
+}
+
+// ── System Health ─────────────────────────────────────────────
+function SystemHealthPage({token}){
+  const [health,setHealth]=useState(null);
+  useEffect(()=>{
+    apiFetch("/system/health",token).then(d=>setHealth(d));
+  },[token]);
+  return(
+    <div style={{padding:16,fontFamily:"Arial,sans-serif"}}>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>♥ System Health</div>
+      <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        {health?
+          <pre style={{fontSize:12,color:"#333"}}>{JSON.stringify(health,null,2)}</pre>
+          :<div style={{color:"#999",textAlign:"center",padding:40}}>Loading...</div>
+        }
       </div>
     </div>
   );
