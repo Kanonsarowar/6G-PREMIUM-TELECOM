@@ -50,19 +50,12 @@ const getNavGroups=(role)=>{
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"customers",label:"Customers",icon:"◷"},
   ]},
-  {key:"network",label:"Routing & Network",items:[
-    {id:"routing",label:"Routing",icon:"🔀"},
-    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
+  {key:"network",label:"Networking",items:[
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
     {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
     {id:"testlabs",label:"Test Number",icon:"⚗"},
-  ]},
-  {key:"security",label:"Security",items:[
-    {id:"fraudcontrol",label:"Fraud Control",icon:"🛡"},
     {id:"auditlog",label:"Audit Log",icon:"📜"},
-  ]},
-  {key:"system",label:"System",items:[
-    {id:"systemhealth",label:"System Health",icon:"♥"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
@@ -4039,19 +4032,6 @@ function SettingsPage({user,logout}){
 }
 
 
-function ComingSoonPage({icon,title}){
-  return(
-    <div style={{padding:16}}>
-      <div style={{fontSize:16,fontWeight:800,marginBottom:16}}>{icon} {title}</div>
-      <div style={{padding:"48px 24px",borderRadius:12,border:`1px solid ${C.border}`,
-        background:C.card,textAlign:"center",color:C.muted}}>
-        <div style={{fontSize:32,marginBottom:12,opacity:0.6}}>{icon}</div>
-        <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{title} — Coming Soon</div>
-        <div style={{fontSize:12}}>This section is reserved in the nav and not yet built out.</div>
-      </div>
-    </div>
-  );
-}
 function RoutePrefixPage({token}){
   const [prefixes,setPrefixes]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -4442,9 +4422,6 @@ export default function App(){
       "customers":"customers","resellers":"resellers","resellers":"resellers",
       "test-number":"testlabs",
       "sip-monitor":"sipmonitor",
-      "routing":"routing",
-      "fraud-control":"fraudcontrol","fraudcontrol":"fraudcontrol",
-      "system-health":"systemhealth","systemhealth":"systemhealth",
       "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
     };
     return routes[path]||"dashboard";
@@ -4457,7 +4434,6 @@ export default function App(){
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
-      "routing":"routing","fraudcontrol":"fraud-control","systemhealth":"system-health",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -4641,9 +4617,6 @@ export default function App(){
       case "quality":       return <CallQualityPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
-      case "routing":       return <ComingSoonPage icon="🔀" title="Routing"/>;
-      case "fraudcontrol":  return <ComingSoonPage icon="🛡" title="Fraud Control"/>;
-      case "systemhealth":  return <ComingSoonPage icon="♥" title="System Health"/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       default:             return <DashboardPage token={token}/>;
     }
