@@ -1749,7 +1749,6 @@ function NumberInventoryPage({token}){
   const [dids,setDids]=useState([]);
   const [ranges,setRanges]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
-  const [resellers,setResellers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState("numbers");
   const [expanded,setExpanded]=useState({});
@@ -1764,8 +1763,6 @@ function NumberInventoryPage({token}){
   const [uploadCurrency,setUploadCurrency]=useState("EUR");
   // Add number form
   const [addForm,setAddForm]=useState({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"EUR",trunk_id:""});
-  // Assign reseller
-  const [assignReseller,setAssignReseller]=useState("");
   // Test number
   const [testNum,setTestNum]=useState("");
   const [testResult,setTestResult]=useState(null);
@@ -1777,12 +1774,10 @@ function NumberInventoryPage({token}){
       apiFetch("/dids",token),
       apiFetch("/did-ranges",token),
       apiFetch("/suppliers",token),
-      apiFetch("/resellers",token),
     ]).then(([d,r,s,res])=>{
       setDids(d.data||[]);
       setRanges(r.data||[]);
       setSuppliers(s.data||[]);
-      setResellers(res.data||[]);
       setLoading(false);
     });
   };
@@ -1833,24 +1828,7 @@ function NumberInventoryPage({token}){
     setResult(d);setSaving(false);
     if(d.success||d.data){setAddForm({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"EUR",trunk_id:""});load();}
   };
-
-  const assignToReseller=async()=>{
-    if(selected.size===0){alert("Select numbers first");return;}
-    if(!assignReseller){alert("Select a reseller");return;}
-    setSaving(true);
-    const d=await apiFetch("/dids/bulk-supplier",token,{method:"POST",
-      body:JSON.stringify({ids:[...selected],trunk_id:assignReseller})});
-    setResult(d);setSaving(false);clearSel();load();
-  };
-
-  const unassignFromReseller=async()=>{
-    if(selected.size===0){alert("Select numbers first");return;}
-    if(!window.confirm("Unassign "+selected.size+" numbers from reseller?")) return;
-    setSaving(true);
-    const d=await apiFetch("/dids/bulk-unassign",token,{method:"POST",
-      body:JSON.stringify({ids:[...selected]})});
-    setResult(d);setSaving(false);clearSel();load();
-  };
+;
 
   const deleteSelected=async()=>{
     if(selected.size===0){alert("Select numbers first");return;}
@@ -1885,7 +1863,6 @@ function NumberInventoryPage({token}){
   const tabs=[
     {id:"numbers",label:"📋 Numbers"},
     {id:"add",label:"➕ Add Number"},
-    {id:"assign",label:"👤 Assign Reseller"},
     {id:"delete",label:"🗑 Delete"},
     {id:"upload",label:"⬆ Upload CSV"},
   ];
@@ -2222,88 +2199,7 @@ function NumberInventoryPage({token}){
             </button>
           </div>
         )}
-        {/* ── ASSIGN RESELLER TAB ── */}
-        {tab==="assign"&&(
-          <>
-            <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,
-              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>
-                Assign/Unassign Reseller — <span style={{color:"#2CADA6"}}>{selected.size} selected</span>
-              </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                <select style={{...inp,flex:1,minWidth:140}} value={assignReseller} onChange={e=>setAssignReseller(e.target.value)}>
-                  <option value="">— Select Reseller —</option>
-                  {resellers.map(r=><option key={r.id} value={r.id}>{r.name}{r.company?" ("+r.company+")":""}</option>)}
-                </select>
-                <button onClick={assignToReseller} disabled={saving||selected.size===0||!assignReseller}
-                  style={{padding:"9px 16px",borderRadius:8,border:"none",
-                    background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,
-                    cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
-                  👤 Assign
-                </button>
-                <button onClick={unassignFromReseller} disabled={saving||selected.size===0}
-                  style={{padding:"9px 16px",borderRadius:8,border:"2px solid #F5A623",
-                    background:"#FFF",color:"#F5A623",fontSize:12,fontWeight:700,
-                    cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
-                  🔄 Unassign
-                </button>
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={selectAll} style={{padding:"4px 12px",borderRadius:20,
-                  border:"1px solid #2CADA6",background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                  Select All
-                </button>
-                <button onClick={clearSel} style={{padding:"4px 12px",borderRadius:20,
-                  border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>
-                  Clear
-                </button>
-              </div>
-            </div>
-            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead>
-                    <tr style={{background:"#F8F9FA"}}>
-                      <th style={{...thS,width:36,textAlign:"center"}}>
-                        <input type="checkbox" checked={selected.size===dids.length&&dids.length>0}
-                          onChange={e=>e.target.checked?selectAll():clearSel()}
-                          style={{accentColor:"#2CADA6"}}/>
-                      </th>
-                      {["NUMBER","COUNTRY","SUPPLIER","STATUS"].map((h,i)=><th key={i} style={thS}>{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dids.map((d,i)=>(
-                      <tr key={d.id} onClick={()=>toggleSelect(d.id)}
-                        style={{borderBottom:"1px solid #F5F5F5",cursor:"pointer",
-                          background:selected.has(d.id)?"rgba(44,173,166,0.06)":i%2===0?"#FFF":"#FAFAFA"}}>
-                        <td style={{padding:"6px 12px",textAlign:"center"}}>
-                          <input type="checkbox" checked={selected.has(d.id)}
-                            onChange={()=>toggleSelect(d.id)} style={{accentColor:"#2CADA6"}}/>
-                        </td>
-                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
-                        <td style={{padding:"6px 10px"}}>
-                          {d.customer_id
-                            ?<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,background:"rgba(139,92,246,0.1)",color:"#8B5CF6",fontWeight:700}}>Assigned</span>
-                            :<span style={{padding:"2px 8px",borderRadius:10,fontSize:11,background:"#F5F5F5",color:"#999"}}>In Panel</span>
-                          }
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{padding:"8px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
-                fontSize:11,color:"#999",display:"flex",justifyContent:"space-between"}}>
-                <span>{dids.length} total</span>
-                <span>{dids.filter(d=>d.customer_id).length} assigned · {dids.filter(d=>!d.customer_id).length} in panel</span>
-              </div>
-            </div>}
-          </>
-        )}
+        {/* ── ASSIGN RESELLER TAB ── */}}
 
         {/* ── DELETE TAB ── */}
         {tab==="delete"&&(
@@ -2792,7 +2688,6 @@ function ConnectIVRPage({token}){
 
 // ── Reseller Portal ───────────────────────────────────────────────
 function ResellerPortalPage({token}){
-  const [resellers,setResellers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [selected,setSelected]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -4212,199 +4107,235 @@ function RoutePrefixPage({token}){
 
 // ── SIP Monitor Page ─────────────────────────────────────────────
 function SIPMonitorPage({token}){
-  const [activity,setActivity]=useState([]);
-  const [channels,setChannels]=useState([]);
-  const [pjsip,setPjsip]=useState([]);
+  const [data,setData]=useState({activity:[],channels:[],pjsip:[],timestamp:""});
   const [log,setLog]=useState([]);
   const [loading,setLoading]=useState(true);
   const [autoRefresh,setAutoRefresh]=useState(true);
-  const [tab,setTab]=useState("activity");
-  const [timestamp,setTimestamp]=useState("");
+  const [tab,setTab]=useState("endpoints");
   const logRef=useRef(null);
 
   const load=useCallback(()=>{
     apiFetch("/sip/activity",token).then(d=>{
-      setActivity(d.activity||[]);
-      setChannels(d.channels||[]);
-      setPjsip(d.pjsip||[]);
-      setTimestamp(d.timestamp||"");
+      setData({activity:d.activity||[],channels:d.channels||[],pjsip:d.pjsip||[],timestamp:d.timestamp||""});
       setLoading(false);
     });
   },[token]);
 
   const loadLog=useCallback(()=>{
-    apiFetch("/sip/log",token).then(d=>{
-      setLog(d.data||[]);
-      setTimeout(()=>{
-        if(logRef.current) logRef.current.scrollTop=logRef.current.scrollHeight;
-      },100);
-    });
+    apiFetch("/sip/log",token).then(d=>setLog(d.data||[]));
   },[token]);
 
-  useEffect(()=>{
-    load();
-    loadLog();
-  },[load,loadLog]);
-
+  useEffect(()=>{load();loadLog();},[load,loadLog]);
   useEffect(()=>{
     if(!autoRefresh) return;
-    const t=setInterval(()=>{load();if(tab==="log")loadLog();},3000);
+    const t=setInterval(()=>{load();if(tab==="log")loadLog();},5000);
     return()=>clearInterval(t);
   },[autoRefresh,load,loadLog,tab]);
 
-  const getColor=(line)=>{
-    if(line.includes("INVITE")) return C.green;
-    if(line.includes("AGI")) return C.blue;
-    if(line.includes("ANSWER")) return C.cyan;
-    if(line.includes("HANGUP")||line.includes("ERROR")) return C.red;
-    if(line.includes("CDR")) return C.yellow;
-    if(line.includes("did_router")) return C.purple;
-    return C.muted;
+  // Parse PJSIP endpoints from raw lines
+  const parseEndpoints=()=>{
+    const eps=[];
+    let current=null;
+    for(const line of data.pjsip){
+      const epMatch=line.match(/Endpoint:\s+([A-Z0-9-]+)\s+(\w[\w\s]+?)\s+(\d+) of/);
+      if(epMatch){
+        current={name:epMatch[1],state:epMatch[2].trim(),channels:epMatch[3],contacts:[]};
+        eps.push(current);
+      }
+      const contactMatch=line.match(/Contact:\s+(\S+)\s+(\w+)\s+([\d.]+)/);
+      if(contactMatch&&current){
+        current.contacts.push({uri:contactMatch[1],hash:contactMatch[2],rtt:contactMatch[3]});
+      }
+      const stateMatch=line.match(/(Avail|Unavail|NonQual|Not in use|In use)/);
+      if(stateMatch&&current&&!current.status) current.status=stateMatch[1];
+    }
+    return eps;
   };
 
+  // Parse active channels
+  const parseChannels=()=>{
+    const chs=[];
+    for(const line of data.channels){
+      const m=line.match(/^(PJSIP\/[\w-]+)\s+(.+?)\s+(Up|Ring|Down)\s+(.+)$/);
+      if(m) chs.push({channel:m[1],location:m[2].trim(),state:m[3],app:m[4].trim()});
+    }
+    return chs;
+  };
+
+  const eps=parseEndpoints();
+  const chs=parseChannels();
+  const activeCalls=data.channels.filter(c=>c.match(/(\d+) active call/)).map(c=>c.match(/(\d+) active call/)?.[1]||"0").join("")||"0";
+
+  const statusColor=(s)=>{
+    if(!s) return "#9CA3AF";
+    const sl=s.toLowerCase();
+    if(sl.includes("avail")&&!sl.includes("unavail")) return "#10B981";
+    if(sl.includes("use")) return "#3B82F6";
+    if(sl.includes("unavail")||sl.includes("nonqual")) return "#F59E0B";
+    return "#9CA3AF";
+  };
+  const statusIcon=(s)=>{
+    if(!s) return "⚪";
+    const sl=s.toLowerCase();
+    if(sl.includes("avail")&&!sl.includes("unavail")) return "🟢";
+    if(sl.includes("use")) return "🔵";
+    return "🟡";
+  };
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",
+    background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+
   return(
-    <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:16,fontWeight:800}}>📶 SIP Monitor</div>
-          <div style={{fontSize:9,color:C.muted}}>Live SIP activity · AGI routing · Asterisk log</div>
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{width:8,height:8,borderRadius:"50%",
-              background:autoRefresh?C.green:C.muted,display:"inline-block"}}/>
-            <span style={{fontSize:10,color:autoRefresh?C.green:C.muted}}>
-              {autoRefresh?"LIVE":"PAUSED"}
-            </span>
+          <div style={{fontSize:18,fontWeight:700}}>◎ SIP Monitor</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>
+            {autoRefresh?"● Live — refresh 5s":"⏸ Paused"} · {data.timestamp?.slice(11,19)||""}
           </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
           <button onClick={()=>setAutoRefresh(o=>!o)}
-            style={{padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-              border:`1px solid ${autoRefresh?C.red:C.green}40`,
-              background:autoRefresh?`${C.red}10`:`${C.green}10`,
-              color:autoRefresh?C.red:C.green}}>
-            {autoRefresh?"⏸ Pause":"▶ Resume"}
+            style={{padding:"7px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",
+              border:"1px solid "+(autoRefresh?"#EF4444":"#10B981"),
+              background:autoRefresh?"rgba(239,68,68,0.1)":"rgba(16,185,129,0.1)",
+              color:autoRefresh?"#EF4444":"#10B981"}}>
+            {autoRefresh?"⏸ Pause":"▶ Live"}
           </button>
           <button onClick={()=>{load();loadLog();}}
-            style={{padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-              border:`1px solid ${C.blue}40`,background:`${C.blue}10`,color:C.blue}}>
-            ⟳ Refresh
+            style={{padding:"7px 12px",borderRadius:20,border:"2px solid #2CADA6",
+              background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+            ↻ Refresh
           </button>
         </div>
       </div>
 
-      {/* Status Cards */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <Card style={{padding:12,border:`1px solid ${C.green}20`,background:`${C.green}05`}}>
-          <div style={{fontSize:9,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"1px"}}>Active Channels</div>
-          <div style={{fontSize:24,fontWeight:900,color:C.green,fontFamily:"monospace"}}>
-            {channels.filter(c=>c.includes("active channel")).map(c=>c.match(/(\d+) active/)?.[1]||"0").join("")||"0"}
-          </div>
-        </Card>
-        <Card style={{padding:12,border:`1px solid ${C.blue}20`,background:`${C.blue}05`}}>
-          <div style={{fontSize:9,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"1px"}}>PJSIP Status</div>
-          <div style={{fontSize:13,fontWeight:700,color:pjsip.some(l=>l.includes("Avail"))?C.green:C.orange}}>
-            {pjsip.some(l=>l.includes("Avail"))?"AVAILABLE":"UNAVAILABLE"}
-          </div>
-        </Card>
-      </div>
-
-      {/* Tabs */}
-      <div style={{display:"flex",gap:4,marginBottom:12,background:C.surface,padding:4,
-        borderRadius:10,border:`1px solid ${C.border}`}}>
-        {[["activity","⚡ Activity"],["channels","📞 Channels"],["log","📋 Full Log"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setTab(k)}
-            style={{flex:1,padding:"8px 6px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",
-              border:"none",background:tab===k?`${C.green}20`:"transparent",color:tab===k?C.green:C.muted}}>
-            {l}
-          </button>
-        ))}
-      </div>
-
-      {/* Activity Tab */}
-      {tab==="activity"&&(
-        <Card style={{overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,
-            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:11,fontWeight:700}}>SIP/AGI Activity</span>
-            <span style={{fontSize:9,color:C.muted}}>{timestamp}</span>
-          </div>
-          <div style={{maxHeight:400,overflowY:"auto",padding:"8px 0"}} ref={logRef}>
-            {loading?<div style={{padding:20,textAlign:"center",color:C.muted}}>Loading...</div>
-            :activity.length===0?<div style={{padding:40,textAlign:"center",color:C.muted}}>
-              <div style={{fontSize:24,marginBottom:8}}>📡</div>
-              No SIP activity yet — waiting for calls
-            </div>
-            :activity.map((line,i)=>(
-              <div key={i} style={{padding:"4px 12px",fontFamily:"monospace",fontSize:10,
-                color:getColor(line),borderBottom:`1px solid rgba(255,255,255,0.02)`,
-                wordBreak:"break-all"}}>
-                {line}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Channels Tab */}
-      {tab==="channels"&&(
-        <Card style={{overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,fontWeight:700}}>Active Channels</span>
-          </div>
-          <div style={{padding:12}}>
-            {channels.length===0?<div style={{textAlign:"center",padding:20,color:C.muted}}>No active channels</div>
-            :channels.map((ch,i)=>(
-              <div key={i} style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,
-                color:C.text,borderBottom:`1px solid ${C.border}`}}>
-                {ch}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Full Log Tab */}
-      {tab==="log"&&(
-        <Card style={{overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,
-            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:11,fontWeight:700}}>Asterisk Full Log</span>
-            <span style={{fontSize:9,color:C.muted}}>{log.length} lines</span>
-          </div>
-          <div ref={logRef} style={{maxHeight:450,overflowY:"auto",padding:"8px 0",
-            background:"rgba(0,0,0,0.3)"}}>
-            {log.map((line,i)=>(
-              <div key={i} style={{padding:"2px 12px",fontFamily:"monospace",fontSize:9,
-                color:getColor(line),wordBreak:"break-all",lineHeight:1.6}}>
-                {line}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Call Flow Reference */}
-      <Card style={{padding:14,marginTop:12,background:`${C.blue}05`,border:`1px solid ${C.blue}20`}}>
-        <div style={{fontSize:10,fontWeight:700,color:C.blue,marginBottom:8}}>Expected Call Flow</div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+      <div style={{padding:"12px 16px"}}>
+        {/* Summary cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
           {[
-            ["1","Supplier IP sends INVITE",C.green],
-            ["2","PJSIP matches IP → STANDARD endpoint",C.blue],
-            ["3","Routes to from-carrier context",C.cyan],
-            ["4","AGI did_router.php looks up DID",C.purple],
-            ["5","Sets IVR_CONTEXT variable",C.yellow],
-            ["6","Answer() + Playback(IVR)",C.green],
-            ["7","CDR saved on Hangup",C.orange],
-          ].map(([n,text,color])=>(
-            <div key={n} style={{display:"flex",alignItems:"center",gap:8,fontSize:10}}>
-              <span style={{width:18,height:18,borderRadius:"50%",background:`${color}20`,
-                color,fontSize:9,fontWeight:700,display:"flex",alignItems:"center",
-                justifyContent:"center",flexShrink:0}}>{n}</span>
-              <span style={{color:C.muted}}>{text}</span>
+            {label:"Active Calls",value:activeCalls,color:"#10B981",icon:"📞"},
+            {label:"SIP Endpoints",value:eps.length,color:"#3B82F6",icon:"🔌"},
+            {label:"Available",value:eps.filter(e=>statusColor(e.status||e.state)==="#10B981").length,color:"#2CADA6",icon:"✅"},
+          ].map((c,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:8,padding:"12px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}>
+              <div style={{fontSize:14,marginBottom:4}}>{c.icon}</div>
+              <div style={{fontSize:22,fontWeight:800,color:c.color}}>{c.value}</div>
+              <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.label}</div>
             </div>
           ))}
         </div>
-      </Card>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
+          {[["endpoints","🔌 Endpoints"],["channels","📞 Channels"],["log","📋 Log"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,
+                background:tab===t?"#2CADA6":"#F0F0F0",
+                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
+                cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
+          ))}
+        </div>
+
+        {/* ENDPOINTS TAB */}
+        {tab==="endpoints"&&(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
+            :eps.length===0?<div style={{padding:40,textAlign:"center",color:"#999"}}>No endpoints found</div>
+            :<table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr>{["ENDPOINT","STATE","CHANNELS","CONTACT","RTT"].map((h,i)=>(
+                  <th key={i} style={thS}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {eps.map((ep,i)=>{
+                  const sc=statusColor(ep.status||ep.state);
+                  const si=statusIcon(ep.status||ep.state);
+                  return(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"10px 10px",fontWeight:700,fontSize:13}}>{ep.name}</td>
+                      <td style={{padding:"10px 10px"}}>
+                        <span style={{fontSize:11,fontWeight:700,color:sc}}>
+                          {si} {ep.status||ep.state||"Unknown"}
+                        </span>
+                      </td>
+                      <td style={{padding:"10px 10px",fontSize:12,fontFamily:"monospace"}}>{ep.channels||"0"}</td>
+                      <td style={{padding:"10px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>
+                        {ep.contacts[0]?.uri?.split("/")[1]||"—"}
+                      </td>
+                      <td style={{padding:"10px 10px",fontSize:11,fontFamily:"monospace",
+                        color:ep.contacts[0]?.rtt?parseFloat(ep.contacts[0].rtt)<20?"#10B981":"#F59E0B":"#999"}}>
+                        {ep.contacts[0]?.rtt?ep.contacts[0].rtt+"ms":"—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>}
+          </div>
+        )}
+
+        {/* CHANNELS TAB */}
+        {tab==="channels"&&(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            {chs.length===0
+              ?<div style={{padding:40,textAlign:"center",color:"#999"}}>
+                <div style={{fontSize:28,marginBottom:8}}>📞</div>
+                No active channels
+              </div>
+              :<table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr>{["CHANNEL","LOCATION","STATE","APPLICATION"].map((h,i)=>(
+                    <th key={i} style={thS}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {chs.map((ch,i)=>(
+                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5"}}>
+                      <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:600}}>{ch.channel}</td>
+                      <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6"}}>{ch.location}</td>
+                      <td style={{padding:"8px 10px"}}>
+                        <span style={{fontSize:10,fontWeight:700,color:ch.state==="Up"?"#10B981":"#F59E0B"}}>{ch.state}</span>
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{ch.app}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          </div>
+        )}
+
+        {/* LOG TAB */}
+        {tab==="log"&&(
+          <div style={{background:"#1A1A2E",borderRadius:8,overflow:"hidden",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid rgba(255,255,255,0.1)",
+              display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:11,fontWeight:700,color:"#FFF"}}>Asterisk Log</span>
+              <span style={{fontSize:10,color:"#666"}}>{log.length} lines</span>
+            </div>
+            <div ref={logRef} style={{maxHeight:450,overflowY:"auto",padding:"8px 0"}}>
+              {log.map((line,i)=>{
+                const c=line.includes("ERROR")||line.includes("WARNING")?"#EF4444":
+                  line.includes("NOTICE")?"#F59E0B":
+                  line.includes("VERBOSE")?"#10B981":"#9CA3AF";
+                return(
+                  <div key={i} style={{padding:"2px 14px",fontFamily:"monospace",fontSize:9,
+                    color:c,lineHeight:1.6,wordBreak:"break-all"}}>
+                    {line}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

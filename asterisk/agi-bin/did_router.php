@@ -26,12 +26,12 @@ try {
     $stmt->execute([$did, $didClean, '+'.$didClean]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    $ivr     = $row['ivr_context'] ?? '6g-premium-telecom';
+    $ivr     = $row['ivr_context'] ?? 'custom/6g-premium-telecom';
     $tariff  = $row['tariff']      ?? 0.063;
     $country = $row['country_name']?? 'Unknown';
 
 } catch(Exception $e){
-    $ivr    = '6g-premium-telecom';
+    $ivr    = 'custom/6g-premium-telecom';
     $tariff = 0.063;
     $country= 'Unknown';
 }
