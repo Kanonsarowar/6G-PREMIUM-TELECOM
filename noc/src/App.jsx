@@ -4671,6 +4671,1098 @@ export default function App(){
 
 // ── Fraud Control ─────────────────────────────────────────────
 function FraudControlPage({token}){
+  const [tab,setTab]=useState("overview");
+  const [overview,setOverview]=useState({});
+  const [rules,setRules]=useState([]);
+  const [events,setEvents]=useState([]);
+  const [blocks,setBlocks]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [showAddRule,setShowAddRule]=useState(false);
+  const [showAddBlock,setShowAddBlock]=useState(false);
+  const [newRule,setNewRule]=useState({name:"",type:"cps",action:"alert",threshold:"",severity:"medium",auto_block:false,description:""});
+  const [newBlock,setNewBlock]=useState({type:"ani",value:"",reason:""});
+  const [saving,setSaving]=useState(false);
+  const [result,setResult]=useState(null);
+
+  const load=()=>{
+    Promise.all([
+      apiFetch("/fraud/overview",token),
+      apiFetch("/fraud/rules",token),
+      apiFetch("/fraud/events",token),
+      apiFetch("/fraud/blocks",token),
+    ]).then(([ov,r,e,b])=>{
+      setOverview(ov);
+      setRules(r.data||[]);
+      setEvents(e.data||[]);
+      setBlocks(b.data||[]);
+      setLoading(false);
+    });
+  };
+  useEffect(()=>{load();const t=setInterval(load,15000);return()=>clearInterval(t);},[token]);
+
+  const severityColor=(s)=>s==="critical"?"#EF4444":s==="high"?"#F97316":s==="medium"?"#F59E0B":"#10B981";
+  const statusBadge=(s,label)=>{
+    const colors={open:"#EF4444",resolved:"#10B981",false_positive:"#6B7280",active:"#EF4444",released:"#10B981",healthy:"#10B981",warning:"#F59E0B",critical:"#EF4444"};
+    return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:(colors[s]||"#999")+"20",color:colors[s]||"#999"}}>{label||s}</span>;
+  };
+
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
+    textAlign:"left",whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
+
+  const RULE_TYPES=[
+    {value:"cps",label:"CPS Limit"},
+    {value:"concurrent",label:"Concurrent Calls"},
+    {value:"duration",label:"Call Duration"},
+    {value:"country",label:"Country Block"},
+    {value:"ani",label:"ANI/CLI Control"},
+    {value:"did",label:"DID Control"},
+    {value:"supplier",label:"Supplier Control"},
+  ];
+
+  const BLOCK_TYPES=[
+    {value:"ani",label:"ANI/CLI"},
+    {value:"did",label:"DID Number"},
+    {value:"ip",label:"IP Address"},
+    {value:"country",label:"Country Code"},
+    {value:"prefix",label:"Prefix"},
+  ];
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      {/* Header */}
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>🛡 Fraud Control</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>
+          Detection mode — monitoring only, no automatic blocks active
+        </div>
+      </div>
+
+      <div style={{padding:"12px 16px"}}>
+        {/* Result */}
+        {result&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(result.success?"#10B981":"#EF4444"),
+          fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
+          {result.success?"✅ ":"❌ "}{result.message||result.error}
+        </div>}
+
+        {/* Overview Cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+          {[
+            {label:"Open Events",value:overview.open_events||0,color:"#EF4444",icon:"🚨"},
+            {label:"Active Blocks",value:overview.active_blocks||0,color:"#F97316",icon:"🚫"},
+            {label:"Today Events",value:overview.today_events||0,color:"#F59E0B",icon:"📅"},
+            {label:"Current CPS",value:overview.cps_current||0,color:"#2CADA6",icon:"⚡"},
+            {label:"Live Calls",value:overview.concurrent_calls||0,color:"#3B82F6",icon:"📞"},
+            {label:"Critical",value:overview.critical_events||0,color:"#DC2626",icon:"🔴"},
+          ].map((c,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:8,padding:"10px 12px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}>
+              <div style={{fontSize:10,marginBottom:2}}>{c.icon}</div>
+              <div style={{fontSize:20,fontWeight:800,color:c.color}}>{c.value}</div>
+              <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
+          {[["overview","📊 Overview"],["rules","⚙ Rules"],["events","🚨 Events"],["blocks","🚫 Blocks"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"8px 12px",borderRadius:20,border:"none",fontSize:11,
+                background:tab===t?"#2CADA6":"#F0F0F0",
+                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
+                cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {/* OVERVIEW TAB */}
+        {tab==="overview"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {/* Detection Mode Notice */}
+            <div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.3)",
+              borderRadius:10,padding:14}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#F59E0B",marginBottom:4}}>⚠️ Monitoring Mode Active</div>
+              <div style={{fontSize:12,color:"#555"}}>
+                Fraud detection is running in monitoring mode. Events are logged but no automatic blocks are applied.
+                Enable auto-block on individual rules to activate blocking.
+              </div>
+            </div>
+            {/* Recent Events */}
+            <div style={{background:"#FFF",borderRadius:10,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>Recent Fraud Events</div>
+              {events.length===0
+                ?<div style={{textAlign:"center",padding:20,color:"#999",fontSize:12}}>No fraud events detected ✅</div>
+                :events.slice(0,5).map((e,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,
+                    padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:severityColor(e.severity),flexShrink:0}}/>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,fontWeight:600,color:"#1A1A1A"}}>{e.type}</div>
+                      <div style={{fontSize:10,color:"#999"}}>{e.reason} · {(e.created_at||"").slice(0,16)}</div>
+                    </div>
+                    {statusBadge(e.status)}
+                  </div>
+                ))
+              }
+            </div>
+            {/* Active Blocks */}
+            <div style={{background:"#FFF",borderRadius:10,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>Active Blocks</div>
+              {blocks.filter(b=>b.status==="active").length===0
+                ?<div style={{textAlign:"center",padding:20,color:"#999",fontSize:12}}>No active blocks ✅</div>
+                :blocks.filter(b=>b.status==="active").slice(0,5).map((b,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,
+                    padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
+                    <span style={{fontSize:10,padding:"2px 6px",borderRadius:4,
+                      background:"#FEE2E2",color:"#EF4444",fontWeight:700}}>
+                      {b.type.toUpperCase()}
+                    </span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,fontFamily:"monospace",fontWeight:600}}>{b.value}</div>
+                      <div style={{fontSize:10,color:"#999"}}>{b.reason} · {b.blocked_by}</div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        )}
+
+        {/* RULES TAB */}
+        {tab==="rules"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+              <button onClick={()=>setShowAddRule(!showAddRule)}
+                style={{padding:"8px 16px",borderRadius:20,border:"none",
+                  background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                + Add Rule
+              </button>
+            </div>
+            {showAddRule&&(
+              <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,
+                boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>New Fraud Rule</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Rule Name *</div>
+                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newRule.name} onChange={e=>setNewRule({...newRule,name:e.target.value})} placeholder="e.g. CPS Limit 10"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type *</div>
+                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
+                      value={newRule.type} onChange={e=>setNewRule({...newRule,type:e.target.value})}>
+                      {RULE_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Action</div>
+                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
+                      value={newRule.action} onChange={e=>setNewRule({...newRule,action:e.target.value})}>
+                      <option value="alert">Alert Only</option>
+                      <option value="monitor">Monitor</option>
+                      <option value="block">Block</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Severity</div>
+                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
+                      value={newRule.severity} onChange={e=>setNewRule({...newRule,severity:e.target.value})}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Threshold</div>
+                    <input type="number" style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newRule.threshold} onChange={e=>setNewRule({...newRule,threshold:e.target.value})} placeholder="e.g. 10"/>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:20}}>
+                    <input type="checkbox" checked={newRule.auto_block}
+                      onChange={e=>setNewRule({...newRule,auto_block:e.target.checked})}
+                      style={{accentColor:"#EF4444",width:16,height:16}}/>
+                    <span style={{fontSize:12,color:"#333"}}>Auto-block on trigger</span>
+                  </div>
+                </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Description</div>
+                  <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                    value={newRule.description} onChange={e=>setNewRule({...newRule,description:e.target.value})} placeholder="Optional description"/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={async()=>{
+                    if(!newRule.name||!newRule.type){alert("Name and type required");return;}
+                    setSaving(true);
+                    const d=await apiFetch("/fraud/rules",token,{method:"POST",body:JSON.stringify(newRule)});
+                    setResult(d);setSaving(false);
+                    if(d.success){setShowAddRule(false);setNewRule({name:"",type:"cps",action:"alert",threshold:"",severity:"medium",auto_block:false,description:""});load();}
+                  }} disabled={saving}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",
+                      background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Saving...":"✅ Save Rule"}
+                  </button>
+                  <button onClick={()=>setShowAddRule(false)}
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
+            :rules.length===0
+              ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>
+                No fraud rules configured. Add your first rule to start monitoring.
+              </div>
+              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr>{["NAME","TYPE","ACTION","THRESHOLD","SEVERITY","STATUS",""].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {rules.map((r,i)=>(
+                      <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:600}}>{r.name}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.type}</td>
+                        <td style={{padding:"8px 10px",fontSize:11}}>{r.action}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{r.threshold||"—"}</td>
+                        <td style={{padding:"8px 10px"}}>{statusBadge(r.severity,r.severity)}</td>
+                        <td style={{padding:"8px 10px"}}>{statusBadge(r.status,r.status)}</td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={async()=>{
+                            if(!window.confirm("Delete this rule?")) return;
+                            await apiFetch("/fraud/rules/"+r.id,token,{method:"DELETE"});
+                            load();
+                          }} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                            cursor:"pointer",fontSize:11,color:"#EF4444",padding:"2px 6px"}}>Del</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </>
+        )}
+
+        {/* EVENTS TAB */}
+        {tab==="events"&&(
+          <>
+            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
+            :events.length===0
+              ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>
+                ✅ No fraud events detected
+              </div>
+              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+                    <thead>
+                      <tr>{["TIME","TYPE","CLI","DID","REASON","SEVERITY","STATUS","ACTION"].map((h,i)=>(
+                        <th key={i} style={thS}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {events.map((e,i)=>(
+                        <tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                          <td style={{padding:"6px 10px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>{(e.created_at||"").slice(0,16)}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontWeight:600}}>{e.type}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{e.src||"—"}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{e.did||"—"}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.reason}</td>
+                          <td style={{padding:"6px 10px"}}><span style={{color:severityColor(e.severity),fontWeight:700,fontSize:11}}>{e.severity}</span></td>
+                          <td style={{padding:"6px 10px"}}>{statusBadge(e.status)}</td>
+                          <td style={{padding:"6px 10px"}}>
+                            {e.status==="open"&&<button onClick={async()=>{
+                              await apiFetch("/fraud/events/"+e.id,token,{method:"PUT",body:JSON.stringify({status:"resolved"})});
+                              load();
+                            }} style={{background:"none",border:"1px solid #10B981",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#10B981",padding:"2px 6px",whiteSpace:"nowrap"}}>Resolve</button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            }
+          </>
+        )}
+
+        {/* BLOCKS TAB */}
+        {tab==="blocks"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+              <button onClick={()=>setShowAddBlock(!showAddBlock)}
+                style={{padding:"8px 16px",borderRadius:20,border:"none",
+                  background:"#EF4444",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                + Manual Block
+              </button>
+            </div>
+            {showAddBlock&&(
+              <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,
+                boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Manual Block</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Block Type</div>
+                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
+                      value={newBlock.type} onChange={e=>setNewBlock({...newBlock,type:e.target.value})}>
+                      {BLOCK_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Value *</div>
+                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newBlock.value} onChange={e=>setNewBlock({...newBlock,value:e.target.value})} placeholder="e.g. 966501234567"/>
+                  </div>
+                </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Reason *</div>
+                  <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                    value={newBlock.reason} onChange={e=>setNewBlock({...newBlock,reason:e.target.value})} placeholder="Reason for block"/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={async()=>{
+                    if(!newBlock.value||!newBlock.reason){alert("Value and reason required");return;}
+                    setSaving(true);
+                    const d=await apiFetch("/fraud/blocks",token,{method:"POST",body:JSON.stringify(newBlock)});
+                    setResult(d);setSaving(false);
+                    if(d.success){setShowAddBlock(false);setNewBlock({type:"ani",value:"",reason:""});load();}
+                  }} disabled={saving}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",
+                      background:"#EF4444",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Blocking...":"🚫 Apply Block"}
+                  </button>
+                  <button onClick={()=>setShowAddBlock(false)}
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
+            :blocks.length===0
+              ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>
+                No blocks configured
+              </div>
+              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr>{["TYPE","VALUE","REASON","BY","STATUS","ACTION"].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {blocks.map((b,i)=>(
+                      <tr key={b.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"6px 10px"}}>
+                          <span style={{fontSize:10,padding:"2px 6px",borderRadius:4,
+                            background:"#FEE2E2",color:"#EF4444",fontWeight:700}}>
+                            {(b.type||"").toUpperCase()}
+                          </span>
+                        </td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{b.value}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{b.reason}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{b.blocked_by}</td>
+                        <td style={{padding:"6px 10px"}}>{statusBadge(b.status)}</td>
+                        <td style={{padding:"6px 10px"}}>
+                          {b.status==="active"&&<button onClick={async()=>{
+                            if(!window.confirm("Release this block?")) return;
+                            await apiFetch("/fraud/blocks/"+b.id+"/release",token,{method:"PUT"});
+                            load();
+                          }} style={{background:"none",border:"1px solid #10B981",borderRadius:4,
+                            cursor:"pointer",fontSize:10,color:"#10B981",padding:"2px 6px"}}>Release</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── System Health ─────────────────────────────────────────────
+function SystemHealthPage({token}){
+  const [health,setHealth]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [lastCheck,setLastCheck]=useState(null);
+
+  const load=()=>{
+    setLoading(true);
+    apiFetch("/system/health",token).then(d=>{
+      setHealth(d);
+      setLastCheck(new Date().toLocaleTimeString());
+      setLoading(false);
+    }).catch(()=>setLoading(false));
+  };
+  useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t);},[token]);
+
+  const statusIcon=(s)=>s==="healthy"?"🟢":s==="warning"?"🟡":s==="critical"?"🔴":"⚪";
+  const statusColor=(s)=>s==="healthy"?"#10B981":s==="warning"?"#F59E0B":s==="critical"?"#EF4444":"#9CA3AF";
+
+  const CheckCard=({name,status,detail,latency,extra})=>(
+    <div style={{background:"#FFF",borderRadius:8,padding:14,
+      boxShadow:"0 1px 4px rgba(0,0,0,0.06)",
+      borderLeft:"3px solid "+statusColor(status)}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{statusIcon(status)} {name}</div>
+        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
+          background:statusColor(status)+"20",color:statusColor(status)}}>
+          {status.toUpperCase()}
+        </span>
+      </div>
+      <div style={{fontSize:11,color:"#555"}}>{detail}</div>
+      {latency&&<div style={{fontSize:10,color:"#999",marginTop:2}}>Latency: {latency}</div>}
+      {extra&&<div style={{marginTop:8}}>{extra}</div>}
+    </div>
+  );
+
+  const ProgressBar=({pct,color})=>(
+    <div style={{background:"#F0F0F0",borderRadius:4,height:6,marginTop:6,overflow:"hidden"}}>
+      <div style={{width:pct+"%",height:"100%",background:color,borderRadius:4,transition:"width 0.3s"}}/>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      {/* Header */}
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>♥ System Health</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>
+            Auto-refresh 30s {lastCheck&&"· Last: "+lastCheck}
+          </div>
+        </div>
+        <button onClick={load} disabled={loading}
+          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
+            background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          {loading?"⏳":"↻"} Refresh
+        </button>
+      </div>
+
+      <div style={{padding:"12px 16px"}}>
+        {loading&&!health?<div style={{textAlign:"center",padding:60,color:"#999"}}>
+          <div style={{fontSize:24,marginBottom:8}}>⏳</div>
+          <div>Checking system health...</div>
+        </div>:health&&(
+          <>
+            {/* Overall Status */}
+            <div style={{background:statusColor(health.overall)+"15",
+              border:"1px solid "+statusColor(health.overall)+"40",
+              borderRadius:10,padding:16,marginBottom:12,textAlign:"center"}}>
+              <div style={{fontSize:32,marginBottom:4}}>{statusIcon(health.overall)}</div>
+              <div style={{fontSize:16,fontWeight:800,color:statusColor(health.overall)}}>
+                {health.overall==="healthy"?"All Systems Operational":
+                 health.overall==="warning"?"Some Issues Detected":"Critical Issues"}
+              </div>
+              <div style={{fontSize:11,color:"#666",marginTop:4}}>{health.timestamp?.slice(0,19)}</div>
+            </div>
+
+            {/* Service Checks */}
+            <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8,
+              textTransform:"uppercase",letterSpacing:"0.5px"}}>Services</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+              {health.checks&&['asterisk','nginx','php_fpm','mysql','api'].map(key=>{
+                const c=health.checks[key];
+                if(!c) return null;
+                return <CheckCard key={key}
+                  name={c.name} status={c.status} detail={c.detail}
+                  latency={c.latency}
+                  extra={key==="asterisk"?
+                    <div style={{fontSize:11,color:"#2CADA6",fontWeight:600}}>
+                      📞 {c.active_calls} active call{c.active_calls!==1?"s":""}
+                    </div>:null}
+                />;
+              })}
+            </div>
+
+            {/* SIP Trunks */}
+            {health.checks?.sip&&(
+              <>
+                <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8,
+                  textTransform:"uppercase",letterSpacing:"0.5px"}}>SIP Trunks</div>
+                <div style={{background:"#FFF",borderRadius:8,padding:14,marginBottom:12,
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                  {Object.entries(health.checks.sip.trunks||{}).map(([name,status])=>(
+                    <div key={name} style={{display:"flex",justifyContent:"space-between",
+                      alignItems:"center",padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+                      <span style={{fontSize:12,fontWeight:600,color:"#1A1A1A"}}>{name}</span>
+                      <span style={{fontSize:11,color:
+                        status.toLowerCase().includes("avail")&&!status.toLowerCase().includes("unavail")?"#10B981":
+                        status.toLowerCase().includes("use")?"#3B82F6":"#F59E0B",fontWeight:600}}>
+                        {statusIcon(
+                          status.toLowerCase().includes("avail")&&!status.toLowerCase().includes("unavail")?"healthy":
+                          status.toLowerCase().includes("use")?"healthy":"warning"
+                        )} {status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Resource Usage */}
+            <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8,
+              textTransform:"uppercase",letterSpacing:"0.5px"}}>Resources</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {health.checks&&['cpu','memory','disk'].map(key=>{
+                const c=health.checks[key];
+                if(!c) return null;
+                return(
+                  <div key={key} style={{background:"#FFF",borderRadius:8,padding:14,
+                    boxShadow:"0 1px 4px rgba(0,0,0,0.06)",
+                    borderLeft:"3px solid "+statusColor(c.status)}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:13,fontWeight:700}}>{statusIcon(c.status)} {c.name}</span>
+                      <span style={{fontSize:11,color:"#555"}}>{c.detail}</span>
+                    </div>
+                    {c.percent&&<ProgressBar pct={c.percent} color={statusColor(c.status)}/>}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+export default function App(){
+  const [token,setToken]=useState(localStorage.getItem("noc_token")||"");
+  const [user,setUser]=useState(null);
+  const getPageFromUrl=()=>{
+    const path=window.location.pathname.replace("/","").replace(/\/$/,"");
+    const routes={
+      "":"dashboard","dashboard":"dashboard",
+      "live-calls":"livecalls","livecalls":"livecalls",
+      "cdr":"cdr","cdr-analytics":"cdr",
+      "revenue":"revenue",
+      "suppliers":"suppliers",
+      "numbers":"numbers","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance","bulk-did":"bulkdid","bulk-manager":"bulkdid",
+      "ivr":"ivr","ivraudio":"audio-manager","ivr-library":"ivr","audio-manager":"ivraudio","ivr-audio":"ivraudio",
+      "connect-ivr":"connectivr",
+      "route-prefix":"routeprefix",
+      "customers":"customers","resellers":"resellers","resellers":"resellers",
+      "test-number":"testlabs",
+      "sip-monitor":"sipmonitor",
+      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
+    };
+    return routes[path]||"dashboard";
+  };
+  const [page,setPage]=useState(getPageFromUrl());
+  const navigateTo=(p)=>{
+    const urlMap={
+      "dashboard":"","livecalls":"live-calls","cdr":"cdr",
+      "revenue":"revenue","suppliers":"suppliers","numbers":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
+      "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
+      "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
+    };
+    const url="/"+( urlMap[p]||p);
+    window.history.pushState({},"",url);
+    setPage(p);
+  };
+  const [username,setUsername]=useState("");
+  const [pass,setPass]=useState("");
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [sideOpen,setSideOpen]=useState(true);
+  const [drawerOpen,setDrawerOpen]=useState(false);
+  const [ready,setReady]=useState(false);
+  const [showPass,setShowPass]=useState(false);
+  const [liveCalls,setLiveCalls]=useState(0);
+  const [revenue,setRevenue]=useState("0.0000");
+  const [isMobile,setIsMobile]=useState(window.innerWidth<768);
+
+  useEffect(()=>{
+    const check=()=>setIsMobile(window.innerWidth<768);
+    window.addEventListener('resize',check);
+    return()=>window.removeEventListener('resize',check);
+  },[]);
+
+  useEffect(()=>{
+    const t=localStorage.getItem("noc_token");
+    if(!t){setReady(true);return;}
+    apiFetch("/auth/me",t).then(d=>{
+      const u=d.data||d;
+      if(u?.id){setToken(t);setUser(u);}
+      else{localStorage.removeItem("noc_token");setToken("");setUser(null);}
+      setReady(true);
+    }).catch(()=>{
+      localStorage.removeItem("noc_token");
+      setToken("");setUser(null);
+      setReady(true);
+    });
+  },[]);
+
+  useEffect(()=>{
+    if(!token)return;
+    const loadStats=()=>{
+      apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
+      apiFetch("/billing/current-revenue",token).then(d=>setRevenue(parseFloat((d.data||{}).revenue||0).toFixed(4)));
+    };
+    loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
+  },[token]);
+
+  const login=async()=>{
+    setLoading(true);setError("");
+    try{
+      const r=await fetch(`${API}/auth/login`,{method:"POST",
+        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({username,email:username,password:pass})});
+      const d=await r.json();
+      if(d.token){localStorage.setItem("noc_token",d.token);setToken(d.token);setUser(d.user);}
+      else setError(d.message||"Invalid credentials");
+    }catch(e){setError("Connection error");}
+    setLoading(false);
+  };
+
+  const logout=()=>{localStorage.removeItem("noc_token");setToken("");setUser(null);};
+
+  if(!ready)return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",
+      justifyContent:"center",color:C.muted,fontFamily:"monospace"}}>Loading...</div>
+  );
+
+  if(!token||!user)return(
+    <div style={{minHeight:"100vh",background:"#F5F5F5",display:"flex",flexDirection:"column",
+      alignItems:"center",fontFamily:"'Nunito','Poppins',sans-serif",margin:0,padding:0}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        .login-input{width:100%;padding:14px 16px;border:1.5px solid #E0E0E0;border-radius:10px;
+          font-size:15px;font-family:inherit;outline:none;background:#FFFFFF;color:#333;transition:border 0.2s;}
+        .login-input:focus{border-color:#2CADA6;box-shadow:0 0 0 3px rgba(44,173,166,0.12);}
+        .login-btn{width:100%;padding:15px;background:linear-gradient(135deg,#2CADA6,#38B7A8);
+          color:#FFFFFF;border:none;border-radius:10px;font-size:16px;font-weight:700;
+          cursor:pointer;font-family:inherit;letter-spacing:0.5px;transition:all 0.25s;}
+        .login-btn:hover{background:linear-gradient(135deg,#28A8A1,#2CADA6);box-shadow:0 4px 20px rgba(44,173,166,0.4);}
+        .login-btn:disabled{opacity:0.6;cursor:not-allowed;}
+      `}</style>
+      {/* Header Banner */}
+      <div style={{width:"100%",background:"linear-gradient(135deg,#2CADA6 0%,#38B7A8 50%,#2CADA6 100%)",
+        padding:"22px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",
+        boxShadow:"0 4px 20px rgba(44,173,166,0.3)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:36,fontWeight:900,color:"#FFFFFF",letterSpacing:"-1px"}}>6G</span>
+          <span style={{fontSize:36,fontWeight:900,color:"#F5A623",letterSpacing:"-1px"}}>STATS</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <rect x="4" y="20" width="6" height="12" rx="2" fill="white" opacity="0.9"/>
+            <rect x="13" y="14" width="6" height="18" rx="2" fill="#F5A623"/>
+            <rect x="22" y="8" width="6" height="24" rx="2" fill="white" opacity="0.9"/>
+            <circle cx="29" cy="6" r="3" fill="#F5A623"/>
+          </svg>
+        </div>
+      </div>
+      {/* Main Content */}
+      <div style={{width:"100%",maxWidth:420,padding:"40px 24px 24px",flex:1}}>
+        {/* Heading */}
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
+            User name and password
+          </div>
+          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
+            needed!
+          </div>
+        </div>
+        {/* Form */}
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {/* Username */}
+          <div>
+            <label style={{display:"block",fontSize:14,fontWeight:700,
+              color:"#444444",marginBottom:8}}>User</label>
+            <input className="login-input" value={username}
+              onChange={e=>setUsername(e.target.value)}
+              placeholder="Enter your username"
+              onKeyDown={e=>e.key==="Enter"&&login()}/>
+          </div>
+          {/* Password */}
+          <div>
+            <label style={{display:"block",fontSize:14,fontWeight:700,
+              color:"#444444",marginBottom:8}}>Password</label>
+            <div style={{position:"relative"}}>
+              <input className="login-input" type={showPass?"text":"password"}
+                value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="Enter your password"
+                style={{paddingRight:44}}
+                onKeyDown={e=>e.key==="Enter"&&login()}/>
+              <button onClick={()=>setShowPass(!showPass)}
+                style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
+                  background:"none",border:"none",cursor:"pointer",fontSize:16,
+                  color:"#888",padding:4}}>
+                {showPass?"🙈":"👁"}
+              </button>
+            </div>
+          </div>
+          {/* Error */}
+          {error&&<div style={{color:"#EF4444",fontSize:13,padding:"10px 14px",
+            borderRadius:8,background:"rgba(239,68,68,0.08)",
+            border:"1px solid rgba(239,68,68,0.2)",display:"flex",alignItems:"center",gap:8}}>
+            <span>⚠</span>{error}
+          </div>}
+          {/* Login Button */}
+          <button className={loading?"login-btn":"login-btn"} onClick={login} disabled={loading}>
+            {loading?"Logging in...":"login"}
+          </button>
+          {/* Footer note */}
+          <div style={{textAlign:"center",marginTop:8}}>
+            <span style={{fontSize:12,color:"#999"}}>
+              Don't have an account?{" "}
+              <span style={{color:"#2CADA6",fontWeight:700,cursor:"pointer"}}>
+                Contact administration
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div style={{padding:"16px",textAlign:"center"}}>
+        <span style={{fontSize:10,color:"#BBBBBB"}}>© 2026 6G Premium Telecom. All rights reserved.</span>
+      </div>
+    </div>
+  );
+  const renderPage=()=>{
+    switch(page){
+      case "livecalls":    return <LiveCallsPage token={token}/>;
+      case "cdr":          return <CDRPage token={token}/>;
+      case "revenue":      return <RevenuePage token={token}/>;
+      case "suppliers":    return <SuppliersPage token={token}/>;
+      case "numbers": return <NumberInventoryPage token={token}/>;
+      case "didperformance":return <DIDPerformancePage token={token}/>;
+      case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
+      case "connectivr":   return <ConnectIVRPage token={token}/>;
+      case "routeprefix":  return <RoutePrefixPage token={token}/>;
+      case "customers":    return <CustomersPage token={token}/>;
+      case "resellers":     return <ResellerPortalPage token={token}/>;
+      case "testlabs":     return <TestLabsPage token={token}/>;
+      case "sipmonitor":   return <SIPMonitorPage token={token}/>;
+      case "quality":       return <CallQualityPage token={token}/>;
+      case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
+      case "auditlog":      return <AuditLogPage token={token}/>;
+      case "settings":     return <SettingsPage user={user} logout={logout}/>;
+      default:             return <DashboardPage token={token}/>;
+    }
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg,
+      fontFamily:"monospace",color:C.text,overflow:"hidden"}}>
+      <style>{`*{box-sizing:border-box;}body{margin:0;overflow:hidden;}
+        ::-webkit-scrollbar{width:4px;height:4px;}
+        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}`}
+      </style>
+
+      <TopBar liveCalls={liveCalls} revenue={revenue} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)} user={user}/>
+
+      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+        {/* Mobile Drawer */}
+        {isMobile&&drawerOpen&&(
+          <MobileDrawer page={page} setPage={setPage} user={user} logout={logout} onClose={()=>setDrawerOpen(false)}/>
+        )}
+
+        {/* Desktop Sidebar */}
+        {!isMobile&&(
+          <DesktopSidebar page={page} setPage={setPage} open={sideOpen}
+            toggle={()=>setSideOpen(o=>!o)} user={user} logout={logout}/>
+        )}
+
+        {/* Main Content */}
+        <div style={{flex:1,overflowY:"auto",width:"100%",minWidth:0,display:"flex",flexDirection:"column"}}>
+          <div style={{flex:1}}><ErrorBoundary>{renderPage()}</ErrorBoundary></div>
+          <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`,
+            background:C.surface,textAlign:"center",flexShrink:0}}>
+            <span style={{fontSize:10,color:C.muted}}>
+              6G Premium Telecom NOC · Developed by{" "}
+              <span style={{color:C.green,fontWeight:700}}>KanonSarowar</span>
+              {" "}· © {new Date().getFullYear()}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Fraud Control ─────────────────────────────────────────────
+
+export default function App(){
+  const [token,setToken]=useState(localStorage.getItem("noc_token")||"");
+  const [user,setUser]=useState(null);
+  const getPageFromUrl=()=>{
+    const path=window.location.pathname.replace("/","").replace(/\/$/,"");
+    const routes={
+      "":"dashboard","dashboard":"dashboard",
+      "live-calls":"livecalls","livecalls":"livecalls",
+      "cdr":"cdr","cdr-analytics":"cdr",
+      "revenue":"revenue",
+      "suppliers":"suppliers",
+      "numbers":"numbers","did-inventory":"didinventory","did-performance":"didperformance","did-report":"didperformance","bulk-did":"bulkdid","bulk-manager":"bulkdid",
+      "ivr":"ivr","ivraudio":"audio-manager","ivr-library":"ivr","audio-manager":"ivraudio","ivr-audio":"ivraudio",
+      "connect-ivr":"connectivr",
+      "route-prefix":"routeprefix",
+      "customers":"customers","resellers":"resellers","resellers":"resellers",
+      "test-number":"testlabs",
+      "sip-monitor":"sipmonitor",
+      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
+    };
+    return routes[path]||"dashboard";
+  };
+  const [page,setPage]=useState(getPageFromUrl());
+  const navigateTo=(p)=>{
+    const urlMap={
+      "dashboard":"","livecalls":"live-calls","cdr":"cdr",
+      "revenue":"revenue","suppliers":"suppliers","numbers":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
+      "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
+      "customers":"customers","resellers":"resellers","resellers":"resellers","testlabs":"test-number",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","audit":"auditlog",
+    };
+    const url="/"+( urlMap[p]||p);
+    window.history.pushState({},"",url);
+    setPage(p);
+  };
+  const [username,setUsername]=useState("");
+  const [pass,setPass]=useState("");
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [sideOpen,setSideOpen]=useState(true);
+  const [drawerOpen,setDrawerOpen]=useState(false);
+  const [ready,setReady]=useState(false);
+  const [showPass,setShowPass]=useState(false);
+  const [liveCalls,setLiveCalls]=useState(0);
+  const [revenue,setRevenue]=useState("0.0000");
+  const [isMobile,setIsMobile]=useState(window.innerWidth<768);
+
+  useEffect(()=>{
+    const check=()=>setIsMobile(window.innerWidth<768);
+    window.addEventListener('resize',check);
+    return()=>window.removeEventListener('resize',check);
+  },[]);
+
+  useEffect(()=>{
+    const t=localStorage.getItem("noc_token");
+    if(!t){setReady(true);return;}
+    apiFetch("/auth/me",t).then(d=>{
+      const u=d.data||d;
+      if(u?.id){setToken(t);setUser(u);}
+      else{localStorage.removeItem("noc_token");setToken("");setUser(null);}
+      setReady(true);
+    }).catch(()=>{
+      localStorage.removeItem("noc_token");
+      setToken("");setUser(null);
+      setReady(true);
+    });
+  },[]);
+
+  useEffect(()=>{
+    if(!token)return;
+    const loadStats=()=>{
+      apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
+      apiFetch("/billing/current-revenue",token).then(d=>setRevenue(parseFloat((d.data||{}).revenue||0).toFixed(4)));
+    };
+    loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
+  },[token]);
+
+  const login=async()=>{
+    setLoading(true);setError("");
+    try{
+      const r=await fetch(`${API}/auth/login`,{method:"POST",
+        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({username,email:username,password:pass})});
+      const d=await r.json();
+      if(d.token){localStorage.setItem("noc_token",d.token);setToken(d.token);setUser(d.user);}
+      else setError(d.message||"Invalid credentials");
+    }catch(e){setError("Connection error");}
+    setLoading(false);
+  };
+
+  const logout=()=>{localStorage.removeItem("noc_token");setToken("");setUser(null);};
+
+  if(!ready)return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",
+      justifyContent:"center",color:C.muted,fontFamily:"monospace"}}>Loading...</div>
+  );
+
+  if(!token||!user)return(
+    <div style={{minHeight:"100vh",background:"#F5F5F5",display:"flex",flexDirection:"column",
+      alignItems:"center",fontFamily:"'Nunito','Poppins',sans-serif",margin:0,padding:0}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        .login-input{width:100%;padding:14px 16px;border:1.5px solid #E0E0E0;border-radius:10px;
+          font-size:15px;font-family:inherit;outline:none;background:#FFFFFF;color:#333;transition:border 0.2s;}
+        .login-input:focus{border-color:#2CADA6;box-shadow:0 0 0 3px rgba(44,173,166,0.12);}
+        .login-btn{width:100%;padding:15px;background:linear-gradient(135deg,#2CADA6,#38B7A8);
+          color:#FFFFFF;border:none;border-radius:10px;font-size:16px;font-weight:700;
+          cursor:pointer;font-family:inherit;letter-spacing:0.5px;transition:all 0.25s;}
+        .login-btn:hover{background:linear-gradient(135deg,#28A8A1,#2CADA6);box-shadow:0 4px 20px rgba(44,173,166,0.4);}
+        .login-btn:disabled{opacity:0.6;cursor:not-allowed;}
+      `}</style>
+      {/* Header Banner */}
+      <div style={{width:"100%",background:"linear-gradient(135deg,#2CADA6 0%,#38B7A8 50%,#2CADA6 100%)",
+        padding:"22px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",
+        boxShadow:"0 4px 20px rgba(44,173,166,0.3)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:36,fontWeight:900,color:"#FFFFFF",letterSpacing:"-1px"}}>6G</span>
+          <span style={{fontSize:36,fontWeight:900,color:"#F5A623",letterSpacing:"-1px"}}>STATS</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <rect x="4" y="20" width="6" height="12" rx="2" fill="white" opacity="0.9"/>
+            <rect x="13" y="14" width="6" height="18" rx="2" fill="#F5A623"/>
+            <rect x="22" y="8" width="6" height="24" rx="2" fill="white" opacity="0.9"/>
+            <circle cx="29" cy="6" r="3" fill="#F5A623"/>
+          </svg>
+        </div>
+      </div>
+      {/* Main Content */}
+      <div style={{width:"100%",maxWidth:420,padding:"40px 24px 24px",flex:1}}>
+        {/* Heading */}
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
+            User name and password
+          </div>
+          <div style={{fontSize:22,fontWeight:800,color:"#1A1A1A",lineHeight:1.3}}>
+            needed!
+          </div>
+        </div>
+        {/* Form */}
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {/* Username */}
+          <div>
+            <label style={{display:"block",fontSize:14,fontWeight:700,
+              color:"#444444",marginBottom:8}}>User</label>
+            <input className="login-input" value={username}
+              onChange={e=>setUsername(e.target.value)}
+              placeholder="Enter your username"
+              onKeyDown={e=>e.key==="Enter"&&login()}/>
+          </div>
+          {/* Password */}
+          <div>
+            <label style={{display:"block",fontSize:14,fontWeight:700,
+              color:"#444444",marginBottom:8}}>Password</label>
+            <div style={{position:"relative"}}>
+              <input className="login-input" type={showPass?"text":"password"}
+                value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="Enter your password"
+                style={{paddingRight:44}}
+                onKeyDown={e=>e.key==="Enter"&&login()}/>
+              <button onClick={()=>setShowPass(!showPass)}
+                style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
+                  background:"none",border:"none",cursor:"pointer",fontSize:16,
+                  color:"#888",padding:4}}>
+                {showPass?"🙈":"👁"}
+              </button>
+            </div>
+          </div>
+          {/* Error */}
+          {error&&<div style={{color:"#EF4444",fontSize:13,padding:"10px 14px",
+            borderRadius:8,background:"rgba(239,68,68,0.08)",
+            border:"1px solid rgba(239,68,68,0.2)",display:"flex",alignItems:"center",gap:8}}>
+            <span>⚠</span>{error}
+          </div>}
+          {/* Login Button */}
+          <button className={loading?"login-btn":"login-btn"} onClick={login} disabled={loading}>
+            {loading?"Logging in...":"login"}
+          </button>
+          {/* Footer note */}
+          <div style={{textAlign:"center",marginTop:8}}>
+            <span style={{fontSize:12,color:"#999"}}>
+              Don't have an account?{" "}
+              <span style={{color:"#2CADA6",fontWeight:700,cursor:"pointer"}}>
+                Contact administration
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div style={{padding:"16px",textAlign:"center"}}>
+        <span style={{fontSize:10,color:"#BBBBBB"}}>© 2026 6G Premium Telecom. All rights reserved.</span>
+      </div>
+    </div>
+  );
+  const renderPage=()=>{
+    switch(page){
+      case "livecalls":    return <LiveCallsPage token={token}/>;
+      case "cdr":          return <CDRPage token={token}/>;
+      case "revenue":      return <RevenuePage token={token}/>;
+      case "suppliers":    return <SuppliersPage token={token}/>;
+      case "numbers": return <NumberInventoryPage token={token}/>;
+      case "didperformance":return <DIDPerformancePage token={token}/>;
+      case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
+      case "connectivr":   return <ConnectIVRPage token={token}/>;
+      case "routeprefix":  return <RoutePrefixPage token={token}/>;
+      case "customers":    return <CustomersPage token={token}/>;
+      case "resellers":     return <ResellerPortalPage token={token}/>;
+      case "testlabs":     return <TestLabsPage token={token}/>;
+      case "sipmonitor":   return <SIPMonitorPage token={token}/>;
+      case "quality":       return <CallQualityPage token={token}/>;
+      case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
+      case "auditlog":      return <AuditLogPage token={token}/>;
+      case "fraudcontrol":  return <FraudControlPage token={token}/>;
+      case "systemhealth":  return <SystemHealthPage token={token}/>;
+      case "settings":     return <SettingsPage user={user} logout={logout}/>;
+      default:             return <DashboardPage token={token}/>;
+    }
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg,
+      fontFamily:"monospace",color:C.text,overflow:"hidden"}}>
+      <style>{`*{box-sizing:border-box;}body{margin:0;overflow:hidden;}
+        ::-webkit-scrollbar{width:4px;height:4px;}
+        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}`}
+      </style>
+
+      <TopBar liveCalls={liveCalls} revenue={revenue} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)} user={user}/>
+
+      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+        {/* Mobile Drawer */}
+        {isMobile&&drawerOpen&&(
+          <MobileDrawer page={page} setPage={setPage} user={user} logout={logout} onClose={()=>setDrawerOpen(false)}/>
+        )}
+
+        {/* Desktop Sidebar */}
+        {!isMobile&&(
+          <DesktopSidebar page={page} setPage={setPage} open={sideOpen}
+            toggle={()=>setSideOpen(o=>!o)} user={user} logout={logout}/>
+        )}
+
+        {/* Main Content */}
+        <div style={{flex:1,overflowY:"auto",width:"100%",minWidth:0,display:"flex",flexDirection:"column"}}>
+          <div style={{flex:1}}><ErrorBoundary>{renderPage()}</ErrorBoundary></div>
+          <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`,
+            background:C.surface,textAlign:"center",flexShrink:0}}>
+            <span style={{fontSize:10,color:C.muted}}>
+              6G Premium Telecom NOC · Developed by{" "}
+              <span style={{color:C.green,fontWeight:700}}>KanonSarowar</span>
+              {" "}· © {new Date().getFullYear()}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Fraud Control ─────────────────────────────────────────────
+function FraudControlPage({token}){
   return(
     <div style={{padding:16,fontFamily:"Arial,sans-serif"}}>
       <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>🛡 Fraud Control</div>

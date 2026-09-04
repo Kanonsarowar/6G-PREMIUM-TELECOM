@@ -1927,3 +1927,201 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
         'message'   => "Sync complete: +{$added} added, -{$removed} removed, ".(count($csvNorm)-count($toAdd))." unchanged",
     ]);
 });
+
+// ── Fraud Control ──────────────────────────────────────────────
+
+// Fraud overview/stats
+Route::get('/v1/fraud/overview', function() {
+    $today = date('Y-m-d');
+    $events = DB::table('fraud_events');
+    $blocks = DB::table('fraud_blocks');
+    
+    // Real-time CPS calculation
+    $last60s = DB::table('cdrs')
+        ->where('call_start', '>=', date('Y-m-d H:i:s', time()-60))
+        ->count();
+    
+    // Concurrent calls
+    exec("asterisk -rx 'core show channels concise' 2>/dev/null", $lines);
+    $concurrent = max(0, count(array_filter($lines, fn($l)=>strlen(trim($l))>0)) - 0);
+    
+    return response()->json([
+        'total_events'    => $events->count(),
+        'open_events'     => $events->where('status','open')->count(),
+        'today_events'    => $events->whereDate('created_at',$today)->count(),
+        'active_blocks'   => $blocks->where('status','active')->count(),
+        'cps_current'     => $last60s,
+        'concurrent_calls'=> $concurrent,
+        'critical_events' => $events->where('severity','critical')->where('status','open')->count(),
+    ]);
+});
+
+// Fraud rules CRUD
+Route::get('/v1/fraud/rules', function() {
+    return response()->json(['data'=>DB::table('fraud_rules')->orderByDesc('created_at')->get()]);
+});
+Route::post('/v1/fraud/rules', function(Request $r) {
+    $id = DB::table('fraud_rules')->insertGetId([
+        'name'        => $r->name,
+        'type'        => $r->type,
+        'action'      => $r->action ?? 'alert',
+        'status'      => 'active',
+        'config'      => json_encode($r->config ?? []),
+        'threshold'   => $r->threshold,
+        'severity'    => $r->severity ?? 'medium',
+        'auto_block'  => $r->auto_block ?? false,
+        'description' => $r->description,
+        'created_at'  => now(),
+        'updated_at'  => now(),
+    ]);
+    DB::table('audit_logs')->insert(['user'=>'system','action'=>'fraud_rule_created','module'=>'fraud','details'=>$r->name,'created_at'=>now(),'updated_at'=>now()]);
+    return response()->json(['success'=>true,'data'=>DB::table('fraud_rules')->find($id)]);
+});
+Route::put('/v1/fraud/rules/{id}', function(Request $r, $id) {
+    DB::table('fraud_rules')->where('id',$id)->update([
+        'name'=>$r->name,'type'=>$r->type,'action'=>$r->action,
+        'status'=>$r->status,'threshold'=>$r->threshold,
+        'severity'=>$r->severity,'auto_block'=>$r->auto_block??false,
+        'description'=>$r->description,'updated_at'=>now(),
+    ]);
+    return response()->json(['success'=>true]);
+});
+Route::delete('/v1/fraud/rules/{id}', function($id) {
+    DB::table('fraud_rules')->delete($id);
+    return response()->json(['success'=>true]);
+});
+
+// Fraud events
+Route::get('/v1/fraud/events', function(Request $r) {
+    $q = DB::table('fraud_events')->orderByDesc('created_at');
+    if($r->status) $q->where('status',$r->status);
+    if($r->severity) $q->where('severity',$r->severity);
+    return response()->json(['data'=>$q->limit(200)->get()]);
+});
+Route::put('/v1/fraud/events/{id}', function(Request $r, $id) {
+    DB::table('fraud_events')->where('id',$id)->update([
+        'status'=>$r->status,
+        'resolved_at'=>$r->status==='resolved'?now():null,
+        'updated_at'=>now(),
+    ]);
+    return response()->json(['success'=>true]);
+});
+
+// Fraud blocks
+Route::get('/v1/fraud/blocks', function() {
+    return response()->json(['data'=>DB::table('fraud_blocks')->orderByDesc('created_at')->get()]);
+});
+Route::post('/v1/fraud/blocks', function(Request $r) {
+    $id = DB::table('fraud_blocks')->insertGetId([
+        'type'       => $r->type,
+        'value'      => $r->value,
+        'reason'     => $r->reason,
+        'blocked_by' => 'manual',
+        'status'     => 'active',
+        'expires_at' => $r->expires_at,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('audit_logs')->insert(['user'=>'admin','action'=>'manual_block','module'=>'fraud','details'=>$r->type.':'.$r->value.' - '.$r->reason,'created_at'=>now(),'updated_at'=>now()]);
+    return response()->json(['success'=>true,'data'=>DB::table('fraud_blocks')->find($id)]);
+});
+Route::put('/v1/fraud/blocks/{id}/release', function($id) {
+    DB::table('fraud_blocks')->where('id',$id)->update([
+        'status'=>'released','released_at'=>now(),'updated_at'=>now()
+    ]);
+    DB::table('audit_logs')->insert(['user'=>'admin','action'=>'block_released','module'=>'fraud','details'=>'Block ID:'.$id,'created_at'=>now(),'updated_at'=>now()]);
+    return response()->json(['success'=>true]);
+});
+
+// ── System Health ──────────────────────────────────────────────
+Route::get('/v1/system/health', function() {
+    $checks = [];
+
+    // Asterisk
+    exec("asterisk -rx 'core show version' 2>/dev/null", $av, $arc);
+    exec("asterisk -rx 'core show channels' 2>/dev/null", $ac);
+    $activeCalls = 0;
+    foreach($ac as $l){ if(preg_match('/(\d+) active call/', $l, $m)) $activeCalls=intval($m[1]); }
+    $checks['asterisk'] = [
+        'name'=>'Asterisk PBX','status'=>$arc===0?'healthy':'critical',
+        'version'=>$av[0]??'Unknown','active_calls'=>$activeCalls,
+        'latency'=>null,'detail'=>$arc===0?'Running':'Not responding'
+    ];
+
+    // Nginx
+    exec("systemctl is-active nginx 2>/dev/null", $no, $nr);
+    $checks['nginx'] = [
+        'name'=>'Nginx','status'=>trim($no[0]??'')==='active'?'healthy':'critical',
+        'detail'=>trim($no[0]??'unknown')
+    ];
+
+    // PHP-FPM
+    exec("systemctl is-active php8.3-fpm 2>/dev/null", $po, $pr);
+    $checks['php_fpm'] = [
+        'name'=>'PHP 8.3-FPM','status'=>trim($po[0]??'')==='active'?'healthy':'critical',
+        'detail'=>trim($po[0]??'unknown')
+    ];
+
+    // MySQL
+    try {
+        $start = microtime(true);
+        DB::select('SELECT 1');
+        $latency = round((microtime(true)-$start)*1000,2);
+        $checks['mysql'] = ['name'=>'MariaDB','status'=>'healthy','latency'=>$latency.'ms','detail'=>'Connected'];
+    } catch(Exception $e) {
+        $checks['mysql'] = ['name'=>'MariaDB','status'=>'critical','detail'=>$e->getMessage()];
+    }
+
+    // API
+    $start = microtime(true);
+    $apiLatency = round((microtime(true)-$start)*1000,2);
+    $checks['api'] = ['name'=>'Laravel API','status'=>'healthy','latency'=>$apiLatency.'ms','detail'=>'Responding'];
+
+    // CPU/RAM/Disk
+    $load = sys_getloadavg();
+    exec("free -m 2>/dev/null", $free);
+    preg_match('/Mem:\s+(\d+)\s+(\d+)/', implode("\n",$free), $mem);
+    $totalMem = intval($mem[1]??0);
+    $usedMem = intval($mem[2]??0);
+    $memPct = $totalMem>0?round($usedMem/$totalMem*100,1):0;
+
+    exec("df -h / 2>/dev/null", $df);
+    preg_match('/(\d+)%/', $df[1]??'', $disk);
+    $diskPct = intval($disk[1]??0);
+
+    $checks['cpu'] = [
+        'name'=>'CPU','status'=>$load[0]>8?'critical':($load[0]>4?'warning':'healthy'),
+        'detail'=>'Load: '.implode(', ',$load)
+    ];
+    $checks['memory'] = [
+        'name'=>'Memory','status'=>$memPct>90?'critical':($memPct>75?'warning':'healthy'),
+        'detail'=>$usedMem.'MB / '.$totalMem.'MB ('.$memPct.'%)',
+        'percent'=>$memPct
+    ];
+    $checks['disk'] = [
+        'name'=>'Disk','status'=>$diskPct>90?'critical':($diskPct>75?'warning':'healthy'),
+        'detail'=>$diskPct.'% used','percent'=>$diskPct
+    ];
+
+    // SIP Trunks
+    exec("asterisk -rx 'pjsip show endpoints' 2>/dev/null", $ep);
+    $trunks = [];
+    $current = null;
+    foreach($ep as $line){
+        if(preg_match('/Endpoint:\s+(\w[\w-]+)/', $line, $m)) $current = $m[1];
+        if($current && preg_match('/(Avail|Unavail|NonQual|Not in use|In use)/i', $line, $s)){
+            $trunks[$current] = trim($s[1]);
+        }
+    }
+    $checks['sip'] = ['name'=>'SIP Trunks','status'=>'healthy','trunks'=>$trunks,'detail'=>count($trunks).' endpoints'];
+
+    // Overall status
+    $statuses = array_column($checks,'status');
+    $overall = in_array('critical',$statuses)?'critical':(in_array('warning',$statuses)?'warning':'healthy');
+
+    return response()->json([
+        'overall'  => $overall,
+        'checks'   => $checks,
+        'timestamp'=> now()->toISOString(),
+    ]);
+});
