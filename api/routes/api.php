@@ -796,7 +796,7 @@ Route::get('/v1/live-calls', function() {
         $trunk_name = 'Unknown';
         // Map Asterisk endpoint names to code names
         $endpointMap = [
-            'STANDARD'   => 'WTP',
+            'WTP'        => 'WTP',
             'MEDIATEL'   => 'Mediatel',
             'PHONEGROUP' => 'Phonegroup',
             'GAMA'       => 'Purple Number',

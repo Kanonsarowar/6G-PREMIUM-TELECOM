@@ -18,7 +18,7 @@ $call_start= time() - $billsec;
 // Detect supplier from channel
 $trunk_name = 'PROFESSOR';
 $endpointMap = [
-    'STANDARD'   => 'PROFESSOR',
+    'WTP'=>'WTP',
     'MEDIATEL'   => 'Tokyo',
     'PHONEGROUP' => 'Berlin',
     'GAMA'       => 'Nairobi',
