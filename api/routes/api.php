@@ -799,7 +799,8 @@ Route::get('/v1/live-calls', function() {
             'STANDARD'   => 'WTP',
             'MEDIATEL'   => 'Mediatel',
             'PHONEGROUP' => 'Phonegroup',
-            'GAMA'       => 'Gama',
+            'GAMA'       => 'Purple Number',
+            'PURPLE-NUMBER' => 'Purple Number',
         ];
         foreach($endpointMap as $endpoint => $codeName){
             if(str_contains(strtoupper($channel), $endpoint)){
