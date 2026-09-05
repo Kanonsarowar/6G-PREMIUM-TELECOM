@@ -519,104 +519,45 @@ function DashboardPage({token}){
           </div>
         </div>
       </div>
-      {/* Today Section */}
-      <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",textTransform:"uppercase",
-        letterSpacing:"1px",marginBottom:10}}>Today</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        {todayCards.map((c,i)=>(
-          <div key={i} style={{background:"#FFFFFF",borderRadius:14,padding:"14px 12px",
-            borderLeft:`4px solid ${c.color}`,
-            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:24,marginBottom:6}}>{c.icon}</div>
-            <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",
-              textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>{c.label}</div>
-            <div style={{fontSize:30,fontWeight:800,color:c.color,
-              fontFamily:"monospace",lineHeight:1}}>{loading?"...":c.value}</div>
-          </div>
-        ))}
-      </div>
-      {/* All Time Section */}
-      <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",textTransform:"uppercase",
-        letterSpacing:"1px",marginBottom:10}}>All Time</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        {allTimeCards.map((c,i)=>(
-          <div key={i} style={{background:"#FFFFFF",borderRadius:14,padding:"14px 12px",
-            borderLeft:`4px solid ${c.color}`,
-            boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#4A4A4A",
-              textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>{c.label}</div>
-            <div style={{fontSize:30,fontWeight:800,color:c.color,
-              fontFamily:"monospace",lineHeight:1}}>{loading?"...":c.value}</div>
-          </div>
-        ))}
-      </div>
-      {/* Performance Chart */}
-      <div style={{background:"#FFFFFF",borderRadius:14,padding:16,
-        boxShadow:"0 2px 8px rgba(0,0,0,0.06)",marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",
-          textTransform:"uppercase",letterSpacing:"1px",marginBottom:14}}>
-          Performance Overview
-        </div>
-        {[
-          {label:"Calls",today:stats.today_calls,total:stats.calls,color:"#3B82F6"},
-          {label:"Minutes",today:stats.today_minutes,total:stats.minutes,color:"#06B6D4"},
-          {label:"Revenue €",today:stats.today_revenue,total:stats.revenue,color:"#F5A623"},
-        ].map((m,i)=>{
-          const todayPct=Math.min(100,barMax>0?(parseFloat(m.today)||0)/barMax*100:0);
-          const totalPct=Math.min(100,barMax>0?(parseFloat(m.total)||0)/barMax*100:0);
-          return(
-            <div key={i} style={{marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span style={{fontSize:12,fontWeight:600,color:"#333"}}>{m.label}</span>
-                <span style={{fontSize:11,color:"#999"}}>{m.today} / {m.total}</span>
-              </div>
-              <div style={{height:8,borderRadius:4,background:"#F0F0F0",marginBottom:3}}>
-                <div style={{height:"100%",borderRadius:4,
-                  background:m.color,width:todayPct+"%",
-                  transition:"width 0.5s ease"}}/>
-              </div>
-              <div style={{height:8,borderRadius:4,background:"#F0F0F0"}}>
-                <div style={{height:"100%",borderRadius:4,
-                  background:m.color+"60",width:totalPct+"%",
-                  transition:"width 0.5s ease"}}/>
-              </div>
-              <div style={{display:"flex",gap:16,marginTop:4}}>
-                <span style={{fontSize:10,color:m.color,fontWeight:600}}>▪ Today</span>
-                <span style={{fontSize:10,color:m.color+"99",fontWeight:600}}>▪ All Time</span>
+      {/* Stats Grid */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Today</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          {[
+            {label:"Calls",value:stats.today_calls,color:"#3B82F6",icon:"📞"},
+            {label:"Minutes",value:Math.round(stats.today_minutes||0)+"m",color:"#2CADA6",icon:"⏱"},
+            {label:"Revenue EUR",value:"€"+parseFloat(stats.today_revenue||0).toFixed(2),color:"#10B981",icon:"💶"},
+            {label:"Active DIDs",value:stats.dids||0,color:"#8B5CF6",icon:"📱"},
+          ].map((c,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:10,padding:"12px 14px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22}}>{c.icon}</span>
+              <div>
+                <div style={{fontSize:18,fontWeight:800,color:c.color,lineHeight:1}}>{loading?"...":c.value}</div>
+                <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase",marginTop:2}}>{c.label}</div>
               </div>
             </div>
-          );
-        })}
+          ))}
+        </div>
+        <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>All Time</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+          {[
+            {label:"Total Calls",value:stats.calls,color:"#3B82F6",icon:"📞"},
+            {label:"Total Minutes",value:Math.round(stats.minutes||0)+"m",color:"#2CADA6",icon:"⏱"},
+            {label:"Revenue EUR",value:"€"+parseFloat(stats.revenue_eur||0).toFixed(2),color:"#10B981",icon:"💶"},
+            {label:"Revenue USD",value:"$"+parseFloat(stats.revenue_usd||0).toFixed(2),color:"#F59E0B",icon:"💵"},
+          ].map((c,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:10,padding:"12px 14px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22}}>{c.icon}</span>
+              <div>
+                <div style={{fontSize:18,fontWeight:800,color:c.color,lineHeight:1}}>{loading?"...":c.value}</div>
+                <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase",marginTop:2}}>{c.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-      {/* System Status */}
-      <div style={{background:"#FFFFFF",borderRadius:14,padding:14,
-        boxShadow:"0 2px 8px rgba(0,0,0,0.06)",marginBottom:12}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",
-          textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>System Status</div>
-        {[["API","Online","#10B981"],["Database","Connected","#10B981"],["Asterisk","Active","#10B981"]].map(([k,v,c])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",
-            padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
-            <span style={{fontSize:13,color:"#666"}}>{k}</span>
-            <span style={{fontSize:12,color:c,fontWeight:700,
-              background:c+"15",padding:"2px 10px",borderRadius:10}}>{v}</span>
-          </div>
-        ))}
-      </div>
-      {/* Server Info */}
-      <div style={{background:"#FFFFFF",borderRadius:14,padding:14,
-        boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",
-          textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>Server</div>
-        {[["IP","195.200.14.165"],["OS","Ubuntu 24.04"],["Asterisk","20.6.0"]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",
-            padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
-            <span style={{fontSize:13,color:"#666"}}>{k}</span>
-            <span style={{fontSize:12,color:"#2CADA6",fontFamily:"monospace",fontWeight:600}}>{v}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Stats Charts ── */}
       <StatsCharts token={token}/>
     </div>
   );
