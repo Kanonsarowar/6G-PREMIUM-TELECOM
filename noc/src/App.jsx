@@ -519,41 +519,36 @@ function DashboardPage({token}){
           </div>
         </div>
       </div>
-      {/* Stats Grid */}
-      <div style={{marginBottom:12}}>
-        <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Today</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+      {/* Today Row */}
+      <div style={{background:"linear-gradient(135deg,#1e3a5f,#2d5a8e)",borderRadius:12,padding:"14px 16px",marginBottom:10,boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+        <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:10}}>📅 Today</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           {[
-            {label:"Calls",value:stats.today_calls,color:"#3B82F6",icon:"📞"},
-            {label:"Minutes",value:Math.round(stats.today_minutes||0)+"m",color:"#2CADA6",icon:"⏱"},
-            {label:"Revenue EUR",value:"€"+parseFloat(stats.today_revenue||0).toFixed(2),color:"#10B981",icon:"💶"},
-            {label:"Active DIDs",value:stats.dids||0,color:"#8B5CF6",icon:"📱"},
+            {label:"Calls",value:loading?"...":stats.today_calls,color:"#60A5FA"},
+            {label:"Minutes",value:loading?"...":Math.round(stats.today_minutes||0),color:"#34D399"},
+            {label:"Revenue",value:loading?"...":"€"+parseFloat(stats.today_revenue||0).toFixed(2),color:"#FBBF24"},
           ].map((c,i)=>(
-            <div key={i} style={{background:"#FFF",borderRadius:10,padding:"12px 14px",
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:22}}>{c.icon}</span>
-              <div>
-                <div style={{fontSize:18,fontWeight:800,color:c.color,lineHeight:1}}>{loading?"...":c.value}</div>
-                <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase",marginTop:2}}>{c.label}</div>
-              </div>
+            <div key={i} style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:800,color:c.color,fontFamily:"monospace",lineHeight:1}}>{c.value}</div>
+              <div style={{fontSize:8,color:"rgba(255,255,255,0.5)",fontWeight:600,textTransform:"uppercase",marginTop:3,letterSpacing:"0.5px"}}>{c.label}</div>
             </div>
           ))}
         </div>
-        <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>All Time</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+      </div>
+
+      {/* All Time Row */}
+      <div style={{background:"linear-gradient(135deg,#1a3a2a,#2d5a3a)",borderRadius:12,padding:"14px 16px",marginBottom:16,boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+        <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:10}}>📊 All Time</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           {[
-            {label:"Total Calls",value:stats.calls,color:"#3B82F6",icon:"📞"},
-            {label:"Total Minutes",value:Math.round(stats.minutes||0)+"m",color:"#2CADA6",icon:"⏱"},
-            {label:"Revenue EUR",value:"€"+parseFloat(stats.revenue_eur||0).toFixed(2),color:"#10B981",icon:"💶"},
-            {label:"Revenue USD",value:"$"+parseFloat(stats.revenue_usd||0).toFixed(2),color:"#F59E0B",icon:"💵"},
+            {label:"Total Calls",value:loading?"...":stats.calls,color:"#60A5FA"},
+            {label:"Total Min",value:loading?"...":Math.round(stats.minutes||0),color:"#34D399"},
+            {label:"EUR Rev",value:loading?"...":"€"+parseFloat(stats.revenue_eur||0).toFixed(2),color:"#FBBF24"},
+            {label:"Active DIDs",value:loading?"...":stats.dids||0,color:"#A78BFA"},
           ].map((c,i)=>(
-            <div key={i} style={{background:"#FFF",borderRadius:10,padding:"12px 14px",
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:22}}>{c.icon}</span>
-              <div>
-                <div style={{fontSize:18,fontWeight:800,color:c.color,lineHeight:1}}>{loading?"...":c.value}</div>
-                <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase",marginTop:2}}>{c.label}</div>
-              </div>
+            <div key={i} style={{background:"rgba(255,255,255,0.08)",borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:18,fontWeight:800,color:c.color,fontFamily:"monospace",lineHeight:1}}>{c.value}</div>
+              <div style={{fontSize:8,color:"rgba(255,255,255,0.5)",fontWeight:600,textTransform:"uppercase",marginTop:3,letterSpacing:"0.5px"}}>{c.label}</div>
             </div>
           ))}
         </div>
