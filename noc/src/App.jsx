@@ -4730,6 +4730,9 @@ function TestNumbersPage({token}){
   const [loading,setLoading]=useState(true);
   const [selectedCountry,setSelectedCountry]=useState("");
   const [msg,setMsg]=useState(null);
+  const [showAdd,setShowAdd]=useState(false);
+  const [newTest,setNewTest]=useState({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier:""});
+  const [saving,setSaving]=useState(false);
 
   useEffect(()=>{
     Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token),apiFetch("/suppliers",token)])
@@ -4796,6 +4799,74 @@ function TestNumbersPage({token}){
             </button>
           </div>
         </div>
+
+        {/* Add Test Number */}
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+          <button onClick={()=>setShowAdd(!showAdd)}
+            style={{padding:"8px 16px",borderRadius:20,border:"none",
+              background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            + Add Test Number
+          </button>
+        </div>
+
+        {showAdd&&(
+          <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Add Test Number</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Number *</div>
+                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                  value={newTest.number} onChange={e=>setNewTest({...newTest,number:e.target.value})} placeholder="+88233770042"/></div>
+              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Country</div>
+                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                  value={newTest.country} onChange={e=>setNewTest({...newTest,country:e.target.value})} placeholder="e.g. Satellite"/></div>
+              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Prefix</div>
+                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                  value={newTest.prefix} onChange={e=>setNewTest({...newTest,prefix:e.target.value})} placeholder="e.g. 88233770"/></div>
+              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Rate/Min</div>
+                <input type="number" step="0.001" style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                  value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
+              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
+                <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
+                  value={newTest.currency} onChange={e=>setNewTest({...newTest,currency:e.target.value})}>
+                  <option value="EUR">EUR €</option>
+                  <option value="USD">USD $</option>
+                </select></div>
+              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier</div>
+                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                  value={newTest.supplier} onChange={e=>setNewTest({...newTest,supplier:e.target.value})} placeholder="e.g. WTP"/></div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={async()=>{
+                if(!newTest.number||!newTest.prefix){alert("Number and prefix required");return;}
+                setSaving(true);
+                const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
+                  number:newTest.number,
+                  prefix:newTest.prefix,
+                  country_name:newTest.country,
+                  tariff:parseFloat(newTest.rate)||0.42,
+                  selling_price:parseFloat(newTest.rate)||0.42,
+                  currency:newTest.currency,
+                  supplier:newTest.supplier,
+                  payment_terms:"Weekly",
+                  ivr_context:"custom/6g-premium-telecom",
+                })});
+                setSaving(false);
+                if(d.success){
+                  setMsg("Added: "+newTest.number);
+                  setShowAdd(false);
+                  setNewTest({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier:""});
+                  setTimeout(()=>setMsg(null),3000);
+                }
+              }} disabled={saving}
+                style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Add Number"}
+              </button>
+              <button onClick={()=>setShowAdd(false)}
+                style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        )}
 
         {/* Results */}
         {!selectedCountry?(
