@@ -2199,7 +2199,7 @@ function NumberInventoryPage({token}){
             </button>
           </div>
         )}
-        {/* ── ASSIGN RESELLER TAB ── */}}
+        {/* ── ASSIGN RESELLER TAB ── */}
 
         {/* ── DELETE TAB ── */}
         {tab==="delete"&&(
