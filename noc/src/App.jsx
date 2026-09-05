@@ -36,7 +36,6 @@ const getNavGroups=(role)=>{
     {id:"cdr",label:"CDR",icon:"≡"},
     {id:"revenue",label:"Revenue",icon:"◈"},
     {id:"quality",label:"Call Quality",icon:"📊"},
-    {id:"stats",label:"Statistics",icon:"📈"},
   ]},
   {key:"numbers",label:"Numbers & IVR",items:[
     {id:"numbers",label:"Numbers",icon:"▤"},
@@ -318,6 +317,109 @@ function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
   );
 }
 // ── Dashboard ─────────────────────────────────────────────────────
+function StatsCharts({token}){
+  const [cdrs,setCdrs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("daily");
+  const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
+  useEffect(()=>{apiFetch("/cdr?per_page=2000",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
+
+  const dailyData=()=>{
+    const days={};const[y,m]=month.split("-");const dim=new Date(parseInt(y),parseInt(m),0).getDate();
+    for(let i=1;i<=dim;i++){const d=month+"-"+String(i).padStart(2,"0");days[d]={date:String(i),calls:0,revenue:0,minutes:0};}
+    cdrs.forEach(c=>{const day=(c.call_start||"").slice(0,10);if(days[day]){days[day].calls++;days[day].revenue+=parseFloat(c.revenue||0);days[day].minutes+=parseInt(c.billsec||0)/60;}});
+    return Object.values(days);
+  };
+  const weeklyData=()=>{
+    const weeks={};
+    cdrs.forEach(c=>{const d=new Date(c.call_start||"");if(isNaN(d.getTime()))return;const wn=Math.ceil(d.getDate()/7);const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-W"+wn;const label="W"+wn+"/"+String(d.getMonth()+1).padStart(2,"0");if(!weeks[key])weeks[key]={date:label,calls:0,revenue:0,minutes:0};weeks[key].calls++;weeks[key].revenue+=parseFloat(c.revenue||0);weeks[key].minutes+=parseInt(c.billsec||0)/60;});
+    return Object.values(weeks).slice(-16);
+  };
+  const monthlyData=()=>{
+    const months={};
+    cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
+    return Object.values(months).sort((a,b)=>a.date.localeCompare(b.date));
+  };
+  const countryData=()=>{
+    const co={};
+    cdrs.forEach(c=>{const cn=c.country_name||c.country||"Unknown";if(!co[cn])co[cn]={name:cn,calls:0,revenue:0,minutes:0};co[cn].calls++;co[cn].revenue+=parseFloat(c.revenue||0);co[cn].minutes+=parseInt(c.billsec||0)/60;});
+    return Object.values(co).sort((a,b)=>b.revenue-a.revenue).slice(0,15);
+  };
+  const supplierData=()=>{
+    const s={};
+    cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:sup,calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
+    return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
+  };
+
+  const totalRevenue=cdrs.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
+  const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
+
+  const getFlag=(country)=>{
+    const flags={"Satellite":"🛰","Anguilla":"🇦🇮","Benin":"🇧🇯","Burundi":"🇧🇮","Cameroon":"🇨🇲","Chile":"🇨🇱","Congo":"🇨🇬","DR Congo":"🇨🇩","DRC Congo":"🇨🇩","Gabon":"🇬🇦","Globalstar":"🛰","Globalstar ME":"🛰","Globalstar New":"🛰","Grenada":"🇬🇩","Guinea":"🇬🇳","Insat":"🛰","Italy":"🇮🇹","Italian Mobile":"🇮🇹","Jersey":"🇯🇪","Kiribati":"🇰🇮","Maldive":"🇲🇻","Morocco":"🇲🇦","Mozambique":"🇲🇿","Nicaragua":"🇳🇮","Oration":"🛰","Poland":"🇵🇱","Senegal":"🇸🇳","Seychelles":"🇸🇨","Sierra Leone":"🇸🇱","Solomon Islands":"🇸🇧","Somalia":"🇸🇴","Tanzania":"🇹🇿","Turkey":"🇹🇷","Uganda":"🇺🇬","UK Mobile":"🇬🇧","UPT":"🌐","Venezuela":"🇻🇪","Emsat":"🛰","Nauru":"🇳🇷","Caribbean":"🌴","Gambia":"🇬🇲","Afinna":"🛰","Unknown":"❓"};
+    for(const key of Object.keys(flags)){if(country.toLowerCase().includes(key.toLowerCase()))return flags[key];}
+    return "🌍";
+  };
+
+  const SVGBar=({data,vk,color})=>{
+    if(!data||!data.length)return(<div style={{padding:16,textAlign:"center",color:"#999",fontSize:11}}>No data</div>);
+    const max=Math.max(...data.map(d=>d[vk]||0),0.001);
+    return(<div style={{overflowX:"auto"}}><svg width={Math.max(400,data.length*24)} height={160} style={{display:"block"}}>
+      {data.map((d,i)=>{const h=Math.round((d[vk]||0)/max*120);const x=i*24+2;return(<g key={i}>
+        <rect x={x} y={130-h} width={20} height={h||1} fill={color} rx={3} opacity={0.85}/>
+        <text x={x+10} y={148} textAnchor="middle" fontSize={7} fill="#999">{d.date||""}</text>
+        {h>12&&<text x={x+10} y={130-h-3} textAnchor="middle" fontSize={7} fill={color} fontWeight="bold">{parseFloat(d[vk]).toFixed(d[vk]<10?1:0)}</text>}
+      </g>);})}
+    </svg></div>);
+  };
+
+  return(<div style={{padding:"0 0 16px 0"}}>
+    <div style={{padding:"8px 16px 0"}}>
+      <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>📊 Analytics</div>
+      <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
+        {[["daily","📅 Daily"],["weekly","📊 Weekly"],["monthly","📆 Monthly"],["country","🌍 Countries"],["supplier","⬡ Supplier"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{padding:"7px 12px",borderRadius:20,border:"none",fontSize:10,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
+        ))}
+      </div>
+      {loading?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading charts...</div>:(<>
+        {tab==="daily"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:11,fontWeight:600,color:"#555"}}>Month:</span>
+            <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{padding:"5px 8px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:11,outline:"none"}}/>
+          </div>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#10B981"}}>Revenue €</div><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#3B82F6"}}>Calls</div><SVGBar data={dailyData()} vk="calls" color="#3B82F6"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#2CADA6"}}>Minutes</div><SVGBar data={dailyData()} vk="minutes" color="#2CADA6"/></div>
+        </div>}
+        {tab==="weekly"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#10B981"}}>Weekly Revenue €</div><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#3B82F6"}}>Weekly Calls</div><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#2CADA6"}}>Weekly Minutes</div><SVGBar data={weeklyData()} vk="minutes" color="#2CADA6"/></div>
+        </div>}
+        {tab==="monthly"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#10B981"}}>Monthly Revenue €</div><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#3B82F6"}}>Monthly Calls</div><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></div>
+        </div>}
+        {tab==="country"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,fontWeight:700}}>Top Destinations by Revenue</span><span style={{fontSize:10,color:"#999"}}>{countryData().length} countries</span></div>
+          {countryData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;const flag=getFlag(s.name);return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{flag}</span><div><div style={{fontSize:12,fontWeight:700}}>{s.name}</div><div style={{fontSize:9,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div></div></div>
+              <div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
+            </div>
+            <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
+          </div>);})}
+        </div>}
+        {tab==="supplier"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {supplierData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div><span style={{fontSize:12,fontWeight:700}}>{s.name}</span><span style={{fontSize:9,color:"#999",marginLeft:8}}>{s.calls} calls</span></div><div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div></div>
+            <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
+          </div>);})}
+        </div>}
+      </>)}
+    </div>
+  </div>);
+}
+
 function DashboardPage({token}){
   const [stats,setStats]=useState({calls:0,revenue:0,dids:0,live:0,minutes:0,
     today_calls:0,today_revenue:0,today_minutes:0,asr:0,suppliers:0,today_countries:0});
@@ -511,6 +613,9 @@ function DashboardPage({token}){
           </div>
         ))}
       </div>
+
+      {/* ── Stats Charts ── */}
+      <StatsCharts token={token}/>
     </div>
   );
 }
@@ -5347,7 +5452,7 @@ export default function App(){
       "customers":"customers","resellers":"resellers","resellers":"resellers",
       "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
       "sip-monitor":"sipmonitor",
-      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","stats":"statistics","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","statistics":"stats","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
+      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
     };
     return routes[path]||"dashboard";
   };
@@ -5358,7 +5463,7 @@ export default function App(){
       "revenue":"revenue","suppliers":"suppliers","numbers":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
-      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","stats":"statistics","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","statistics":"stats","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -5545,7 +5650,6 @@ export default function App(){
       case "quality":       return <CallQualityPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
-      case "stats":         return <StatsPage token={token}/>;
       case "addtestnumber": return <AddTestNumberPage token={token}/>;
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
