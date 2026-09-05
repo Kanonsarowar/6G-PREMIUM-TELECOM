@@ -4236,16 +4236,35 @@ function RoutePrefixPage({token}){
 
 // ── SIP Monitor Page ─────────────────────────────────────────────
 function SIPMonitorPage({token}){
-  const [data,setData]=useState({invites:[],activity:[],channels:[],pjsip:[],timestamp:""});
+  const [invites,setInvites]=useState([]);
+  const [eps,setEps]=useState([]);
+  const [activeCalls,setActiveCalls]=useState("0");
   const [log,setLog]=useState([]);
   const [loading,setLoading]=useState(true);
   const [autoRefresh,setAutoRefresh]=useState(true);
   const [tab,setTab]=useState("invites");
   const logRef=useRef(null);
+  const [ts,setTs]=useState("");
 
   const load=useCallback(()=>{
     apiFetch("/sip/activity",token).then(d=>{
-      setData({activity:d.activity||[],channels:d.channels||[],pjsip:d.pjsip||[],timestamp:d.timestamp||""});
+      setInvites(d.invites||[]);
+      setTs(d.timestamp||"");
+      const ch=d.channels||[];
+      const ac=ch.filter(c=>c.match(/(\d+) active call/)).map(c=>c.match(/(\d+) active call/)?.[1]).join("")||"0";
+      setActiveCalls(ac);
+      const epList=[];let cur=null;
+      for(const line of (d.pjsip||[])){
+        const m=line.match(/Endpoint:\s+([A-Z0-9_-]+)/);
+        if(m){cur={name:m[1],status:"",rtt:"—"};epList.push(cur);}
+        if(cur){
+          const s=line.match(/(Avail|NonQual|Unavail|Not in use|In use)/);
+          if(s&&!cur.status) cur.status=s[1];
+          const r=line.match(/([\d.]+)$/);
+          if(r&&cur.rtt==="—") cur.rtt=r[1]+"ms";
+        }
+      }
+      setEps(epList);
       setLoading(false);
     });
   },[token]);
@@ -4261,58 +4280,13 @@ function SIPMonitorPage({token}){
     return()=>clearInterval(t);
   },[autoRefresh,load,loadLog,tab]);
 
-  // Parse PJSIP endpoints from raw lines
-  const parseEndpoints=()=>{
-    const eps=[];
-    let current=null;
-    for(const line of data.pjsip){
-      const epMatch=line.match(/Endpoint:\s+([A-Z0-9-]+)\s+(\w[\w\s]+?)\s+(\d+) of/);
-      if(epMatch){
-        current={name:epMatch[1],state:epMatch[2].trim(),channels:epMatch[3],contacts:[]};
-        eps.push(current);
-      }
-      const contactMatch=line.match(/Contact:\s+(\S+)\s+(\w+)\s+([\d.]+)/);
-      if(contactMatch&&current){
-        current.contacts.push({uri:contactMatch[1],hash:contactMatch[2],rtt:contactMatch[3]});
-      }
-      const stateMatch=line.match(/(Avail|Unavail|NonQual|Not in use|In use)/);
-      if(stateMatch&&current&&!current.status) current.status=stateMatch[1];
-    }
-    return eps;
-  };
-
-  // Parse active channels
-  const parseChannels=()=>{
-    const chs=[];
-    for(const line of data.channels){
-      const m=line.match(/^(PJSIP\/[\w-]+)\s+(.+?)\s+(Up|Ring|Down)\s+(.+)$/);
-      if(m) chs.push({channel:m[1],location:m[2].trim(),state:m[3],app:m[4].trim()});
-    }
-    return chs;
-  };
-
-  const eps=parseEndpoints();
-  const chs=parseChannels();
-  const activeCalls=data.channels.filter(c=>c.match(/(\d+) active call/)).map(c=>c.match(/(\d+) active call/)?.[1]||"0").join("")||"0";
-
-  const statusColor=(s)=>{
-    if(!s) return "#9CA3AF";
-    const sl=s.toLowerCase();
-    if(sl.includes("avail")&&!sl.includes("unavail")) return "#10B981";
-    if(sl.includes("use")) return "#3B82F6";
-    if(sl.includes("unavail")||sl.includes("nonqual")) return "#F59E0B";
-    return "#9CA3AF";
-  };
-  const statusIcon=(s)=>{
-    if(!s) return "⚪";
-    const sl=s.toLowerCase();
-    if(sl.includes("avail")&&!sl.includes("unavail")) return "🟢";
-    if(sl.includes("use")) return "🔵";
-    return "🟡";
-  };
-  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
-    padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",
-    background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+  const rColor=(r)=>r==="ANSWERED"?"#10B981":r==="BUSY"?"#F59E0B":"#EF4444";
+  const rIcon=(r)=>r==="ANSWERED"?"✅":r==="BUSY"?"⚠️":"❌";
+  const sColor=(s)=>s==="Avail"?"#10B981":s==="Not in use"||s==="NonQual"?"#F59E0B":"#EF4444";
+  const sIcon=(s)=>s==="Avail"?"🟢":s==="Not in use"||s==="NonQual"?"🟡":"🔴";
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
+    textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",
+    textTransform:"uppercase",whiteSpace:"nowrap"};
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
@@ -4320,9 +4294,7 @@ function SIPMonitorPage({token}){
         display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontSize:18,fontWeight:700}}>◎ SIP Monitor</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>
-            {autoRefresh?"● Live — refresh 5s":"⏸ Paused"} · {data.timestamp?.slice(11,19)||""}
-          </div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{autoRefresh?"● Live · 5s":"⏸ Paused"} · {ts.slice(11,19)}</div>
         </div>
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>setAutoRefresh(o=>!o)}
@@ -4334,133 +4306,102 @@ function SIPMonitorPage({token}){
           </button>
           <button onClick={()=>{load();loadLog();}}
             style={{padding:"7px 12px",borderRadius:20,border:"2px solid #2CADA6",
-              background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-            ↻ Refresh
-          </button>
+              background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>↻</button>
         </div>
       </div>
-
       <div style={{padding:"12px 16px"}}>
-        {/* Summary cards */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-          {[
-            {label:"Active Calls",value:activeCalls,color:"#10B981",icon:"📞"},
-            {label:"SIP Endpoints",value:eps.length,color:"#3B82F6",icon:"🔌"},
-            {label:"Available",value:eps.filter(e=>statusColor(e.status||e.state)==="#10B981").length,color:"#2CADA6",icon:"✅"},
+          {[{label:"Active Calls",value:activeCalls,color:"#10B981",icon:"📞"},
+            {label:"Endpoints",value:eps.length,color:"#3B82F6",icon:"🔌"},
+            {label:"INVITE Events",value:invites.length,color:"#2CADA6",icon:"📋"},
           ].map((c,i)=>(
-            <div key={i} style={{background:"#FFF",borderRadius:8,padding:"12px",
+            <div key={i} style={{background:"#FFF",borderRadius:8,padding:12,
               boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}>
-              <div style={{fontSize:14,marginBottom:4}}>{c.icon}</div>
+              <div style={{fontSize:14,marginBottom:2}}>{c.icon}</div>
               <div style={{fontSize:22,fontWeight:800,color:c.color}}>{c.value}</div>
               <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.label}</div>
             </div>
           ))}
         </div>
-
-        {/* Tabs */}
-        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-          {[["endpoints","🔌 Endpoints"],["channels","📞 Channels"],["log","📋 Log"]].map(([t,l])=>(
+        <div style={{display:"flex",gap:4,marginBottom:12}}>
+          {[["invites","📋 INVITE History"],["endpoints","🔌 Endpoints"],["log","📄 Log"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)}
               style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,
-                background:tab===t?"#2CADA6":"#F0F0F0",
-                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
-                cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
+                background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",
+                fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
           ))}
         </div>
 
-        {/* ENDPOINTS TAB */}
-        {tab==="endpoints"&&(
-          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
-            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        {tab==="invites"&&(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
             {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
-            :eps.length===0?<div style={{padding:40,textAlign:"center",color:"#999"}}>No endpoints found</div>
-            :<table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead>
-                <tr>{["ENDPOINT","STATE","CHANNELS","CONTACT","RTT"].map((h,i)=>(
-                  <th key={i} style={thS}>{h}</th>
-                ))}</tr>
-              </thead>
-              <tbody>
-                {eps.map((ep,i)=>{
-                  const sc=statusColor(ep.status||ep.state);
-                  const si=statusIcon(ep.status||ep.state);
-                  return(
+            :invites.length===0
+              ?<div style={{padding:40,textAlign:"center",color:"#999"}}>
+                <div style={{fontSize:28,marginBottom:8}}>📋</div>No SIP events yet
+              </div>
+              :<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                  <thead><tr>{["TIME","CALLER","DID/PRN","SOURCE IP","SUPPLIER","DURATION","RESULT","REASON"].map((h,i)=>(
+                    <th key={i} style={thS}>{h}</th>
+                  ))}</tr></thead>
+                  <tbody>{invites.map((inv,i)=>(
                     <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                      <td style={{padding:"10px 10px",fontWeight:700,fontSize:13}}>{ep.name}</td>
-                      <td style={{padding:"10px 10px"}}>
-                        <span style={{fontSize:11,fontWeight:700,color:sc}}>
-                          {si} {ep.status||ep.state||"Unknown"}
+                      <td style={{padding:"7px 10px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>{(inv.time||"").slice(0,19)}</td>
+                      <td style={{padding:"7px 10px",fontSize:11,fontFamily:"monospace",fontWeight:600}}>{inv.caller||"—"}</td>
+                      <td style={{padding:"7px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{inv.did||"—"}</td>
+                      <td style={{padding:"7px 10px",fontSize:10,fontFamily:"monospace",color:"#555"}}>{inv.source_ip||"—"}</td>
+                      <td style={{padding:"7px 10px",fontSize:11,fontWeight:600}}>{inv.supplier||"—"}</td>
+                      <td style={{padding:"7px 10px",fontSize:11,fontFamily:"monospace"}}>{inv.duration>0?inv.duration+"s":"—"}</td>
+                      <td style={{padding:"7px 10px"}}>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
+                          background:rColor(inv.result)+"20",color:rColor(inv.result)}}>
+                          {rIcon(inv.result)} {inv.result||"—"}
                         </span>
                       </td>
-                      <td style={{padding:"10px 10px",fontSize:12,fontFamily:"monospace"}}>{ep.channels||"0"}</td>
-                      <td style={{padding:"10px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>
-                        {ep.contacts[0]?.uri?.split("/")[1]||"—"}
-                      </td>
-                      <td style={{padding:"10px 10px",fontSize:11,fontFamily:"monospace",
-                        color:ep.contacts[0]?.rtt?parseFloat(ep.contacts[0].rtt)<20?"#10B981":"#F59E0B":"#999"}}>
-                        {ep.contacts[0]?.rtt?ep.contacts[0].rtt+"ms":"—"}
-                      </td>
+                      <td style={{padding:"7px 10px",fontSize:10,color:"#777",maxWidth:100,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                        title={inv.reason||""}>{inv.reason||"—"}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>}
+                  ))}</tbody>
+                </table>
+              </div>}
           </div>
         )}
 
-        {/* CHANNELS TAB */}
-        {tab==="channels"&&(
-          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
-            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            {chs.length===0
-              ?<div style={{padding:40,textAlign:"center",color:"#999"}}>
-                <div style={{fontSize:28,marginBottom:8}}>📞</div>
-                No active channels
-              </div>
-              :<table style={{width:"100%",borderCollapse:"collapse"}}>
-                <thead>
-                  <tr>{["CHANNEL","LOCATION","STATE","APPLICATION"].map((h,i)=>(
-                    <th key={i} style={thS}>{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {chs.map((ch,i)=>(
-                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5"}}>
-                      <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:600}}>{ch.channel}</td>
-                      <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6"}}>{ch.location}</td>
-                      <td style={{padding:"8px 10px"}}>
-                        <span style={{fontSize:10,fontWeight:700,color:ch.state==="Up"?"#10B981":"#F59E0B"}}>{ch.state}</span>
-                      </td>
-                      <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{ch.app}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            }
+        {tab==="endpoints"&&(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["ENDPOINT","STATUS","RTT"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
+              <tbody>{eps.map((ep,i)=>(
+                <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                  <td style={{padding:"12px 10px",fontWeight:700,fontSize:13}}>{ep.name}</td>
+                  <td style={{padding:"12px 10px"}}>
+                    <span style={{fontSize:11,fontWeight:700,color:sColor(ep.status)}}>
+                      {sIcon(ep.status)} {ep.status||"Unknown"}
+                    </span>
+                  </td>
+                  <td style={{padding:"12px 10px",fontSize:11,fontFamily:"monospace",
+                    color:ep.rtt!=="—"&&parseFloat(ep.rtt)<20?"#10B981":"#F59E0B"}}>{ep.rtt}</td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
         )}
 
-        {/* LOG TAB */}
         {tab==="log"&&(
-          <div style={{background:"#1A1A2E",borderRadius:8,overflow:"hidden",
-            boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}>
+          <div style={{background:"#1A1A2E",borderRadius:8,overflow:"hidden"}}>
             <div style={{padding:"10px 14px",borderBottom:"1px solid rgba(255,255,255,0.1)",
               display:"flex",justifyContent:"space-between"}}>
               <span style={{fontSize:11,fontWeight:700,color:"#FFF"}}>Asterisk Log</span>
-              <span style={{fontSize:10,color:"#666"}}>{log.length} lines</span>
+              <span style={{fontSize:10,color:"#555"}}>{log.length} lines</span>
             </div>
-            <div ref={logRef} style={{maxHeight:450,overflowY:"auto",padding:"8px 0"}}>
-              {log.map((line,i)=>{
-                const c=line.includes("ERROR")||line.includes("WARNING")?"#EF4444":
-                  line.includes("NOTICE")?"#F59E0B":
-                  line.includes("VERBOSE")?"#10B981":"#9CA3AF";
-                return(
-                  <div key={i} style={{padding:"2px 14px",fontFamily:"monospace",fontSize:9,
-                    color:c,lineHeight:1.6,wordBreak:"break-all"}}>
-                    {line}
-                  </div>
-                );
-              })}
+            <div ref={logRef} style={{maxHeight:400,overflowY:"auto",padding:"8px 0"}}>
+              {log.map((line,i)=>(
+                <div key={i} style={{padding:"2px 14px",fontFamily:"monospace",fontSize:9,lineHeight:1.6,
+                  wordBreak:"break-all",
+                  color:line.includes("ERROR")||line.includes("WARNING")?"#EF4444":
+                    line.includes("NOTICE")?"#F59E0B":"#6B7280"}}>{line}</div>
+              ))}
             </div>
           </div>
         )}
@@ -4469,8 +4410,6 @@ function SIPMonitorPage({token}){
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────
-// ── Fraud Control ─────────────────────────────────────────────
 function FraudControlPage({token}){
   const [tab,setTab]=useState("overview");
   const [overview,setOverview]=useState({});
