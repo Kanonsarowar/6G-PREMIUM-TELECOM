@@ -4240,7 +4240,7 @@ function SIPMonitorPage({token}){
   const [log,setLog]=useState([]);
   const [loading,setLoading]=useState(true);
   const [autoRefresh,setAutoRefresh]=useState(true);
-  const [tab,setTab]=useState("endpoints");
+  const [tab,setTab]=useState("invites");
   const logRef=useRef(null);
 
   const load=useCallback(()=>{
