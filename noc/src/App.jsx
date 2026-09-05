@@ -5512,6 +5512,30 @@ function StatsPage({token}){
     cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={month:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
     return Object.values(months).sort((a,b)=>a.month.localeCompare(b.month));
   };
+  const weeklyData=()=>{
+    const weeks={};
+    cdrs.forEach(c=>{
+      const d=new Date(c.call_start||'');
+      if(isNaN(d)) return;
+      const weekNum=Math.ceil((d.getDate())/7);
+      const key=d.toISOString().slice(0,7)+'-W'+weekNum;
+      const label='W'+weekNum+'/'+d.toISOString().slice(5,7);
+      weeks[key].calls++;weeks[key].revenue+=parseFloat(c.revenue||0);weeks[key].minutes+=parseInt(c.billsec||0)/60;
+    });
+    return Object.values(weeks).slice(-12);
+  };
+  const weeklyData=()=>{
+    const weeks={};
+    cdrs.forEach(c=>{
+      const d=new Date(c.call_start||'');
+      if(isNaN(d)) return;
+      const weekNum=Math.ceil((d.getDate())/7);
+      const key=d.toISOString().slice(0,7)+'-W'+weekNum;
+      const label='W'+weekNum+'/'+d.toISOString().slice(5,7);
+      weeks[key].calls++;weeks[key].revenue+=parseFloat(c.revenue||0);weeks[key].minutes+=parseInt(c.billsec||0)/60;
+    });
+    return Object.values(weeks).slice(-12);
+  };
   const supplierData=()=>{
     const s={};
     cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:sup,calls:0,revenue:0,minutes:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);s[sup].minutes+=parseInt(c.billsec||0)/60;});
@@ -5549,7 +5573,7 @@ function StatsPage({token}){
           ))}
         </div>
         <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-          {[["daily","📅 Daily"],["monthly","📆 Monthly"],["supplier","⬡ Supplier"],["table","📋 Table"]].map(([t,l])=>(
+          {[["daily","📅 Daily"],["weekly","📊 Weekly"],["monthly","📆 Monthly"],["supplier","⬡ Supplier"],["table","📋 Table"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
           ))}
         </div>
