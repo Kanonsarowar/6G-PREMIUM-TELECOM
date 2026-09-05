@@ -4236,7 +4236,7 @@ function RoutePrefixPage({token}){
 
 // ── SIP Monitor Page ─────────────────────────────────────────────
 function SIPMonitorPage({token}){
-  const [data,setData]=useState({activity:[],channels:[],pjsip:[],timestamp:""});
+  const [data,setData]=useState({invites:[],activity:[],channels:[],pjsip:[],timestamp:""});
   const [log,setLog]=useState([]);
   const [loading,setLoading]=useState(true);
   const [autoRefresh,setAutoRefresh]=useState(true);
