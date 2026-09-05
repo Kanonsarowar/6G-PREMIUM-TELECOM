@@ -3699,60 +3699,54 @@ function IPWhitelistPage({token}){
 }
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
-  const [tab,setTab]=useState("test");
-  const [number,setNumber]=useState("");
-  const [result,setResult]=useState(null);
-  const [testing,setTesting]=useState(false);
+  const [ranges,setRanges]=useState([]);
+  const [dids,setDids]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
+  const [loading,setLoading]=useState(true);
   const [accessList,setAccessList]=useState([]);
-  const [loadingList,setLoadingList]=useState(true);
   const [showAdd,setShowAdd]=useState(false);
-  const [newEntry,setNewEntry]=useState({cli:"",description:"",type:"allow"});
+  const [newEntry,setNewEntry]=useState({cli:"",name:"",company:"",type:"allow",note:""});
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState(null);
+  const [tab,setTab]=useState("numbers");
 
-  const loadAccessList=()=>{
-    setLoadingList(true);
-    apiFetch("/test/access-list",token).then(d=>{
-      setAccessList(d.data||[]);
-      setLoadingList(false);
-    }).catch(()=>setLoadingList(false));
+  const load=()=>{
+    setLoading(true);
+    Promise.all([
+      apiFetch("/did-ranges",token),
+      apiFetch("/dids",token),
+      apiFetch("/suppliers",token),
+    ]).then(([r,d,s])=>{
+      const trunks={};
+      (s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});
+      setRanges(r.data||[]);
+      setDids((d.data||[]).map(x=>({...x,supplier_name:trunks[x.trunk_id]||"—"})));
+      setLoading(false);
+    });
+    apiFetch("/test/access-list",token).then(d=>setAccessList(d.data||[]));
   };
-
-  useEffect(()=>{loadAccessList();},[token]);
-
-  const testNumber=async()=>{
-    if(!number.trim()){alert("Enter a number");return;}
-    setTesting(true);setResult(null);
-    const num=number.trim().startsWith("+")?number.trim():"+"+number.trim();
-    const d=await apiFetch("/dids?number="+encodeURIComponent(num),token);
-    const did=(d.data||[]).find(x=>x.number===num||(x.number||"").replace("+","")===(num||"").replace("+",""));
-    setResult({number:num,found:!!did,did});
-    setTesting(false);
-  };
-
-  const addToAccessList=async()=>{
-    if(!newEntry.cli.trim()){alert("CLI required");return;}
-    setSaving(true);
-    const d=await apiFetch("/test/access-list",token,{method:"POST",body:JSON.stringify(newEntry)});
-    setMsg(d);setSaving(false);
-    if(d.success){setShowAdd(false);setNewEntry({cli:"",description:"",type:"allow"});loadAccessList();}
-  };
-
-  const removeFromList=async(id)=>{
-    if(!window.confirm("Remove from access list?")) return;
-    await apiFetch("/test/access-list/"+id,token,{method:"DELETE"});
-    loadAccessList();
-  };
+  useEffect(()=>{load();},[token]);
 
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
     padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",
     background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+  const typeColor=(t)=>t==="allow"?"#10B981":t==="block"?"#EF4444":"#F59E0B";
+  const typeIcon=(t)=>t==="allow"?"✅":t==="block"?"🚫":"⚗";
+
+  // Get test number for a range (first DID in range)
+  const getTestNumber=(r)=>{
+    const match=dids.find(d=>{
+      const n=(d.number||"").replace("+","");
+      return n.startsWith(r.prefix?.replace(/\s/g,"")||"");
+    });
+    return match?match.number:r.range_start?"+"+r.range_start:"—";
+  };
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>⚗ Test Number</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>Test DID routing and manage CLI access list</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Test numbers by range and manage access list</div>
       </div>
 
       <div style={{padding:"12px 16px"}}>
@@ -3763,116 +3757,72 @@ function TestLabsPage({token}){
           {msg.success?"✅ ":"❌ "}{msg.message||msg.error}
         </div>}
 
-        {/* Tabs */}
         <div style={{display:"flex",gap:4,marginBottom:12}}>
-          {[["test","⚗ Test Number"],["access","🔐 Access List"]].map(([t,l])=>(
+          {[["numbers","📋 Test Numbers"],["access","🔐 Access List"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)}
               style={{padding:"8px 16px",borderRadius:20,border:"none",fontSize:11,
                 background:tab===t?"#2CADA6":"#F0F0F0",
-                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer"}}>
-              {l}
-            </button>
+                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer"}}>{l}</button>
           ))}
         </div>
 
-        {/* TEST NUMBER TAB */}
-        {tab==="test"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{background:"#FFF",borderRadius:10,padding:16,
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Test DID Number</div>
-              <div style={{display:"flex",gap:8,marginBottom:12}}>
-                <input
-                  style={{flex:1,padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,
-                    fontSize:13,outline:"none"}}
-                  value={number}
-                  onChange={e=>setNumber(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&testNumber()}
-                  placeholder="+88233770042"
-                />
-                <button onClick={testNumber} disabled={testing}
-                  style={{padding:"10px 20px",borderRadius:8,border:"none",
-                    background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                  {testing?"Testing...":"⚗ Test"}
-                </button>
-              </div>
-
-              {result&&(
-                <div style={{borderRadius:8,overflow:"hidden",border:"1px solid #E8E8E8"}}>
-                  <div style={{padding:"10px 14px",background:result.found?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
-                    borderBottom:"1px solid #E8E8E8",display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:20}}>{result.found?"✅":"❌"}</span>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:700,color:result.found?"#10B981":"#EF4444"}}>
-                        {result.found?"Number Found in System":"Number NOT Found"}
-                      </div>
-                      <div style={{fontSize:11,color:"#999"}}>{result.number}</div>
-                    </div>
-                  </div>
-                  {result.found&&result.did&&(
-                    <div style={{padding:14}}>
-                      {[
-                        ["Number",result.did.number],
-                        ["Country",result.did.country_name||"—"],
-                        ["Supplier",result.did.trunk_name||result.did.trunk_id||"—"],
-                        ["Tariff",(result.did.currency==="USD"?"$":"€")+(result.did.tariff||"0")+" /min"],
-                        ["IVR",(result.did.ivr_context||"—").replace("custom/","")],
-                        ["Status",result.did.status||"—"],
-                        ["Payment",result.did.payment_terms||"—"],
-                      ].map(([k,v])=>(
-                        <div key={k} style={{display:"flex",justifyContent:"space-between",
-                          padding:"7px 0",borderBottom:"1px solid #F5F5F5"}}>
-                          <span style={{fontSize:11,color:"#666",fontWeight:600}}>{k}</span>
-                          <span style={{fontSize:11,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!result.found&&(
-                    <div style={{padding:14,fontSize:12,color:"#555"}}>
-                      This number is not in your DID inventory. Add it via the Numbers module.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Call flow info */}
-            <div style={{background:"#FFF",borderRadius:10,padding:14,
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:10}}>
-                Expected Call Flow
-              </div>
-              {[
-                ["1","Supplier sends INVITE to 195.200.14.165:5060","#3B82F6"],
-                ["2","Asterisk PJSIP matches supplier IP → endpoint","#8B5CF6"],
-                ["3","Routes to from-carrier context","#2CADA6"],
-                ["4","AGI did_router.php looks up DID in DB","#F59E0B"],
-                ["5","Sets IVR_CONTEXT + TARIFF variables","#F97316"],
-                ["6","Answer() + Playback(IVR) loops forever","#10B981"],
-                ["7","On hangup: h extension fires → CDR saved","#EF4444"],
-              ].map(([n,text,color])=>(
-                <div key={n} style={{display:"flex",alignItems:"center",gap:10,
-                  padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
-                  <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,
-                    background:color+"20",color,fontSize:10,fontWeight:700,
-                    display:"flex",alignItems:"center",justifyContent:"center"}}>{n}</span>
-                  <span style={{fontSize:11,color:"#555"}}>{text}</span>
-                </div>
-              ))}
-            </div>
+        {tab==="numbers"&&(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
+            :<div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+                <thead>
+                  <tr>{["SL","PREFIX / RANGE","COUNTRY","PRICE","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
+                    <th key={i} style={thS}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {ranges.map((r,i)=>{
+                    const sym=r.currency==="USD"?"$":"€";
+                    const ivr=(r.ivr_context||r.default_ivr||"—").replace("custom/","");
+                    const testNum=getTestNumber(r);
+                    return(
+                      <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",
+                        background:i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"10px 10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
+                        <td style={{padding:"10px 10px"}}>
+                          <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</div>
+                          <div style={{fontSize:9,color:"#999"}}>{r.range_start}–{r.range_end}</div>
+                        </td>
+                        <td style={{padding:"10px 10px",fontSize:11,color:"#333"}}>{r.country_name||"—"}</td>
+                        <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,
+                          color:"#10B981",fontFamily:"monospace"}}>
+                          {sym}{parseFloat(r.rate||0).toFixed(3)}/min
+                        </td>
+                        <td style={{padding:"10px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>
+                          {r.supplier_name||"—"}
+                        </td>
+                        <td style={{padding:"10px 10px",fontSize:10,color:"#555"}}>{ivr}</td>
+                        <td style={{padding:"10px 10px"}}>
+                          <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,
+                            color:"#1A1A1A",marginBottom:2}}>{testNum}</div>
+                          <button onClick={()=>{
+                            navigator.clipboard?.writeText(testNum);
+                            setMsg({success:true,message:"Copied: "+testNum});
+                            setTimeout(()=>setMsg(null),2000);
+                          }} style={{padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                            background:"rgba(44,173,166,0.1)",color:"#2CADA6",
+                            fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                            Copy
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>}
           </div>
         )}
 
-        {/* ACCESS LIST TAB */}
         {tab==="access"&&(
           <>
-            <div style={{background:"rgba(59,130,246,0.06)",border:"1px solid rgba(59,130,246,0.2)",
-              borderRadius:8,padding:12,marginBottom:12,fontSize:11,color:"#3B82F6"}}>
-              ℹ️ Access list controls which CLI numbers are allowed or blocked from calling your DIDs.
-              This is a reference list — enforcement requires integration with your fraud rules.
-            </div>
-
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
               <button onClick={()=>setShowAdd(!showAdd)}
                 style={{padding:"8px 16px",borderRadius:20,border:"none",
@@ -3880,96 +3830,77 @@ function TestLabsPage({token}){
                 + Add CLI
               </button>
             </div>
-
             {showAdd&&(
               <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,
                 boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
                 <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Add to Access List</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>CLI Number *</div>
-                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
-                      borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                      value={newEntry.cli} onChange={e=>setNewEntry({...newEntry,cli:e.target.value})}
-                      placeholder="+966501234567"/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div>
-                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
-                      borderRadius:6,fontSize:12,outline:"none"}}
+                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>CLI Number *</div>
+                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newEntry.cli} onChange={e=>setNewEntry({...newEntry,cli:e.target.value})} placeholder="+966501234567"/></div>
+                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div>
+                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
                       value={newEntry.type} onChange={e=>setNewEntry({...newEntry,type:e.target.value})}>
                       <option value="allow">✅ Allow</option>
                       <option value="block">🚫 Block</option>
                       <option value="test">⚗ Test Only</option>
-                    </select>
-                  </div>
+                    </select></div>
+                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Name</div>
+                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newEntry.name} onChange={e=>setNewEntry({...newEntry,name:e.target.value})} placeholder="Contact name"/></div>
+                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Company</div>
+                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newEntry.company} onChange={e=>setNewEntry({...newEntry,company:e.target.value})} placeholder="e.g. WTP, Phonegroup"/></div>
                 </div>
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Description</div>
-                  <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
-                    borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                    value={newEntry.description} onChange={e=>setNewEntry({...newEntry,description:e.target.value})}
-                    placeholder="e.g. WTP test caller, blocked spammer"/>
-                </div>
+                <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Note</div>
+                  <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                    value={newEntry.note} onChange={e=>setNewEntry({...newEntry,note:e.target.value})} placeholder="Optional note"/></div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={addToAccessList} disabled={saving}
-                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",
-                      background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                    {saving?"Saving...":"✅ Add to List"}
+                  <button onClick={async()=>{
+                    if(!newEntry.cli){alert("CLI required");return;}
+                    setSaving(true);
+                    const d=await apiFetch("/test/access-list",token,{method:"POST",body:JSON.stringify(newEntry)});
+                    setMsg(d);setSaving(false);
+                    if(d.success){setShowAdd(false);setNewEntry({cli:"",name:"",company:"",type:"allow",note:""});load();}
+                  }} disabled={saving}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Saving...":"✅ Add"}
                   </button>
                   <button onClick={()=>setShowAdd(false)}
-                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",
-                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
-                    Cancel
-                  </button>
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
                 </div>
               </div>
             )}
-
-            {loadingList?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-            :accessList.length===0
-              ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",
-                color:"#999",fontSize:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-                No entries in access list. Add CLIs to allow or block.
+            {accessList.length===0
+              ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>
+                No entries. Add CLIs to allow or block callers.
               </div>
-              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
-                boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead>
-                    <tr>{["CLI","TYPE","DESCRIPTION","ADDED",""].map((h,i)=>(
-                      <th key={i} style={thS}>{h}</th>
-                    ))}</tr>
-                  </thead>
-                  <tbody>
-                    {accessList.map((entry,i)=>(
-                      <tr key={entry.id} style={{borderBottom:"1px solid #F5F5F5",
-                        background:i%2===0?"#FFF":"#FAFAFA"}}>
-                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>
-                          {entry.cli}
-                        </td>
-                        <td style={{padding:"8px 10px"}}>
-                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
-                            background:entry.type==="allow"?"rgba(16,185,129,0.1)":
-                              entry.type==="block"?"rgba(239,68,68,0.1)":"rgba(245,158,11,0.1)",
-                            color:entry.type==="allow"?"#10B981":
-                              entry.type==="block"?"#EF4444":"#F59E0B"}}>
-                            {entry.type==="allow"?"✅ ALLOW":entry.type==="block"?"🚫 BLOCK":"⚗ TEST"}
-                          </span>
-                        </td>
-                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{entry.description||"—"}</td>
-                        <td style={{padding:"8px 10px",fontSize:10,color:"#999",whiteSpace:"nowrap"}}>
-                          {(entry.created_at||"").slice(0,10)}
-                        </td>
-                        <td style={{padding:"8px 10px",textAlign:"center"}}>
-                          <button onClick={()=>removeFromList(entry.id)}
-                            style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                  <thead><tr>{["CLI","NAME","COMPANY","TYPE","NOTE","ADDED",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
+                  <tbody>{accessList.map((e,i)=>(
+                    <tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{e.cli}</td>
+                      <td style={{padding:"8px 10px",fontSize:11}}>{e.name||"—"}</td>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{e.company||"—"}</td>
+                      <td style={{padding:"8px 10px"}}>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
+                          background:typeColor(e.type)+"20",color:typeColor(e.type)}}>
+                          {typeIcon(e.type)} {e.type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{e.note||"—"}</td>
+                      <td style={{padding:"8px 10px",fontSize:10,color:"#999"}}>{(e.created_at||"").slice(0,10)}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center"}}>
+                        <button onClick={async()=>{
+                          if(!window.confirm("Remove?"))return;
+                          await apiFetch("/test/access-list/"+e.id,token,{method:"DELETE"});
+                          load();
+                        }} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                          cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button>
+                      </td>
+                    </tr>
+                  ))}</tbody>
                 </table>
               </div>
             }
