@@ -320,7 +320,6 @@ function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
 function StatsCharts({token}){
   const [cdrs,setCdrs]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState("daily");
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   useEffect(()=>{apiFetch("/cdr?per_page=2000",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
 
@@ -355,68 +354,71 @@ function StatsCharts({token}){
   const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
 
   const getFlag=(country)=>{
-    const flags={"Satellite":"🛰","Anguilla":"🇦🇮","Benin":"🇧🇯","Burundi":"🇧🇮","Cameroon":"🇨🇲","Chile":"🇨🇱","Congo":"🇨🇬","DR Congo":"🇨🇩","DRC Congo":"🇨🇩","Gabon":"🇬🇦","Globalstar":"🛰","Globalstar ME":"🛰","Globalstar New":"🛰","Grenada":"🇬🇩","Guinea":"🇬🇳","Insat":"🛰","Italy":"🇮🇹","Italian Mobile":"🇮🇹","Jersey":"🇯🇪","Kiribati":"🇰🇮","Maldive":"🇲🇻","Morocco":"🇲🇦","Mozambique":"🇲🇿","Nicaragua":"🇳🇮","Oration":"🛰","Poland":"🇵🇱","Senegal":"🇸🇳","Seychelles":"🇸🇨","Sierra Leone":"🇸🇱","Solomon Islands":"🇸🇧","Somalia":"🇸🇴","Tanzania":"🇹🇿","Turkey":"🇹🇷","Uganda":"🇺🇬","UK Mobile":"🇬🇧","UPT":"🌐","Venezuela":"🇻🇪","Emsat":"🛰","Nauru":"🇳🇷","Caribbean":"🌴","Gambia":"🇬🇲","Afinna":"🛰","Unknown":"❓"};
+    const flags={"Satellite":"🛰","Anguilla":"🇦🇮","Benin":"🇧🇯","Burundi":"🇧🇮","Cameroon":"🇨🇲","Chile":"🇨🇱","Congo":"🇨🇬","DR Congo":"🇨🇩","DRC Congo":"🇨🇩","Gabon":"🇬🇦","Globalstar":"🛰","Grenada":"🇬🇩","Guinea":"🇬🇳","Insat":"🛰","Italy":"🇮🇹","Italian Mobile":"🇮🇹","Jersey":"🇯🇪","Kiribati":"🇰🇮","Maldive":"🇲🇻","Morocco":"🇲🇦","Mozambique":"🇲🇿","Nicaragua":"🇳🇮","Oration":"🛰","Poland":"🇵🇱","Senegal":"🇸🇳","Seychelles":"🇸🇨","Sierra Leone":"🇸🇱","Solomon Islands":"🇸🇧","Somalia":"🇸🇴","Tanzania":"🇹🇿","Turkey":"🇹🇷","Uganda":"🇺🇬","UK Mobile":"🇬🇧","UPT":"🌐","Venezuela":"🇻🇪","Emsat":"🛰","Nauru":"🇳🇷","Caribbean":"🌴","Gambia":"🇬🇲","Afinna":"🛰","Unknown":"❓"};
     for(const key of Object.keys(flags)){if(country.toLowerCase().includes(key.toLowerCase()))return flags[key];}
     return "🌍";
   };
 
   const SVGBar=({data,vk,color})=>{
-    if(!data||!data.length)return(<div style={{padding:16,textAlign:"center",color:"#999",fontSize:11}}>No data</div>);
+    if(!data||!data.length)return(<div style={{padding:12,textAlign:"center",color:"#999",fontSize:11}}>No data</div>);
     const max=Math.max(...data.map(d=>d[vk]||0),0.001);
-    return(<div style={{overflowX:"auto"}}><svg width={Math.max(400,data.length*24)} height={160} style={{display:"block"}}>
-      {data.map((d,i)=>{const h=Math.round((d[vk]||0)/max*120);const x=i*24+2;return(<g key={i}>
-        <rect x={x} y={130-h} width={20} height={h||1} fill={color} rx={3} opacity={0.85}/>
-        <text x={x+10} y={148} textAnchor="middle" fontSize={7} fill="#999">{d.date||""}</text>
-        {h>12&&<text x={x+10} y={130-h-3} textAnchor="middle" fontSize={7} fill={color} fontWeight="bold">{parseFloat(d[vk]).toFixed(d[vk]<10?1:0)}</text>}
+    return(<div style={{overflowX:"auto"}}><svg width={Math.max(360,data.length*22)} height={150} style={{display:"block"}}>
+      {data.map((d,i)=>{const h=Math.round((d[vk]||0)/max*110);const x=i*22+2;return(<g key={i}>
+        <rect x={x} y={120-h} width={18} height={h||1} fill={color} rx={2} opacity={0.85}/>
+        <text x={x+9} y={136} textAnchor="middle" fontSize={7} fill="#999">{d.date||""}</text>
+        {h>12&&<text x={x+9} y={120-h-3} textAnchor="middle" fontSize={7} fill={color} fontWeight="bold">{parseFloat(d[vk]).toFixed(d[vk]<10?1:0)}</text>}
       </g>);})}
     </svg></div>);
   };
 
-  return(<div style={{padding:"0 0 16px 0"}}>
-    <div style={{padding:"8px 16px 0"}}>
-      <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>📊 Analytics</div>
-      <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-        {[["daily","📅 Daily"],["weekly","📊 Weekly"],["monthly","📆 Monthly"],["country","🌍 Countries"],["supplier","⬡ Supplier"]].map(([t,l])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:"7px 12px",borderRadius:20,border:"none",fontSize:10,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
-        ))}
-      </div>
-      {loading?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading charts...</div>:(<>
-        {tab==="daily"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:11,fontWeight:600,color:"#555"}}>Month:</span>
-            <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{padding:"5px 8px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:11,outline:"none"}}/>
-          </div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#10B981"}}>Revenue €</div><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#3B82F6"}}>Calls</div><SVGBar data={dailyData()} vk="calls" color="#3B82F6"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#2CADA6"}}>Minutes</div><SVGBar data={dailyData()} vk="minutes" color="#2CADA6"/></div>
-        </div>}
-        {tab==="weekly"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#10B981"}}>Weekly Revenue €</div><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#3B82F6"}}>Weekly Calls</div><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#2CADA6"}}>Weekly Minutes</div><SVGBar data={weeklyData()} vk="minutes" color="#2CADA6"/></div>
-        </div>}
-        {tab==="monthly"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#10B981"}}>Monthly Revenue €</div><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:11,fontWeight:700,marginBottom:8,color:"#3B82F6"}}>Monthly Calls</div><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></div>
-        </div>}
-        {tab==="country"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,fontWeight:700}}>Top Destinations by Revenue</span><span style={{fontSize:10,color:"#999"}}>{countryData().length} countries</span></div>
-          {countryData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;const flag=getFlag(s.name);return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{flag}</span><div><div style={{fontSize:12,fontWeight:700}}>{s.name}</div><div style={{fontSize:9,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div></div></div>
-              <div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
-            </div>
-            <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
-          </div>);})}
-        </div>}
-        {tab==="supplier"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {supplierData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div><span style={{fontSize:12,fontWeight:700}}>{s.name}</span><span style={{fontSize:9,color:"#999",marginLeft:8}}>{s.calls} calls</span></div><div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div></div>
-            <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
-          </div>);})}
-        </div>}
-      </>)}
+  const Section=({title,color,children})=>(<div style={{background:"#FFF",borderRadius:10,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12}}>
+    <div style={{fontSize:13,fontWeight:700,color,marginBottom:10}}>{title}</div>
+    {children}
+  </div>);
+
+  if(loading) return(<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading analytics...</div>);
+
+  return(<div style={{padding:"0 16px 16px"}}>
+    <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:12,marginTop:4}}>📊 Analytics</div>
+
+    {/* Month selector */}
+    <div style={{background:"#FFF",borderRadius:8,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:11,fontWeight:600,color:"#555"}}>📅 Daily Chart Month:</span>
+      <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{padding:"5px 8px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:11,outline:"none"}}/>
+      <span style={{fontSize:10,color:"#999"}}>{dailyData().reduce((a,d)=>a+d.calls,0)} calls · €{dailyData().reduce((a,d)=>a+d.revenue,0).toFixed(2)}</span>
     </div>
+
+    {/* Daily Charts */}
+    <Section title="📅 Daily Revenue €" color="#10B981"><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📅 Daily Calls" color="#3B82F6"><SVGBar data={dailyData()} vk="calls" color="#3B82F6"/></Section>
+    <Section title="📅 Daily Minutes" color="#2CADA6"><SVGBar data={dailyData()} vk="minutes" color="#2CADA6"/></Section>
+
+    {/* Weekly Charts */}
+    <Section title="📊 Weekly Revenue €" color="#10B981"><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📊 Weekly Calls" color="#3B82F6"><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></Section>
+
+    {/* Monthly Charts */}
+    <Section title="📆 Monthly Revenue €" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📆 Monthly Calls" color="#3B82F6"><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></Section>
+
+    {/* Countries */}
+    <Section title="🌍 Top Destinations by Revenue" color="#2CADA6">
+      {countryData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;const flag=getFlag(s.name);return(<div key={i} style={{marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{flag}</span><div><div style={{fontSize:12,fontWeight:700}}>{s.name}</div><div style={{fontSize:9,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div></div></div>
+          <div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
+        </div>
+        <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
+      </div>);})}
+    </Section>
+
+    {/* Suppliers */}
+    <Section title="⬡ By Supplier" color="#8B5CF6">
+      {supplierData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;return(<div key={i} style={{marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><span style={{fontSize:12,fontWeight:700}}>{s.name}</span><span style={{fontSize:9,color:"#999",marginLeft:8}}>{s.calls} calls</span></div><div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div></div>
+        <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
+      </div>);})}
+    </Section>
   </div>);
 }
 
