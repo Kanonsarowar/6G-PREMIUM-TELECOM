@@ -57,6 +57,7 @@ const getNavGroups=(role)=>{
   ]},
   {key:"testlab",label:"Test Lab",items:[
     {id:"testnumbers",label:"Test Numbers",icon:"📋"},
+    {id:"addtestnumber",label:"Add Test Number",icon:"➕"},
     {id:"testlivecall",label:"Live Test Call",icon:"📞"},
     {id:"testaccesslist",label:"Access List",icon:"🔐"},
   ]},
@@ -5247,7 +5248,7 @@ export default function App(){
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers",
-      "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
+      "test-numbers":"testnumbers","add-test-number":"addtestnumber","test-live-call":"testlivecall","test-access-list":"testaccesslist",
       "sip-monitor":"sipmonitor",
       "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
     };
@@ -5259,7 +5260,7 @@ export default function App(){
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
       "revenue":"revenue","suppliers":"suppliers","numbers":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
-      "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
+      "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","addtestnumber":"add-test-number","testlivecall":"test-live-call","testaccesslist":"test-access-list",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
     };
     const url="/"+( urlMap[p]||p);
@@ -5441,6 +5442,7 @@ export default function App(){
       case "resellers":     return <ResellerPortalPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "testnumbers":   return <TestNumbersPage token={token}/>;
+      case "addtestnumber": return <AddTestNumberPage token={token}/>;
       case "testlivecall":  return <TestLiveCallPage token={token}/>;
       case "testaccesslist":return <TestAccessListPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
@@ -5488,6 +5490,195 @@ export default function App(){
             </span>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Add Test Number Page ───────────────────────────────────────
+function AddTestNumberPage({token}){
+  const [suppliers,setSuppliers]=useState([]);
+  const [countries,setCountries]=useState([]);
+  const [addMode,setAddMode]=useState("single");
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const [newTest,setNewTest]=useState({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier_id:""});
+  const [bulkSupplier,setBulkSupplier]=useState("");
+  const [bulkText,setBulkText]=useState("");
+
+  useEffect(()=>{
+    Promise.all([apiFetch("/suppliers",token),apiFetch("/did-ranges",token)])
+    .then(([s,r])=>{
+      setSuppliers(s.data||[]);
+      setCountries([...new Set((r.data||[]).map(x=>x.country_name).filter(Boolean))].sort());
+    });
+  },[token]);
+
+  const inp={width:"100%",padding:"9px 10px",border:"1px solid #E0E0E0",
+    borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"};
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700}}>➕ Add Test Number</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Add single or bulk test numbers</div>
+      </div>
+      <div style={{padding:"12px 16px"}}>
+        {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+          background:msg.ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(msg.ok?"#10B981":"#EF4444"),
+          fontSize:12,color:msg.ok?"#10B981":"#EF4444",fontWeight:600}}>
+          {msg.ok?"✅ ":"❌ "}{msg.text}
+        </div>}
+
+        {/* Mode Toggle */}
+        <div style={{display:"flex",gap:4,marginBottom:12}}>
+          {[["single","➕ Single Number"],["bulk","📋 Bulk Import"]].map(([m,l])=>(
+            <button key={m} onClick={()=>setAddMode(m)}
+              style={{padding:"9px 18px",borderRadius:20,border:"none",fontSize:12,
+                background:addMode===m?"#2CADA6":"#FFF",
+                color:addMode===m?"#FFF":"#555",
+                fontWeight:addMode===m?700:400,cursor:"pointer",
+                boxShadow:"0 1px 4px rgba(0,0,0,0.08)"}}>{l}</button>
+          ))}
+        </div>
+
+        {/* Single Number Form */}
+        {addMode==="single"&&(
+          <div style={{background:"#FFF",borderRadius:10,padding:16,
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Single Number</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier *</div>
+                <select style={inp} value={newTest.supplier_id}
+                  onChange={e=>setNewTest({...newTest,supplier_id:e.target.value})}>
+                  <option value="">— Select Supplier —</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Country *</div>
+                <select style={inp} value={newTest.country}
+                  onChange={e=>setNewTest({...newTest,country:e.target.value})}>
+                  <option value="">— Select Country —</option>
+                  {countries.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Number *</div>
+                <input style={inp} value={newTest.number}
+                  onChange={e=>{
+                    const n=e.target.value;
+                    const clean=n.replace("+","");
+                    setNewTest({...newTest,number:n,prefix:clean.slice(0,clean.length>4?clean.length-4:0)});
+                  }} placeholder="+88233770042"/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Prefix (auto-detected)</div>
+                <input style={{...inp,background:"#F8F8F8"}} value={newTest.prefix}
+                  onChange={e=>setNewTest({...newTest,prefix:e.target.value})}
+                  placeholder="auto"/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Rate per Minute *</div>
+                <input type="number" step="0.001" style={inp} value={newTest.rate}
+                  onChange={e=>setNewTest({...newTest,rate:e.target.value})}
+                  placeholder="0.420"/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Currency</div>
+                <select style={inp} value={newTest.currency}
+                  onChange={e=>setNewTest({...newTest,currency:e.target.value})}>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </div>
+            </div>
+            <button onClick={async()=>{
+              if(!newTest.number||!newTest.supplier_id||!newTest.country||!newTest.rate){
+                alert("Supplier, Country, Number and Rate are required");return;
+              }
+              setSaving(true);
+              const num=newTest.number.startsWith("+")?newTest.number:"+"+newTest.number;
+              const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
+                number:num,prefix:newTest.prefix,country_name:newTest.country,
+                tariff:parseFloat(newTest.rate),selling_price:parseFloat(newTest.rate),
+                currency:newTest.currency,trunk_id:parseInt(newTest.supplier_id),
+                payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom",
+              })});
+              setSaving(false);
+              if(d.success||d.message){
+                setMsg({ok:true,text:"Added: "+num});
+                setNewTest({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier_id:""});
+                setTimeout(()=>setMsg(null),3000);
+              } else {
+                setMsg({ok:false,text:d.error||"Failed to add number"});
+              }
+            }} disabled={saving}
+              style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
+                background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+              {saving?"Saving...":"✅ Add Number"}
+            </button>
+          </div>
+        )}
+
+        {/* Bulk Import Form */}
+        {addMode==="bulk"&&(
+          <div style={{background:"#FFF",borderRadius:10,padding:16,
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Bulk Import</div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier *</div>
+              <select style={inp} value={bulkSupplier} onChange={e=>setBulkSupplier(e.target.value)}>
+                <option value="">— Select Supplier —</option>
+                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}
+              </select>
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Numbers *</div>
+              <div style={{fontSize:10,color:"#999",marginBottom:6,padding:"6px 10px",
+                background:"#F8F8F8",borderRadius:6,fontFamily:"monospace"}}>
+                Format: number, country, prefix, rate, currency<br/>
+                Example: +88233770042, Satellite, 88233770, 0.42, EUR
+              </div>
+              <textarea rows={8} style={{...inp,fontFamily:"monospace",fontSize:11,resize:"vertical"}}
+                value={bulkText} onChange={e=>setBulkText(e.target.value)}
+                placeholder="+88233770042, Satellite, 88233770, 0.42, EUR"/>
+            </div>
+            <button onClick={async()=>{
+              if(!bulkSupplier||!bulkText.trim()){alert("Select supplier and enter numbers");return;}
+              setSaving(true);
+              const lines=bulkText.trim().split("\n").filter(l=>l.trim());
+              let imported=0,failed=0;
+              for(const line of lines){
+                const p=line.split(",").map(x=>x.trim());
+                if(!p[0]) continue;
+                const num=p[0].startsWith("+")?p[0]:"+"+p[0];
+                const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
+                  number:num,
+                  country_name:p[1]||"Unknown",
+                  prefix:p[2]||(num.replace("+","").slice(0,-4)),
+                  tariff:parseFloat(p[3])||0.42,
+                  selling_price:parseFloat(p[3])||0.42,
+                  currency:p[4]||"EUR",
+                  trunk_id:parseInt(bulkSupplier),
+                  payment_terms:"Weekly",
+                  ivr_context:"custom/6g-premium-telecom",
+                })});
+                if(d.success||d.message) imported++; else failed++;
+              }
+              setSaving(false);
+              setMsg({ok:true,text:"Imported "+imported+" numbers"+(failed?" ("+failed+" failed)":"")});
+              setBulkText("");setBulkSupplier("");
+              setTimeout(()=>setMsg(null),5000);
+            }} disabled={saving}
+              style={{width:"100%",padding:"12px",borderRadius:8,border:"none",
+                background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+              {saving?"Importing...":"📋 Import Numbers"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
