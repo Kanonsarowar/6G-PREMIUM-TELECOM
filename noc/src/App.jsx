@@ -3699,16 +3699,18 @@ function IPWhitelistPage({token}){
 }
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
+  const [tab,setTab]=useState("numbers");
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
-  const [loading,setLoading]=useState(true);
+  const [liveCalls,setLiveCalls]=useState([]);
   const [accessList,setAccessList]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [loadingLive,setLoadingLive]=useState(false);
   const [showAdd,setShowAdd]=useState(false);
   const [newEntry,setNewEntry]=useState({cli:"",name:"",company:"",type:"allow",note:""});
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState(null);
-  const [tab,setTab]=useState("numbers");
 
   const load=()=>{
     setLoading(true);
@@ -3725,15 +3727,22 @@ function TestLabsPage({token}){
     });
     apiFetch("/test/access-list",token).then(d=>setAccessList(d.data||[]));
   };
-  useEffect(()=>{load();},[token]);
 
-  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
-    padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",
-    background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
-  const typeColor=(t)=>t==="allow"?"#10B981":t==="block"?"#EF4444":"#F59E0B";
-  const typeIcon=(t)=>t==="allow"?"✅":t==="block"?"🚫":"⚗";
+  const loadLive=()=>{
+    setLoadingLive(true);
+    apiFetch("/live-calls",token).then(d=>{
+      setLiveCalls(d.data||d||[]);
+      setLoadingLive(false);
+    });
+  };
 
-  // Get test number for a range (first DID in range)
+  useEffect(()=>{
+    load();
+    loadLive();
+    const t=setInterval(loadLive,5000);
+    return()=>clearInterval(t);
+  },[token]);
+
   const getTestNumber=(r)=>{
     const match=dids.find(d=>{
       const n=(d.number||"").replace("+","");
@@ -3742,11 +3751,24 @@ function TestLabsPage({token}){
     return match?match.number:r.range_start?"+"+r.range_start:"—";
   };
 
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",
+    background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+  const typeColor=(t)=>t==="allow"?"#10B981":t==="block"?"#EF4444":"#F59E0B";
+  const typeIcon=(t)=>t==="allow"?"✅":t==="block"?"🚫":"⚗";
+
+  const fmt=(sec)=>{
+    const s=Math.max(0,parseInt(sec)||0);
+    const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;
+    return h>0?[h,m,ss].map(v=>String(v).padStart(2,"0")).join(":"):
+               [m,ss].map(v=>String(v).padStart(2,"0")).join(":");
+  };
+
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>⚗ Test Number</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>Test numbers by range and manage access list</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Test numbers, live calls and access list</div>
       </div>
 
       <div style={{padding:"12px 16px"}}>
@@ -3757,15 +3779,22 @@ function TestLabsPage({token}){
           {msg.success?"✅ ":"❌ "}{msg.message||msg.error}
         </div>}
 
-        <div style={{display:"flex",gap:4,marginBottom:12}}>
-          {[["numbers","📋 Test Numbers"],["access","🔐 Access List"]].map(([t,l])=>(
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
+          {[
+            ["numbers","📋 Test Numbers"],
+            ["live","📞 Test Live Call"],
+            ["access","🔐 Access List"],
+          ].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)}
               style={{padding:"8px 16px",borderRadius:20,border:"none",fontSize:11,
                 background:tab===t?"#2CADA6":"#F0F0F0",
-                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer"}}>{l}</button>
+                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,
+                cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
           ))}
         </div>
 
+        {/* TEST NUMBERS TAB */}
         {tab==="numbers"&&(
           <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
             boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
@@ -3773,7 +3802,7 @@ function TestLabsPage({token}){
             :<div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
                 <thead>
-                  <tr>{["SL","PREFIX / RANGE","COUNTRY","PRICE","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
+                  <tr>{["SL","PREFIX/RANGE","COUNTRY","PRICE","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
                     <th key={i} style={thS}>{h}</th>
                   ))}</tr>
                 </thead>
@@ -3801,7 +3830,7 @@ function TestLabsPage({token}){
                         <td style={{padding:"10px 10px",fontSize:10,color:"#555"}}>{ivr}</td>
                         <td style={{padding:"10px 10px"}}>
                           <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,
-                            color:"#1A1A1A",marginBottom:2}}>{testNum}</div>
+                            color:"#1A1A1A",marginBottom:4}}>{testNum}</div>
                           <button onClick={()=>{
                             navigator.clipboard?.writeText(testNum);
                             setMsg({success:true,message:"Copied: "+testNum});
@@ -3809,7 +3838,7 @@ function TestLabsPage({token}){
                           }} style={{padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
                             background:"rgba(44,173,166,0.1)",color:"#2CADA6",
                             fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                            Copy
+                            📋 Copy
                           </button>
                         </td>
                       </tr>
@@ -3821,6 +3850,64 @@ function TestLabsPage({token}){
           </div>
         )}
 
+        {/* TEST LIVE CALL TAB */}
+        {tab==="live"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{background:"#FFF",borderRadius:10,padding:14,
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",
+              display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700}}>Live Call Monitor</div>
+                <div style={{fontSize:11,color:"#999",marginTop:2}}>Auto-refresh 5s · {liveCalls.length} active</div>
+              </div>
+              <button onClick={loadLive} disabled={loadingLive}
+                style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
+                  background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                {loadingLive?"⏳":"↻"} Refresh
+              </button>
+            </div>
+
+            {liveCalls.length===0
+              ?<div style={{background:"#FFF",borderRadius:10,padding:50,textAlign:"center",
+                boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <div style={{fontSize:36,marginBottom:12}}>📞</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>No Active Calls</div>
+                <div style={{fontSize:12,color:"#999"}}>Waiting for incoming calls...</div>
+              </div>
+              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+                boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr>{["SL","CLI","DID","PREFIX","COUNTRY","SUPPLIER","IVR","DURATION"].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {liveCalls.map((c,i)=>{
+                      const did=(c.did||c.exten||"").replace("+","");
+                      const dur=fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)));
+                      return(
+                        <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
+                          background:i%2===0?"#FFF":"#F9FFFE"}}>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:600}}>{c.src||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{did}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{c.prefix||did.slice(0,7)||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11}}>{c.country||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{c.supplier||c.trunk_name||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:10,color:"#555"}}>{(c.ivr||c.ivr_context||"—").replace("custom/","")}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{dur}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        )}
+
+        {/* ACCESS LIST TAB */}
         {tab==="access"&&(
           <>
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
