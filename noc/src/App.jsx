@@ -4924,8 +4924,7 @@ function TestNumbersPage({token}){
                     style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,
                       fontSize:11,outline:"none",boxSizing:"border-box",fontFamily:"monospace",resize:"vertical"}}
                     value={bulkNumbers} onChange={e=>setBulkNumbers(e.target.value)}
-                    placeholder={"+88233770042,Satellite,88233770,0.42,EUR
-+88233770911,Satellite,88233770,0.42,EUR"}/>
+                    placeholder="+88233770042,Satellite,88233770,0.42,EUR"/>
                 </div>
                 <div style={{display:"flex",gap:8,marginTop:10}}>
                   <button onClick={async()=>{
