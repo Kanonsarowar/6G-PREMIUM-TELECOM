@@ -4727,20 +4727,23 @@ function SystemHealthPage({token}){
 function TestNumbersPage({token}){
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [selectedCountry,setSelectedCountry]=useState("");
-  const [msg,setMsg]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
-  const [addMode,setAddMode]=useState("single"); // single or bulk
+  const [addMode,setAddMode]=useState("single");
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState(null);
   const [newTest,setNewTest]=useState({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier_id:""});
   const [bulkSupplier,setBulkSupplier]=useState("");
-  const [bulkNumbers,setBulkNumbers]=useState("");
-  const [suppliers,setSuppliers]=useState([]);
-  const [saving,setSaving]=useState(false);
+  const [bulkText,setBulkText]=useState("");
 
   useEffect(()=>{
-    Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token),apiFetch("/suppliers",token)])
-    .then(([r,d,s])=>{
+    Promise.all([
+      apiFetch("/did-ranges",token),
+      apiFetch("/dids",token),
+      apiFetch("/suppliers",token),
+    ]).then(([r,d,s])=>{
       const trunks={};
       (s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});
       setRanges(r.data||[]);
@@ -4751,76 +4754,69 @@ function TestNumbersPage({token}){
   },[token]);
 
   const countries=[...new Set(ranges.map(r=>r.country_name).filter(Boolean))].sort();
+  const filtered=selectedCountry?ranges.filter(r=>r.country_name===selectedCountry):[];
 
-  const filtered=selectedCountry
-    ?ranges.filter(r=>r.country_name===selectedCountry)
-    :[];
-
-  const getTestNumber=(r)=>{
-    const prefix=(r.prefix||"").replace(/\s/g,"");
-    const match=dids.find(d=>(d.number||"").replace("+","")===r.range_start||(d.number||"").replace("+","").startsWith(prefix)&&(d.prefix||"")===(prefix));
+  const getTest=(r)=>{
+    const p=(r.prefix||"").replace(/\s/g,"");
+    const match=dids.find(d=>{
+      const n=(d.number||"").replace("+","");
+      return (d.prefix||"")==p || n.startsWith(p);
+    });
     return match?match.number:(r.range_start?"+"+r.range_start:"—");
+  };
 
-  const thS={fontSize:9,color:"#FFF",fontWeight:700,letterSpacing:"0.8px",
-    padding:"7px 10px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"};
+  const inp={width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
+    borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"};
+  const thS={fontSize:9,color:"#888",fontWeight:700,letterSpacing:"0.8px",
+    padding:"7px 10px",textAlign:"left",textTransform:"uppercase",
+    whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5"};
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>📋 Test Numbers</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>Select a country to view test numbers</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Select country to view test numbers</div>
       </div>
-
       <div style={{padding:"12px 16px"}}>
+
         {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
           background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",
-          fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
+          fontSize:12,color:"#10B981",fontWeight:600}}>{"✅ "+msg}</div>}
 
-        {/* Country Selection */}
+        {/* Country Selector */}
         <div style={{background:"#FFF",borderRadius:10,padding:16,
-          boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>
-            Please make a selection from the list below.
-          </div>
-          <div style={{fontSize:11,color:"#999",marginBottom:14}}>
-            Select a country to view available test numbers for that destination.
-          </div>
+          boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Please make a selection from the list below.</div>
+          <div style={{fontSize:11,color:"#999",marginBottom:12}}>Select a country to view available test numbers.</div>
           <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:6}}>Select Country:</div>
           <div style={{display:"flex",gap:8}}>
-            <select
-              value={selectedCountry}
-              onChange={e=>setSelectedCountry(e.target.value)}
-              style={{flex:1,padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,
-                fontSize:13,outline:"none",color:"#1A1A1A",background:"#FFF"}}>
+            <select value={selectedCountry} onChange={e=>setSelectedCountry(e.target.value)}
+              style={{flex:1,padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,fontSize:13,outline:"none"}}>
               <option value="">— Select Country —</option>
-              {countries.map(c=>(
-                <option key={c} value={c}>{c}</option>
-              ))}
+              {countries.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
             <button onClick={()=>setSelectedCountry("")}
               style={{padding:"10px 16px",borderRadius:8,border:"1px solid #E0E0E0",
-                background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-              Clear
-            </button>
+                background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>Clear</button>
           </div>
         </div>
 
-        {/* Add Test Number */}
+        {/* Add Button */}
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
           <button onClick={()=>setShowAdd(!showAdd)}
             style={{padding:"8px 16px",borderRadius:20,border:"none",
               background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            + Add Test Number
+            {showAdd?"✕ Close":"+ Add Number"}
           </button>
         </div>
 
+        {/* Add Form */}
         {showAdd&&(
           <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,
             boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
             <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Add Test Number</div>
-            {/* Mode Toggle */}
             <div style={{display:"flex",gap:4,marginBottom:14}}>
-              {[["single","➕ Single Number"],["bulk","📋 Bulk by Supplier"]].map(([m,l])=>(
+              {[["single","Single Number"],["bulk","Bulk Import"]].map(([m,l])=>(
                 <button key={m} onClick={()=>setAddMode(m)}
                   style={{padding:"6px 14px",borderRadius:16,border:"none",fontSize:11,
                     background:addMode===m?"#2CADA6":"#F0F0F0",
@@ -4829,160 +4825,155 @@ function TestNumbersPage({token}){
             </div>
 
             {addMode==="single"&&(
-              <>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier *</div>
-                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
-                      value={newTest.supplier_id} onChange={e=>{
-                        const sup=suppliers.find(s=>s.id==e.target.value);
-                        setNewTest({...newTest,supplier_id:e.target.value,supplier_name:sup?.nickname||""});
-                      }}>
-                      <option value="">— Select Supplier —</option>
+              <div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier *</div>
+                    <select style={inp} value={newTest.supplier_id}
+                      onChange={e=>setNewTest({...newTest,supplier_id:e.target.value})}>
+                      <option value="">— Select —</option>
                       {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}
                     </select>
                   </div>
-                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Country *</div>
-                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
-                      value={newTest.country} onChange={e=>setNewTest({...newTest,country:e.target.value})}>
-                      <option value="">— Select Country —</option>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Country *</div>
+                    <select style={inp} value={newTest.country}
+                      onChange={e=>setNewTest({...newTest,country:e.target.value})}>
+                      <option value="">— Select —</option>
                       {countries.map(c=><option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
-                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Number *</div>
-                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                      value={newTest.number} onChange={e=>{
-                        const n=e.target.value.replace(/[^0-9+]/g,"");
-                        const prefix=n.replace("+","").slice(0,n.replace("+","").length-4);
-                        setNewTest({...newTest,number:n,prefix:prefix});
-                      }} placeholder="+88233770042"/></div>
-                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Prefix (auto)</div>
-                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box",background:"#F9F9F9"}}
-                      value={newTest.prefix} onChange={e=>setNewTest({...newTest,prefix:e.target.value})} placeholder="auto-detected"/></div>
-                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Rate/Min *</div>
-                    <input type="number" step="0.001" style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                      value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
-                  <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
-                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
-                      value={newTest.currency} onChange={e=>setNewTest({...newTest,currency:e.target.value})}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Number *</div>
+                    <input style={inp} value={newTest.number}
+                      onChange={e=>{
+                        const n=e.target.value;
+                        const clean=n.replace("+","");
+                        setNewTest({...newTest,number:n,prefix:clean.slice(0,clean.length-4)});
+                      }} placeholder="+88233770042"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Prefix (auto)</div>
+                    <input style={{...inp,background:"#F9F9F9"}} value={newTest.prefix}
+                      onChange={e=>setNewTest({...newTest,prefix:e.target.value})}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Rate/Min *</div>
+                    <input type="number" step="0.001" style={inp} value={newTest.rate}
+                      onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
+                    <select style={inp} value={newTest.currency}
+                      onChange={e=>setNewTest({...newTest,currency:e.target.value})}>
                       <option value="EUR">EUR €</option>
                       <option value="USD">USD $</option>
-                    </select></div>
+                    </select>
+                  </div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={async()=>{
                     if(!newTest.number||!newTest.supplier_id||!newTest.country||!newTest.rate){
-                      alert("Supplier, Country, Number and Rate required");return;
+                      alert("All fields required");return;
                     }
                     setSaving(true);
-                    const sup=suppliers.find(s=>s.id==newTest.supplier_id);
+                    const num=newTest.number.startsWith("+")?newTest.number:"+"+newTest.number;
                     const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
-                      number:newTest.number.startsWith("+")?newTest.number:"+"+newTest.number,
-                      prefix:newTest.prefix,
-                      country_name:newTest.country,
-                      tariff:parseFloat(newTest.rate),
-                      selling_price:parseFloat(newTest.rate),
-                      currency:newTest.currency,
-                      trunk_id:newTest.supplier_id,
-                      payment_terms:"Weekly",
-                      ivr_context:"custom/6g-premium-telecom",
+                      number:num,prefix:newTest.prefix,country_name:newTest.country,
+                      tariff:parseFloat(newTest.rate),selling_price:parseFloat(newTest.rate),
+                      currency:newTest.currency,trunk_id:parseInt(newTest.supplier_id),
+                      payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom",
                     })});
                     setSaving(false);
                     if(d.success||d.message){
-                      setMsg("Added: "+newTest.number);
-                      setShowAdd(false);
+                      setMsg("Added: "+num);setShowAdd(false);
                       setNewTest({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier_id:""});
                       setTimeout(()=>setMsg(null),3000);
                     }
                   }} disabled={saving}
-                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                    {saving?"Saving...":"✅ Add Number"}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",
+                      background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Saving...":"Save"}
                   </button>
                   <button onClick={()=>setShowAdd(false)}
-                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
                 </div>
-              </>
+              </div>
             )}
 
             {addMode==="bulk"&&(
-              <>
-                <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Select Supplier *</div>
-                  <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
-                    value={bulkSupplier} onChange={e=>setBulkSupplier(e.target.value)}>
+              <div>
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier *</div>
+                  <select style={inp} value={bulkSupplier} onChange={e=>setBulkSupplier(e.target.value)}>
                     <option value="">— Select Supplier —</option>
                     {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}
                   </select>
                 </div>
-                <div style={{marginBottom:4}}>
+                <div style={{marginBottom:12}}>
                   <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>
-                    Numbers (one per line, format: number,country,prefix,rate,currency)
+                    Numbers (one per line)
                   </div>
                   <div style={{fontSize:10,color:"#999",marginBottom:6}}>
-                    Example: +88233770042,Satellite,88233770,0.42,EUR
+                    Format: number, country, prefix, rate, currency
                   </div>
-                  <textarea rows={6}
-                    style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,
-                      fontSize:11,outline:"none",boxSizing:"border-box",fontFamily:"monospace",resize:"vertical"}}
-                    value={bulkNumbers} onChange={e=>setBulkNumbers(e.target.value)}
+                  <textarea rows={6} style={{...inp,fontFamily:"monospace",fontSize:11,resize:"vertical"}}
+                    value={bulkText} onChange={e=>setBulkText(e.target.value)}
                     placeholder="+88233770042,Satellite,88233770,0.42,EUR"/>
                 </div>
-                <div style={{display:"flex",gap:8,marginTop:10}}>
+                <div style={{display:"flex",gap:8}}>
                   <button onClick={async()=>{
-                    if(!bulkSupplier||!bulkNumbers.trim()){alert("Supplier and numbers required");return;}
+                    if(!bulkSupplier||!bulkText.trim()){alert("Select supplier and enter numbers");return;}
                     setSaving(true);
-                    const lines=bulkNumbers.trim().split("
+                    const lines=bulkText.trim().split("
 ").filter(l=>l.trim());
                     let imported=0;
                     for(const line of lines){
-                      const parts=line.split(",").map(p=>p.trim());
-                      const num=parts[0]?.startsWith("+")?parts[0]:"+"+parts[0];
-                      const country=parts[1]||"Unknown";
-                      const prefix=parts[2]||(num.replace("+","").slice(0,-4));
-                      const rate=parseFloat(parts[3])||0.42;
-                      const currency=parts[4]||"EUR";
+                      const p=line.split(",").map(x=>x.trim());
+                      const num=p[0]?.startsWith("+")?p[0]:"+"+p[0];
+                      const country=p[1]||"Unknown";
+                      const prefix=p[2]||(num.replace("+","").slice(0,-4));
+                      const rate=parseFloat(p[3])||0.42;
+                      const currency=p[4]||"EUR";
                       const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
-                        number:num,prefix,country_name:country,
-                        tariff:rate,selling_price:rate,currency,
-                        trunk_id:bulkSupplier,payment_terms:"Weekly",
-                        ivr_context:"custom/6g-premium-telecom",
+                        number:num,prefix,country_name:country,tariff:rate,
+                        selling_price:rate,currency,trunk_id:parseInt(bulkSupplier),
+                        payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom",
                       })});
                       if(d.success||d.message) imported++;
                     }
                     setSaving(false);
-                    setMsg("Imported "+imported+" of "+lines.length+" numbers");
-                    setShowAdd(false);setBulkNumbers("");setBulkSupplier("");
+                    setMsg("Imported "+imported+"/"+lines.length+" numbers");
+                    setShowAdd(false);setBulkText("");setBulkSupplier("");
                     setTimeout(()=>setMsg(null),4000);
                   }} disabled={saving}
-                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                    {saving?"Importing...":"📋 Bulk Import"}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",
+                      background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Importing...":"Import"}
                   </button>
                   <button onClick={()=>setShowAdd(false)}
-                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
 
-        {/* Results */}
+        {/* Results Table */}
         {!selectedCountry?(
           <div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",
             boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
             <div style={{fontSize:36,marginBottom:12}}>🌍</div>
-            <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>
-              {countries.length} countries available
-            </div>
-            <div style={{fontSize:11,color:"#999",marginBottom:16}}>
-              Select a country above to view test numbers
-            </div>
+            <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>{countries.length} countries available</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:16}}>Select a country above to view test numbers</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center",maxWidth:400,margin:"0 auto"}}>
               {countries.map(c=>(
                 <button key={c} onClick={()=>setSelectedCountry(c)}
                   style={{padding:"5px 12px",borderRadius:16,border:"1px solid #2CADA6",
                     background:"rgba(44,173,166,0.08)",color:"#2CADA6",
-                    fontSize:11,fontWeight:600,cursor:"pointer"}}>
-                  {c}
-                </button>
+                    fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}</button>
               ))}
             </div>
           </div>
@@ -4994,43 +4985,41 @@ function TestNumbersPage({token}){
               <span style={{fontSize:13,fontWeight:700,color:"#FFF"}}>
                 🌍 {selectedCountry} — {filtered.length} range{filtered.length!==1?"s":""}
               </span>
-              <span style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>{filtered.reduce((a,r)=>a+(r.total_count||0),0)} numbers total</span>
             </div>
-            {filtered.length===0
-              ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No ranges for this country</div>
-              :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
-                  <thead>
-                    <tr style={{background:"#F5F5F5"}}>
-                      {["SL","PREFIX","PRICE","SUPPLIER","TEST NUMBER"].map((h,i)=>(
-                        <th key={i} style={{fontSize:9,color:"#888",fontWeight:700,letterSpacing:"0.8px",
-                          padding:"7px 10px",textAlign:"left",textTransform:"uppercase",
-                          whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8"}}>{h}</th>
-                      ))}
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr>{["SL","PREFIX","PRICE","SUPPLIER","TEST NUMBER"].map((h,i)=>(
+                  <th key={i} style={thS}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {filtered.map((r,i)=>{
+                  const sym=r.currency==="USD"?"$":"€";
+                  const testNum=getTest(r);
+                  return(
+                    <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",
+                      background:i%2===0?"#FFF":"#FAFAFA"}}>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
+                      <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</td>
+                      <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
+                        {parseFloat(r.rate||0).toFixed(3)} {sym}
+                      </td>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
+                      <td style={{padding:"8px 10px"}}>
+                        <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,marginRight:8}}>{testNum}</span>
+                        <button onClick={()=>{
+                          navigator.clipboard?.writeText(testNum);
+                          setMsg("Copied: "+testNum);
+                          setTimeout(()=>setMsg(null),2000);
+                        }} style={{padding:"2px 6px",borderRadius:4,border:"1px solid #2CADA6",
+                          background:"rgba(44,173,166,0.1)",color:"#2CADA6",
+                          fontSize:9,fontWeight:700,cursor:"pointer"}}>Copy</button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((r,i)=>{
-                      const sym=r.currency==="USD"?"$":"€";
-                      const testNum=getTestNumber(r);
-                      return(
-                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                          <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>{i+1}</td>
-                          <td style={{padding:"6px 8px",fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",whiteSpace:"nowrap"}}>{r.prefix}</td>
-                          <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{parseFloat(r.rate||0).toFixed(3)} {sym}</td>
-                          <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",fontWeight:600,whiteSpace:"nowrap"}}>{r.supplier_name||"—"}</td>
-                          <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
-                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginRight:6}}>{testNum}</span>
-                            <button onClick={()=>{navigator.clipboard?.writeText(testNum);setMsg("Copied: "+testNum);setTimeout(()=>setMsg(null),2000);}}
-                              style={{padding:"2px 6px",borderRadius:4,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:9,fontWeight:700,cursor:"pointer"}}>Copy</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            }
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
