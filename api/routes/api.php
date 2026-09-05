@@ -718,6 +718,84 @@ Route::delete('/v1/ivr-lib/{id}', function($id) {
 
 // SIP Monitor - Asterisk logs
 Route::get('/v1/sip/activity', function() {
+    // Get INVITE events from Asterisk log
+    $invites = [];
+    $logFile = '/var/log/asterisk/full';
+    if(file_exists($logFile)){
+        exec("grep -E 'INVITE|from-carrier|6G DID|Playback|ANSWERED|BUSY|CANCEL|failed' {$logFile} | tail -100", $logLines);
+        foreach($logLines as $line){
+            // Parse NOTICE lines for INVITE failures
+            if(preg_match("/NOTICE.*Request '(\w+)' from '(.+?)' failed for '(.+?)' - (.+)/", $line, $m)){
+                $invites[] = [
+                    'time'     => substr($line, 1, 19),
+                    'method'   => $m[1],
+                    'caller'   => $m[2],
+                    'source'   => $m[3],
+                    'result'   => 'REJECTED',
+                    'reason'   => $m[4],
+                    'did'      => '—',
+                    'supplier' => '—',
+                ];
+            }
+            // Parse successful INVITEs from CDR verbose
+            if(preg_match("/6G DID:(\+[\d]+).*IVR:([\w\/\-]+)/", $line, $m)){
+                // successful routing
+            }
+        }
+    }
+
+    // Get CDR CSV for recent answered calls
+    $answered = [];
+    $csvFile = '/var/log/asterisk/cdr-csv/Master.csv';
+    if(file_exists($csvFile)){
+        exec("tail -20 {$csvFile}", $csvLines);
+        foreach($csvLines as $line){
+            $parts = str_getcsv($line);
+            if(count($parts) < 14) continue;
+            $src = trim($parts[1]??'','"');
+            $dst = trim($parts[2]??'','"');
+            $channel = trim($parts[5]??'','"');
+            $start = trim($parts[9]??'','"');
+            $billsec = trim($parts[13]??'0','"');
+            $disposition = trim($parts[14]??'','"');
+            if(empty($src)||empty($dst)) continue;
+            $supplier = 'WTP';
+            if(stripos($channel,'MEDIATEL')!==false) $supplier='Mediatel';
+            elseif(stripos($channel,'PHONEGROUP')!==false) $supplier='Phonegroup';
+            elseif(stripos($channel,'PURPLE')!==false) $supplier='Purple Number';
+            $answered[] = [
+                'time'     => $start,
+                'method'   => 'INVITE',
+                'caller'   => $src,
+                'did'      => $dst,
+                'supplier' => $supplier,
+                'result'   => $disposition==='ANSWERED'?'ANSWERED':($disposition==='BUSY'?'BUSY':'REJECTED'),
+                'reason'   => $disposition,
+                'duration' => intval($billsec),
+                'source'   => '—',
+            ];
+        }
+    }
+
+    // Merge and sort by time desc
+    $all = array_merge(array_reverse($answered), $invites);
+    usort($all, fn($a,$b)=>strcmp($b['time'],$a['time']));
+
+    // Get channels
+    exec("asterisk -rx 'core show channels' 2>/dev/null", $channels);
+    // Get PJSIP endpoints
+    exec("asterisk -rx 'pjsip show endpoints' 2>/dev/null", $pjsip);
+
+    return response()->json([
+        'invites'   => array_slice($all, 0, 50),
+        'activity'  => [],
+        'channels'  => $channels,
+        'pjsip'     => $pjsip,
+        'timestamp' => now()->toDateTimeString(),
+    ]);
+});
+// DEAD ROUTE BELOW - kept for compatibility
+Route::get('/v1/sip/activity_old', function() {
     $lines = [];
     
     // Get recent Asterisk log
