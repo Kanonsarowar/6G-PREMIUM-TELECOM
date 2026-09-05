@@ -4835,7 +4835,7 @@ function TestNumbersPage({token}){
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
                   <thead>
                     <tr style={{background:"#F5F5F5"}}>
-                      {["SL","PREFIX / RANGE","PRICE/MIN","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
+                      {["SL","PREFIX","PRICE","SUPPLIER","TEST NUMBER"].map((h,i)=>(
                         <th key={i} style={{fontSize:9,color:"#888",fontWeight:700,letterSpacing:"0.8px",
                           padding:"7px 10px",textAlign:"left",textTransform:"uppercase",
                           whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8"}}>{h}</th>
@@ -4845,32 +4845,17 @@ function TestNumbersPage({token}){
                   <tbody>
                     {filtered.map((r,i)=>{
                       const sym=r.currency==="USD"?"$":"€";
-                      const ivr=(r.ivr_context||r.default_ivr||"—").replace("custom/","");
                       const testNum=getTestNumber(r);
                       return(
-                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",
-                          background:i%2===0?"#FFF":"#FAFAFA"}}>
-                          <td style={{padding:"10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
-                          <td style={{padding:"10px"}}>
-                            <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>{r.prefix}</div>
-                            <div style={{fontSize:9,color:"#999",marginTop:2}}>{r.range_start} – {r.range_end}</div>
-                          </td>
-                          <td style={{padding:"10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
-                            {sym}{parseFloat(r.rate||0).toFixed(3)}
-                          </td>
-                          <td style={{padding:"10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
-                          <td style={{padding:"10px",fontSize:10,color:"#555"}}>{ivr}</td>
-                          <td style={{padding:"10px"}}>
-                            <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginBottom:4}}>
-                              {testNum}
-                            </div>
-                            <button onClick={()=>{
-                              navigator.clipboard?.writeText(testNum);
-                              setMsg("Copied: "+testNum);
-                              setTimeout(()=>setMsg(null),2000);
-                            }} style={{padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
-                              background:"rgba(44,173,166,0.1)",color:"#2CADA6",
-                              fontSize:9,fontWeight:700,cursor:"pointer"}}>📋 Copy</button>
+                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                          <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>{i+1}</td>
+                          <td style={{padding:"6px 8px",fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",whiteSpace:"nowrap"}}>{r.prefix}</td>
+                          <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{parseFloat(r.rate||0).toFixed(3)} {sym}</td>
+                          <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",fontWeight:600,whiteSpace:"nowrap"}}>{r.supplier_name||"—"}</td>
+                          <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
+                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginRight:6}}>{testNum}</span>
+                            <button onClick={()=>{navigator.clipboard?.writeText(testNum);setMsg("Copied: "+testNum);setTimeout(()=>setMsg(null),2000);}}
+                              style={{padding:"2px 6px",borderRadius:4,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:9,fontWeight:700,cursor:"pointer"}}>Copy</button>
                           </td>
                         </tr>
                       );
