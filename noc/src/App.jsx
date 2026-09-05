@@ -339,9 +339,29 @@ function StatsCharts({token}){
     cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
     return Object.values(months).sort((a,b)=>a.date.localeCompare(b.date));
   };
+  const [didMap,setDidMap]=useState({});
+  useEffect(()=>{
+    apiFetch("/dids",token).then(d=>{
+      const m={};
+      (d.data||[]).forEach(did=>{m[did.number?.replace("+","")]=did.country_name||"Unknown";});
+      setDidMap(m);
+    });
+  },[token]);
+  const getCountry=(did)=>{
+    if(!did)return"Unknown";
+    const n=(did||"").replace("+","");
+    if(didMap[n])return didMap[n];
+    // prefix match
+    for(let l=12;l>=3;l--){const p=n.slice(0,l);const found=Object.keys(didMap).find(k=>k.startsWith(p)||p.startsWith(k.slice(0,-2)));if(found)return didMap[found];}
+    return"Unknown";
+  };
   const countryData=()=>{
     const co={};
-    cdrs.forEach(c=>{const cn=c.country_name||c.country||"Unknown";if(!co[cn])co[cn]={name:cn,calls:0,revenue:0,minutes:0};co[cn].calls++;co[cn].revenue+=parseFloat(c.revenue||0);co[cn].minutes+=parseInt(c.billsec||0)/60;});
+    cdrs.forEach(c=>{
+      const cn=getCountry(c.did||c.dst||"");
+      if(!co[cn])co[cn]={name:cn,calls:0,revenue:0,minutes:0};
+      co[cn].calls++;co[cn].revenue+=parseFloat(c.revenue||0);co[cn].minutes+=parseInt(c.billsec||0)/60;
+    });
     return Object.values(co).sort((a,b)=>b.revenue-a.revenue).slice(0,15);
   };
   const supplierData=()=>{
