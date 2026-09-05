@@ -401,15 +401,65 @@ function StatsCharts({token}){
     <Section title="📆 Monthly Revenue €" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📆 Monthly Calls" color="#3B82F6"><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></Section>
 
-    {/* Countries */}
+    {/* Countries - Donut + List */}
     <Section title="🌍 Top Destinations by Revenue" color="#2CADA6">
-      {countryData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;const flag=getFlag(s.name);return(<div key={i} style={{marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{flag}</span><div><div style={{fontSize:12,fontWeight:700}}>{s.name}</div><div style={{fontSize:9,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div></div></div>
-          <div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
-        </div>
-        <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
-      </div>);})}
+      {(()=>{
+        const data=countryData().slice(0,8);
+        const total=data.reduce((a,d)=>a+d.revenue,0)||1;
+        const R=60,cx=80,cy=80;
+        let startAngle=0;
+        const slices=data.map((d,i)=>{
+          const pct=d.revenue/total;
+          const angle=pct*2*Math.PI;
+          const x1=cx+R*Math.sin(startAngle);
+          const y1=cy-R*Math.cos(startAngle);
+          const x2=cx+R*Math.sin(startAngle+angle);
+          const y2=cy-R*Math.cos(startAngle+angle);
+          const large=angle>Math.PI?1:0;
+          const path=`M ${cx} ${cy} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`;
+          const sa=startAngle;
+          startAngle+=angle;
+          return{path,color:COLORS[i%COLORS.length],pct:Math.round(pct*100),name:d.name,revenue:d.revenue,flag:getFlag(d.name),sa};
+        });
+        return(
+          <div>
+            {/* Donut Chart */}
+            <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
+              <svg width={160} height={160} style={{flexShrink:0}}>
+                {slices.map((s,i)=>(
+                  <path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>
+                ))}
+                <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
+                <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Total</text>
+                <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#10B981" fontWeight="bold">€{total.toFixed(0)}</text>
+              </svg>
+              {/* Legend */}
+              <div style={{flex:1}}>
+                {slices.map((s,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:10}}>{s.flag}</span>
+                    <span style={{fontSize:10,fontWeight:600,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+                    <span style={{fontSize:10,color:"#10B981",fontWeight:700,flexShrink:0}}>{s.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Full list */}
+            {countryData().map((s,i)=>{
+              const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;
+              const flag=getFlag(s.name);
+              return(<div key={i} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:16}}>{flag}</span><div><div style={{fontSize:11,fontWeight:700}}>{s.name}</div><div style={{fontSize:9,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div></div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:11,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
+                </div>
+                <div style={{background:"#F0F0F0",borderRadius:4,height:4,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
+              </div>);
+            })}
+          </div>
+        );
+      })()}
     </Section>
 
     {/* Suppliers */}
