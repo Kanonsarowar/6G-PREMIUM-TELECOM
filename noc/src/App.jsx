@@ -4332,41 +4332,66 @@ function SIPMonitorPage({token}){
           ))}
         </div>
 
-        {tab==="invites"&&(
-          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
-            :invites.length===0
-              ?<div style={{padding:40,textAlign:"center",color:"#999"}}>
-                <div style={{fontSize:28,marginBottom:8}}>📋</div>No SIP events yet
-              </div>
-              :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-                  <thead><tr>{["TIME","CALLER","DID/PRN","SOURCE IP","SUPPLIER","DURATION","RESULT","REASON"].map((h,i)=>(
-                    <th key={i} style={thS}>{h}</th>
-                  ))}</tr></thead>
-                  <tbody>{invites.map((inv,i)=>(
-                    <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                      <td style={{padding:"7px 10px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>{(inv.time||"").slice(0,19)}</td>
-                      <td style={{padding:"7px 10px",fontSize:11,fontFamily:"monospace",fontWeight:600}}>{inv.caller||"—"}</td>
-                      <td style={{padding:"7px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{inv.did||"—"}</td>
-                      <td style={{padding:"7px 10px",fontSize:10,fontFamily:"monospace",color:"#555"}}>{inv.source_ip||"—"}</td>
-                      <td style={{padding:"7px 10px",fontSize:11,fontWeight:600}}>{inv.supplier||"—"}</td>
-                      <td style={{padding:"7px 10px",fontSize:11,fontFamily:"monospace"}}>{inv.duration>0?inv.duration+"s":"—"}</td>
-                      <td style={{padding:"7px 10px"}}>
-                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
-                          background:rColor(inv.result)+"20",color:rColor(inv.result)}}>
-                          {rIcon(inv.result)} {inv.result||"—"}
-                        </span>
-                      </td>
-                      <td style={{padding:"7px 10px",fontSize:10,color:"#777",maxWidth:100,
-                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                        title={inv.reason||""}>{inv.reason||"—"}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>}
+        {tab==="invites"&&(()=>{
+          const [search,setSearch]=React.useState("");
+          const filtered=invites.filter(inv=>
+            !search||
+            (inv.caller||"").includes(search)||
+            (inv.did||"").includes(search)||
+            (inv.supplier||"").toLowerCase().includes(search.toLowerCase())
+          );
+          return(
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="Search by CLI, DID, supplier..."
+              style={{width:"100%",padding:"9px 12px",border:"1px solid #E0E0E0",borderRadius:8,
+                fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+            <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              {loading?<div style={{padding:30,textAlign:"center",color:"#999"}}>Loading...</div>
+              :filtered.length===0
+                ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No events found</div>
+                :<div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+                    <thead>
+                      <tr style={{background:"#2CADA6"}}>
+                        {["TIME","CALLER","DID/PRN","SUPPLIER","DURATION","STATUS"].map((h,i)=>(
+                          <th key={i} style={{fontSize:9,color:"#FFF",fontWeight:700,letterSpacing:"0.8px",
+                            padding:"6px 8px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>{filtered.map((inv,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
+                        background:i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"5px 8px",fontSize:9,color:"#555",whiteSpace:"nowrap",fontFamily:"monospace"}}>
+                          {(inv.time||"").slice(0,19)}
+                        </td>
+                        <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>
+                          {inv.caller||"—"}
+                        </td>
+                        <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>
+                          {(inv.did||"—").replace("+","")}
+                        </td>
+                        <td style={{padding:"5px 8px",fontSize:10,fontWeight:600,color:"#333"}}>
+                          {inv.supplier||"—"}
+                        </td>
+                        <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",color:"#555"}}>
+                          {inv.duration>0?inv.duration+"s":"—"}
+                        </td>
+                        <td style={{padding:"5px 8px"}}>
+                          <span style={{fontSize:9,padding:"2px 6px",borderRadius:8,fontWeight:700,
+                            background:rColor(inv.result)+"15",color:rColor(inv.result),whiteSpace:"nowrap"}}>
+                            {rIcon(inv.result)} {inv.result==="ANSWERED"?"RECEIVED":inv.result==="BUSY"?"BUSY":"REJECTED"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>}
+            </div>
           </div>
-        )}
+          );
+        })()}
 
         {tab==="endpoints"&&(
           <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
