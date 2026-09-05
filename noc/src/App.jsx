@@ -421,7 +421,7 @@ function StatsCharts({token}){
     <Section title="📆 Monthly Revenue €" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📆 Monthly Calls" color="#3B82F6"><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></Section>
 
-    {/* Countries - Donut + List */}
+    {/* Countries - Revenue Donut */}
     <Section title="🌍 Top Destinations by Revenue" color="#2CADA6">
       {(()=>{
         const data=countryData().slice(0,8);
@@ -477,6 +477,51 @@ function StatsCharts({token}){
                 <div style={{background:"#F0F0F0",borderRadius:4,height:4,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
               </div>);
             })}
+          </div>
+        );
+      })()}
+    </Section>
+
+    {/* Countries - Minutes Donut */}
+    <Section title="⏱ Top Destinations by Minutes" color="#2CADA6">
+      {(()=>{
+        const data=countryData().slice(0,8).sort((a,b)=>b.minutes-a.minutes);
+        const totalMin=data.reduce((a,d)=>a+d.minutes,0)||1;
+        const R=60,cx=80,cy=80;
+        let startAngle=0;
+        const slices=data.map((d,i)=>{
+          const pct=d.minutes/totalMin;
+          const angle=pct*2*Math.PI;
+          const x1=cx+R*Math.sin(startAngle);
+          const y1=cy-R*Math.cos(startAngle);
+          const x2=cx+R*Math.sin(startAngle+angle);
+          const y2=cy-R*Math.cos(startAngle+angle);
+          const large=angle>Math.PI?1:0;
+          const path=`M ${cx} ${cy} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`;
+          startAngle+=angle;
+          return{path,color:COLORS[i%COLORS.length],pct:Math.round(pct*100),name:d.name,minutes:d.minutes,flag:getFlag(d.name)};
+        });
+        return(
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
+              <svg width={160} height={160} style={{flexShrink:0}}>
+                {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
+                <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
+                <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Total</text>
+                <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#2CADA6" fontWeight="bold">{Math.round(totalMin)}m</text>
+              </svg>
+              <div style={{flex:1}}>
+                {slices.map((s,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:10}}>{s.flag}</span>
+                    <span style={{fontSize:10,fontWeight:600,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+                    <span style={{fontSize:10,color:"#2CADA6",fontWeight:700,flexShrink:0}}>{Math.round(s.minutes)}m</span>
+                    <span style={{fontSize:9,color:"#999",flexShrink:0}}>{s.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         );
       })()}
