@@ -5728,6 +5728,18 @@ function StatsPage({token}){
     });
     return Object.values(weeks).slice(-12);
   };
+  const weeklyData=()=>{
+    const weeks={};
+    cdrs.forEach(c=>{
+      const d=new Date(c.call_start||"");if(isNaN(d))return;
+      const wn=Math.ceil(d.getDate()/7);
+      const key=d.toISOString().slice(0,7)+"-W"+wn;
+      const label="W"+wn+"/"+d.toISOString().slice(5,7);
+      if(!weeks[key])weeks[key]={date:label,calls:0,revenue:0,minutes:0};
+      weeks[key].calls++;weeks[key].revenue+=parseFloat(c.revenue||0);weeks[key].minutes+=parseInt(c.billsec||0)/60;
+    });
+    return Object.values(weeks).slice(-16);
+  };
   const monthlyData=()=>{
     const months={};
     cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={month:m.slice(5),date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
@@ -5787,6 +5799,11 @@ function StatsPage({token}){
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Revenue €</div><SVGBar data={weekly} vk="revenue" color="#10B981"/></div>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Calls</div><SVGBar data={weekly} vk="calls" color="#3B82F6"/></div>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Minutes</div><SVGBar data={weekly} vk="minutes" color="#2CADA6"/></div>
+        </div>}
+        {tab==="weekly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Revenue €</div><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Calls</div><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></div>
+          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Minutes</div><SVGBar data={weeklyData()} vk="minutes" color="#2CADA6"/></div>
         </div>}
         {tab==="monthly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Revenue €</div><SVGBar data={monthly} vk="revenue" color="#10B981"/></div>
