@@ -4931,122 +4931,129 @@ function TestLiveCallPage({token}){
 
 // ── Test Access List Page ──────────────────────────────────────
 function TestAccessListPage({token}){
-  const [list,setList]=useState([]);
+  const [ranges,setRanges]=useState([]);
+  const [dids,setDids]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [newEntry,setNewEntry]=useState({cli:"",name:"",company:"",type:"allow",note:""});
-  const [saving,setSaving]=useState(false);
-  const [msg,setMsg]=useState(null);
+  const [openOp,setOpenOp]=useState("STC");
 
-  const load=()=>{
-    setLoading(true);
-    apiFetch("/test/access-list",token).then(d=>{setList(d.data||[]);setLoading(false);}).catch(()=>setLoading(false));
+  const OPERATORS=[
+    {name:"STC",country:"Saudi Arabia",prefix:"966"},
+    {name:"Mobily",country:"Saudi Arabia",prefix:"966"},
+    {name:"Zain",country:"Saudi Arabia",prefix:"966"},
+    {name:"Redbull",country:"Saudi Arabia",prefix:"966"},
+    {name:"Salam",country:"Saudi Arabia",prefix:"966"},
+    {name:"Libara",country:"Saudi Arabia",prefix:"966"},
+    {name:"Virgin",country:"Saudi Arabia",prefix:"966"},
+  ];
+
+  useEffect(()=>{
+    Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token),apiFetch("/suppliers",token)])
+    .then(([r,d,s])=>{
+      const trunks={};
+      (s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});
+      setRanges(r.data||[]);
+      setDids((d.data||[]).map(x=>({...x,supplier_name:trunks[x.trunk_id]||"—"})));
+      setLoading(false);
+    });
+  },[token]);
+
+  const getTestNumber=(r)=>{
+    const match=dids.find(d=>(d.number||"").replace("+","").startsWith(r.prefix?.replace(/\s/g,"")||""));
+    return match?match.number:r.range_start?"+"+r.range_start:"—";
   };
-  useEffect(()=>{load();},[token]);
 
-  const typeColor=(t)=>t==="allow"?"#10B981":t==="block"?"#EF4444":"#F59E0B";
-  const typeIcon=(t)=>t==="allow"?"✅":t==="block"?"🚫":"⚗";
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
-    textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+    textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",
+    textTransform:"uppercase",whiteSpace:"nowrap"};
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>🔐 Access List</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>Manage allowed and blocked caller CLIs</div>
-      </div>
-      <div style={{padding:"12px 16px"}}>
-        {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
-          background:msg.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-          border:"1px solid "+(msg.success?"#10B981":"#EF4444"),
-          fontSize:12,color:msg.success?"#10B981":"#EF4444",fontWeight:600}}>
-          {msg.success?"✅ ":"❌ "}{msg.message||msg.error}
-        </div>}
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-          <button onClick={()=>setShowAdd(!showAdd)}
-            style={{padding:"8px 16px",borderRadius:20,border:"none",
-              background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            + Add CLI
-          </button>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>
+          Operator access — numbers available to call from each network
         </div>
-        {showAdd&&(
-          <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
-            <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Add to Access List</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>CLI Number *</div>
-                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                  value={newEntry.cli} onChange={e=>setNewEntry({...newEntry,cli:e.target.value})} placeholder="+966501234567"/></div>
-              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div>
-                <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
-                  value={newEntry.type} onChange={e=>setNewEntry({...newEntry,type:e.target.value})}>
-                  <option value="allow">✅ Allow</option>
-                  <option value="block">🚫 Block</option>
-                  <option value="test">⚗ Test Only</option>
-                </select></div>
-              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Name</div>
-                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                  value={newEntry.name} onChange={e=>setNewEntry({...newEntry,name:e.target.value})} placeholder="Contact name"/></div>
-              <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Company</div>
-                <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                  value={newEntry.company} onChange={e=>setNewEntry({...newEntry,company:e.target.value})} placeholder="e.g. WTP, Phonegroup"/></div>
+      </div>
+
+      <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
+        {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
+        :OPERATORS.map(op=>(
+          <div key={op.name} style={{background:"#FFF",borderRadius:10,
+            overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            {/* Operator Header */}
+            <div onClick={()=>setOpenOp(openOp===op.name?null:op.name)}
+              style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",
+                alignItems:"center",cursor:"pointer",
+                background:openOp===op.name?"rgba(44,173,166,0.06)":"#FFF",
+                borderBottom:openOp===op.name?"1px solid #E8E8E8":"none"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:36,height:36,borderRadius:8,
+                  background:"linear-gradient(135deg,#2CADA6,#1a8f8a)",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:14,fontWeight:800,color:"#FFF",flexShrink:0}}>
+                  {op.name[0]}
+                </div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>From {op.name}</div>
+                  <div style={{fontSize:10,color:"#999"}}>{op.country} · +{op.prefix}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
+                  background:"rgba(16,185,129,0.1)",color:"#10B981"}}>
+                  ✅ {ranges.length} ranges
+                </span>
+                <span style={{fontSize:14,color:"#999"}}>{openOp===op.name?"▼":"▶"}</span>
+              </div>
             </div>
-            <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Note</div>
-              <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
-                value={newEntry.note} onChange={e=>setNewEntry({...newEntry,note:e.target.value})} placeholder="Optional note"/></div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={async()=>{
-                if(!newEntry.cli){alert("CLI required");return;}
-                setSaving(true);
-                const d=await apiFetch("/test/access-list",token,{method:"POST",body:JSON.stringify(newEntry)});
-                setMsg(d);setSaving(false);
-                if(d.success){setShowAdd(false);setNewEntry({cli:"",name:"",company:"",type:"allow",note:""});load();}
-              }} disabled={saving}
-                style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                {saving?"Saving...":"✅ Add"}
-              </button>
-              <button onClick={()=>setShowAdd(false)}
-                style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-            </div>
+
+            {/* Operator Table */}
+            {openOp===op.name&&(
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
+                  <thead>
+                    <tr>{["PREFIX","COUNTRY","PRICE/MIN","SUPPLIER","TEST NUMBER"].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {ranges.map((r,i)=>{
+                      const sym=r.currency==="USD"?"$":"€";
+                      const testNum=getTestNumber(r);
+                      return(
+                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",
+                          background:i%2===0?"#FFF":"#FAFAFA"}}>
+                          <td style={{padding:"10px 10px"}}>
+                            <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</div>
+                            <div style={{fontSize:9,color:"#999"}}>{r.range_start}–{r.range_end}</div>
+                          </td>
+                          <td style={{padding:"10px 10px",fontSize:11,color:"#333"}}>{r.country_name||"—"}</td>
+                          <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,
+                            color:"#10B981",fontFamily:"monospace"}}>
+                            {sym}{parseFloat(r.rate||0).toFixed(3)}
+                          </td>
+                          <td style={{padding:"10px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>
+                            {r.supplier_name||"—"}
+                          </td>
+                          <td style={{padding:"10px 10px"}}>
+                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>
+                              {testNum}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-        {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-        :list.length===0
-          ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>
-            No entries. Add CLIs to allow or block callers.
-          </div>
-          :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr>{["CLI","NAME","COMPANY","TYPE","NOTE","ADDED",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
-              <tbody>{list.map((e,i)=>(
-                <tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                  <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{e.cli}</td>
-                  <td style={{padding:"8px 10px",fontSize:11}}>{e.name||"—"}</td>
-                  <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{e.company||"—"}</td>
-                  <td style={{padding:"8px 10px"}}>
-                    <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
-                      background:typeColor(e.type)+"20",color:typeColor(e.type)}}>
-                      {typeIcon(e.type)} {e.type.toUpperCase()}
-                    </span>
-                  </td>
-                  <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{e.note||"—"}</td>
-                  <td style={{padding:"8px 10px",fontSize:10,color:"#999"}}>{(e.created_at||"").slice(0,10)}</td>
-                  <td style={{padding:"8px 10px",textAlign:"center"}}>
-                    <button onClick={async()=>{
-                      if(!window.confirm("Remove?"))return;
-                      await apiFetch("/test/access-list/"+e.id,token,{method:"DELETE"});
-                      load();
-                    }} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                      cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button>
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        }
+        ))}
       </div>
     </div>
   );
 }
+
 
 
 export default function App(){
