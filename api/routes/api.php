@@ -2125,3 +2125,39 @@ Route::get('/v1/system/health', function() {
         'timestamp'=> now()->toISOString(),
     ]);
 });
+
+// ── Test Number Access List ────────────────────────────────────
+Route::get('/v1/test/access-list', function() {
+    try {
+        $list = DB::table('test_access_list')->orderByDesc('created_at')->get();
+        return response()->json(['data'=>$list]);
+    } catch(Exception $e) {
+        return response()->json(['data'=>[]]);
+    }
+});
+Route::post('/v1/test/access-list', function(Request $r) {
+    try {
+        DB::statement("CREATE TABLE IF NOT EXISTS test_access_list (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            cli VARCHAR(50) NOT NULL,
+            type VARCHAR(20) DEFAULT 'allow',
+            description VARCHAR(200),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )");
+        $id = DB::table('test_access_list')->insertGetId([
+            'cli'         => $r->cli,
+            'type'        => $r->type ?? 'allow',
+            'description' => $r->description,
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('test_access_list')->find($id)]);
+    } catch(Exception $e) {
+        return response()->json(['error'=>$e->getMessage()],500);
+    }
+});
+Route::delete('/v1/test/access-list/{id}', function($id) {
+    DB::table('test_access_list')->delete($id);
+    return response()->json(['success'=>true]);
+});

@@ -3699,176 +3699,283 @@ function IPWhitelistPage({token}){
 }
 // ── Test Labs ─────────────────────────────────────────────────────
 function TestLabsPage({token}){
-  const [genSaving,setGenSaving]=useState(false);
-  const [tab,setTab]=useState("number");
+  const [tab,setTab]=useState("test");
   const [number,setNumber]=useState("");
-  const [cdrSearch,setCdrSearch]=useState("");
   const [result,setResult]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const [liveCalls,setLiveCalls]=useState([]);
-  const inp={width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,
-    background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10};
-  const testNumber=async()=>{
-    setLoading(true);setResult(null);
-    const d=await apiFetch(`/dids?number=${encodeURIComponent(number)}`,token);
-    setResult({type:"number",did:(d.data||[]).find(x=>x.number===number),number});
-    setLoading(false);
-  };
-  const testCdr=async()=>{
-    setLoading(true);setResult(null);
-    const d=await apiFetch(`/cdr?search=${encodeURIComponent(cdrSearch)}`,token);
-    setResult({type:"cdr",records:d.data||[]});
-    setLoading(false);
-  };
-  const testLive=async()=>{
-    setLoading(true);
-    const d=await apiFetch("/live-calls",token);
-    setLiveCalls(d.data||d||[]);setResult({type:"live"});
-    setLoading(false);
-  };
-  return(
-    <div style={{padding:16}}>
-      <div style={{fontSize:16,fontWeight:800,marginBottom:16}}>🧪 Test Labs</div>
-      <div style={{display:"flex",gap:4,marginBottom:16,background:C.surface,padding:4,
-        borderRadius:10,border:`1px solid ${C.border}`}}>
-        {[["number","📱 Number"],["cdr","📋 CDR"],["live","📡 Live"]].map(([k,l])=>(
-          <button key={k} onClick={()=>{setTab(k);setResult(null);}}
-            style={{flex:1,padding:"9px 6px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",
-              border:"none",background:tab===k?`${C.green}20`:"transparent",color:tab===k?C.green:C.muted}}>
-            {l}
-          </button>
-        ))}
-      </div>
-      <Card style={{padding:16}}>
-        {tab==="number"&&(
-          <div>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Test DID Number</div>
-            <input style={inp} value={number} placeholder="+393199052100"
-              onChange={e=>setNumber(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testNumber()}/>
-            <button onClick={testNumber} disabled={loading}
-              style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.green}40`,
-                background:`${C.green}15`,color:C.green,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-              {loading?"Testing...":"Test Number"}
-            </button>
-            {result?.type==="number"&&(
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {[["Number",result.number],["Found",result.did?"✅ YES":"❌ NO"],
-                  ["Status",result.did?.status||"—"],["IVR",result.did?.ivr_context||"—"]].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",
-                    borderRadius:6,background:"rgba(255,255,255,0.02)"}}>
-                    <span style={{fontSize:11,color:C.muted}}>{k}</span>
-                    <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {tab==="cdr"&&(
-          <div>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:10}}>CDR Lookup</div>
-            <input style={inp} value={cdrSearch} placeholder="Phone or DID..."
-              onChange={e=>setCdrSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&testCdr()}/>
-            <button onClick={testCdr} disabled={loading}
-              style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.blue}40`,
-                background:`${C.blue}15`,color:C.blue,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-              {loading?"Searching...":"Search CDR"}
-            </button>
-            {result?.type==="cdr"&&(
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:8}}>{result.records.length} records</div>
-                {result.records.slice(0,5).map((c,i)=>(
-                  <div key={i} style={{padding:"8px 10px",borderRadius:6,background:"rgba(255,255,255,0.02)",
-                    border:`1px solid ${C.border}`,marginBottom:4,fontSize:11}}>
-                    <span style={{color:C.blue,fontFamily:"monospace"}}>{c.src}</span>
-                    <span style={{color:C.muted,margin:"0 6px"}}>→</span>
-                    <span>{c.did}</span>
-                    <span style={{float:"right",color:c.disposition==="ANSWERED"?C.green:C.red,fontWeight:700}}>
-                      {c.disposition}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {tab==="live"&&(
-          <div>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Live Monitor</div>
-            <button onClick={testLive} disabled={loading}
-              style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.purple}40`,
-                background:`${C.purple}15`,color:C.purple,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-              {loading?"Checking...":"Check Live Calls"}
-            </button>
-            {result?.type==="live"&&(
-              <div style={{padding:"10px 12px",borderRadius:8,textAlign:"center",
-                background:liveCalls.length>0?`${C.green}08`:`${C.orange}08`,
-                border:`1px solid ${liveCalls.length>0?C.green:C.orange}30`,
-                fontSize:13,fontWeight:700,color:liveCalls.length>0?C.green:C.orange}}>
-                {liveCalls.length>0?`${liveCalls.length} active call(s)`:"No active calls"}
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
+  const [testing,setTesting]=useState(false);
+  const [accessList,setAccessList]=useState([]);
+  const [loadingList,setLoadingList]=useState(true);
+  const [showAdd,setShowAdd]=useState(false);
+  const [newEntry,setNewEntry]=useState({cli:"",description:"",type:"allow"});
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState(null);
 
-      {/* Invoices Section */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"16px 0 8px"}}>
-        <div style={{fontSize:11,fontWeight:700}}>Weekly Invoices</div>
-        <button disabled={genSaving} onClick={async()=>{
-          setGenSaving(true);
-          const d=await apiFetch("/invoices/generate-weekly",token,{method:"POST"});
-          if(d.success){
-            alert(d.message);
-            apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
-    apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
-          }
-          setGenSaving(false);
-        }}
-          style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.cyan}40`,
-            background:`${C.cyan}15`,color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          {genSaving?"Generating...":"⚡ Generate Now"}
-        </button>
+  const loadAccessList=()=>{
+    setLoadingList(true);
+    apiFetch("/test/access-list",token).then(d=>{
+      setAccessList(d.data||[]);
+      setLoadingList(false);
+    }).catch(()=>setLoadingList(false));
+  };
+
+  useEffect(()=>{loadAccessList();},[token]);
+
+  const testNumber=async()=>{
+    if(!number.trim()){alert("Enter a number");return;}
+    setTesting(true);setResult(null);
+    const num=number.trim().startsWith("+")?number.trim():"+"+number.trim();
+    const d=await apiFetch("/dids?number="+encodeURIComponent(num),token);
+    const did=(d.data||[]).find(x=>x.number===num||(x.number||"").replace("+","")===(num||"").replace("+",""));
+    setResult({number:num,found:!!did,did});
+    setTesting(false);
+  };
+
+  const addToAccessList=async()=>{
+    if(!newEntry.cli.trim()){alert("CLI required");return;}
+    setSaving(true);
+    const d=await apiFetch("/test/access-list",token,{method:"POST",body:JSON.stringify(newEntry)});
+    setMsg(d);setSaving(false);
+    if(d.success){setShowAdd(false);setNewEntry({cli:"",description:"",type:"allow"});loadAccessList();}
+  };
+
+  const removeFromList=async(id)=>{
+    if(!window.confirm("Remove from access list?")) return;
+    await apiFetch("/test/access-list/"+id,token,{method:"DELETE"});
+    loadAccessList();
+  };
+
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
+    padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",
+    background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700}}>⚗ Test Number</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Test DID routing and manage CLI access list</div>
       </div>
-      <Card style={{overflow:"hidden",marginBottom:8}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 60px 70px 80px 60px 70px",
-          padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderBottom:`1px solid ${C.border}`}}>
-          {["Invoice #","Cur","Calls","Amount","Status","Period"].map(h=>(
-            <div key={h} style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</div>
+
+      <div style={{padding:"12px 16px"}}>
+        {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+          background:msg.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(msg.success?"#10B981":"#EF4444"),
+          fontSize:12,color:msg.success?"#10B981":"#EF4444",fontWeight:600}}>
+          {msg.success?"✅ ":"❌ "}{msg.message||msg.error}
+        </div>}
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:12}}>
+          {[["test","⚗ Test Number"],["access","🔐 Access List"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"8px 16px",borderRadius:20,border:"none",fontSize:11,
+                background:tab===t?"#2CADA6":"#F0F0F0",
+                color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer"}}>
+              {l}
+            </button>
           ))}
         </div>
-        {invoices.length===0
-          ?<div style={{padding:20,textAlign:"center",color:C.muted,fontSize:11}}>
-            No invoices yet — auto-generated every Sunday 00:01 UTC
-          </div>
-          :invoices.slice(0,10).map((inv,i)=>(
-            <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 60px 70px 80px 60px 70px",
-              padding:"10px 12px",borderBottom:`1px solid rgba(255,255,255,0.03)`,alignItems:"center"}}>
-              <span style={{fontSize:10,fontFamily:"monospace",color:C.blue}}>{inv.invoice_number}</span>
-              <span style={{fontSize:10,padding:"2px 6px",borderRadius:10,fontWeight:700,
-                background:inv.currency==="USD"?`${C.yellow}15`:`${C.blue}15`,
-                color:inv.currency==="USD"?C.yellow:C.blue}}>{inv.currency}</span>
-              <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{inv.total_calls}</span>
-              <span style={{fontSize:11,fontWeight:700,color:inv.currency==="USD"?C.yellow:C.green,fontFamily:"monospace"}}>
-                {inv.currency==="USD"?"$":"€"}{parseFloat(inv.total_amount||0).toFixed(4)}
-              </span>
-              <button onClick={async()=>{
-                const newStatus=inv.status==="paid"?"unpaid":"paid";
-                await apiFetch(`/invoices/${inv.id}/status`,token,{method:"PUT",body:JSON.stringify({status:newStatus})});
-                apiFetch("/invoices",token).then(d=>setInvoices(d.data||[]));
-    apiFetch("/invoices/supplier",token).then(d=>setSupInvoices(d.data||[]));
-              }}
-                style={{fontSize:9,padding:"2px 8px",borderRadius:10,cursor:"pointer",fontWeight:700,
-                  background:inv.status==="paid"?`${C.green}15`:`${C.orange}15`,
-                  color:inv.status==="paid"?C.green:C.orange,
-                  border:`1px solid ${inv.status==="paid"?C.green:C.orange}30`}}>
-                {(inv.status||"unpaid").toUpperCase()}
-              </button>
-              <span style={{fontSize:9,color:C.muted}}>{(inv.period_start||"").slice(5)}</span>
+
+        {/* TEST NUMBER TAB */}
+        {tab==="test"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{background:"#FFF",borderRadius:10,padding:16,
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Test DID Number</div>
+              <div style={{display:"flex",gap:8,marginBottom:12}}>
+                <input
+                  style={{flex:1,padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,
+                    fontSize:13,outline:"none"}}
+                  value={number}
+                  onChange={e=>setNumber(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&testNumber()}
+                  placeholder="+88233770042"
+                />
+                <button onClick={testNumber} disabled={testing}
+                  style={{padding:"10px 20px",borderRadius:8,border:"none",
+                    background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  {testing?"Testing...":"⚗ Test"}
+                </button>
+              </div>
+
+              {result&&(
+                <div style={{borderRadius:8,overflow:"hidden",border:"1px solid #E8E8E8"}}>
+                  <div style={{padding:"10px 14px",background:result.found?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
+                    borderBottom:"1px solid #E8E8E8",display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:20}}>{result.found?"✅":"❌"}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:result.found?"#10B981":"#EF4444"}}>
+                        {result.found?"Number Found in System":"Number NOT Found"}
+                      </div>
+                      <div style={{fontSize:11,color:"#999"}}>{result.number}</div>
+                    </div>
+                  </div>
+                  {result.found&&result.did&&(
+                    <div style={{padding:14}}>
+                      {[
+                        ["Number",result.did.number],
+                        ["Country",result.did.country_name||"—"],
+                        ["Supplier",result.did.trunk_name||result.did.trunk_id||"—"],
+                        ["Tariff",(result.did.currency==="USD"?"$":"€")+(result.did.tariff||"0")+" /min"],
+                        ["IVR",(result.did.ivr_context||"—").replace("custom/","")],
+                        ["Status",result.did.status||"—"],
+                        ["Payment",result.did.payment_terms||"—"],
+                      ].map(([k,v])=>(
+                        <div key={k} style={{display:"flex",justifyContent:"space-between",
+                          padding:"7px 0",borderBottom:"1px solid #F5F5F5"}}>
+                          <span style={{fontSize:11,color:"#666",fontWeight:600}}>{k}</span>
+                          <span style={{fontSize:11,fontFamily:"monospace",fontWeight:600,color:"#1A1A1A"}}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!result.found&&(
+                    <div style={{padding:14,fontSize:12,color:"#555"}}>
+                      This number is not in your DID inventory. Add it via the Numbers module.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          ))
-        }
-      </Card>
+
+            {/* Call flow info */}
+            <div style={{background:"#FFF",borderRadius:10,padding:14,
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:10}}>
+                Expected Call Flow
+              </div>
+              {[
+                ["1","Supplier sends INVITE to 195.200.14.165:5060","#3B82F6"],
+                ["2","Asterisk PJSIP matches supplier IP → endpoint","#8B5CF6"],
+                ["3","Routes to from-carrier context","#2CADA6"],
+                ["4","AGI did_router.php looks up DID in DB","#F59E0B"],
+                ["5","Sets IVR_CONTEXT + TARIFF variables","#F97316"],
+                ["6","Answer() + Playback(IVR) loops forever","#10B981"],
+                ["7","On hangup: h extension fires → CDR saved","#EF4444"],
+              ].map(([n,text,color])=>(
+                <div key={n} style={{display:"flex",alignItems:"center",gap:10,
+                  padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+                  <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,
+                    background:color+"20",color,fontSize:10,fontWeight:700,
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>{n}</span>
+                  <span style={{fontSize:11,color:"#555"}}>{text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ACCESS LIST TAB */}
+        {tab==="access"&&(
+          <>
+            <div style={{background:"rgba(59,130,246,0.06)",border:"1px solid rgba(59,130,246,0.2)",
+              borderRadius:8,padding:12,marginBottom:12,fontSize:11,color:"#3B82F6"}}>
+              ℹ️ Access list controls which CLI numbers are allowed or blocked from calling your DIDs.
+              This is a reference list — enforcement requires integration with your fraud rules.
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+              <button onClick={()=>setShowAdd(!showAdd)}
+                style={{padding:"8px 16px",borderRadius:20,border:"none",
+                  background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                + Add CLI
+              </button>
+            </div>
+
+            {showAdd&&(
+              <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,
+                boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Add to Access List</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>CLI Number *</div>
+                    <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
+                      borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                      value={newEntry.cli} onChange={e=>setNewEntry({...newEntry,cli:e.target.value})}
+                      placeholder="+966501234567"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div>
+                    <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
+                      borderRadius:6,fontSize:12,outline:"none"}}
+                      value={newEntry.type} onChange={e=>setNewEntry({...newEntry,type:e.target.value})}>
+                      <option value="allow">✅ Allow</option>
+                      <option value="block">🚫 Block</option>
+                      <option value="test">⚗ Test Only</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Description</div>
+                  <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",
+                    borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
+                    value={newEntry.description} onChange={e=>setNewEntry({...newEntry,description:e.target.value})}
+                    placeholder="e.g. WTP test caller, blocked spammer"/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={addToAccessList} disabled={saving}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",
+                      background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Saving...":"✅ Add to List"}
+                  </button>
+                  <button onClick={()=>setShowAdd(false)}
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",
+                      background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {loadingList?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
+            :accessList.length===0
+              ?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",
+                color:"#999",fontSize:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                No entries in access list. Add CLIs to allow or block.
+              </div>
+              :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+                boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr>{["CLI","TYPE","DESCRIPTION","ADDED",""].map((h,i)=>(
+                      <th key={i} style={thS}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {accessList.map((entry,i)=>(
+                      <tr key={entry.id} style={{borderBottom:"1px solid #F5F5F5",
+                        background:i%2===0?"#FFF":"#FAFAFA"}}>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>
+                          {entry.cli}
+                        </td>
+                        <td style={{padding:"8px 10px"}}>
+                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
+                            background:entry.type==="allow"?"rgba(16,185,129,0.1)":
+                              entry.type==="block"?"rgba(239,68,68,0.1)":"rgba(245,158,11,0.1)",
+                            color:entry.type==="allow"?"#10B981":
+                              entry.type==="block"?"#EF4444":"#F59E0B"}}>
+                            {entry.type==="allow"?"✅ ALLOW":entry.type==="block"?"🚫 BLOCK":"⚗ TEST"}
+                          </span>
+                        </td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{entry.description||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:10,color:"#999",whiteSpace:"nowrap"}}>
+                          {(entry.created_at||"").slice(0,10)}
+                        </td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={()=>removeFromList(entry.id)}
+                            style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </>
+        )}
+      </div>
     </div>
   );
 }
