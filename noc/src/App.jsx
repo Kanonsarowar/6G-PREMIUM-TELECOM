@@ -4728,6 +4728,7 @@ function TestNumbersPage({token}){
   const [ranges,setRanges]=useState([]);
   const [dids,setDids]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [selectedCountry,setSelectedCountry]=useState("");
   const [msg,setMsg]=useState(null);
 
   useEffect(()=>{
@@ -4741,69 +4742,145 @@ function TestNumbersPage({token}){
     });
   },[token]);
 
+  const countries=[...new Set(ranges.map(r=>r.country_name).filter(Boolean))].sort();
+
+  const filtered=selectedCountry
+    ?ranges.filter(r=>r.country_name===selectedCountry)
+    :[];
+
   const getTestNumber=(r)=>{
     const match=dids.find(d=>(d.number||"").replace("+","").startsWith(r.prefix?.replace(/\s/g,"")||""));
     return match?match.number:r.range_start?"+"+r.range_start:"—";
   };
 
-  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
-    textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
+  const thS={fontSize:9,color:"#FFF",fontWeight:700,letterSpacing:"0.8px",
+    padding:"7px 10px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"};
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>📋 Test Numbers</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>One test number per range for supplier testing</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Select a country to view test numbers</div>
       </div>
+
       <div style={{padding:"12px 16px"}}>
         {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
           background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",
           fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
-        <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-          {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
-          :<div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
-              <thead>
-                <tr>{["SL","PREFIX/RANGE","COUNTRY","PRICE/MIN","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
-                  <th key={i} style={thS}>{h}</th>
-                ))}</tr>
-              </thead>
-              <tbody>
-                {ranges.map((r,i)=>{
-                  const sym=r.currency==="USD"?"$":"€";
-                  const ivr=(r.ivr_context||r.default_ivr||"—").replace("custom/","");
-                  const testNum=getTestNumber(r);
-                  return(
-                    <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                      <td style={{padding:"10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
-                      <td style={{padding:"10px"}}>
-                        <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</div>
-                        <div style={{fontSize:9,color:"#999"}}>{r.range_start}–{r.range_end}</div>
-                      </td>
-                      <td style={{padding:"10px",fontSize:11}}>{r.country_name||"—"}</td>
-                      <td style={{padding:"10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
-                        {sym}{parseFloat(r.rate||0).toFixed(3)}
-                      </td>
-                      <td style={{padding:"10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
-                      <td style={{padding:"10px",fontSize:10,color:"#555"}}>{ivr}</td>
-                      <td style={{padding:"10px"}}>
-                        <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginBottom:4}}>{testNum}</div>
-                        <button onClick={()=>{
-                          navigator.clipboard?.writeText(testNum);
-                          setMsg("Copied: "+testNum);
-                          setTimeout(()=>setMsg(null),2000);
-                        }} style={{padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
-                          background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                          📋 Copy
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>}
+
+        {/* Country Selection */}
+        <div style={{background:"#FFF",borderRadius:10,padding:16,
+          boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>
+            Please make a selection from the list below.
+          </div>
+          <div style={{fontSize:11,color:"#999",marginBottom:14}}>
+            Select a country to view available test numbers for that destination.
+          </div>
+          <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:6}}>Select Country:</div>
+          <div style={{display:"flex",gap:8}}>
+            <select
+              value={selectedCountry}
+              onChange={e=>setSelectedCountry(e.target.value)}
+              style={{flex:1,padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,
+                fontSize:13,outline:"none",color:"#1A1A1A",background:"#FFF"}}>
+              <option value="">— Select Country —</option>
+              {countries.map(c=>(
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <button onClick={()=>setSelectedCountry("")}
+              style={{padding:"10px 16px",borderRadius:8,border:"1px solid #E0E0E0",
+                background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              Clear
+            </button>
+          </div>
         </div>
+
+        {/* Results */}
+        {!selectedCountry?(
+          <div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:36,marginBottom:12}}>🌍</div>
+            <div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>
+              {countries.length} countries available
+            </div>
+            <div style={{fontSize:11,color:"#999",marginBottom:16}}>
+              Select a country above to view test numbers
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center",maxWidth:400,margin:"0 auto"}}>
+              {countries.map(c=>(
+                <button key={c} onClick={()=>setSelectedCountry(c)}
+                  style={{padding:"5px 12px",borderRadius:16,border:"1px solid #2CADA6",
+                    background:"rgba(44,173,166,0.08)",color:"#2CADA6",
+                    fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        ):(
+          <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{background:"#2CADA6",padding:"10px 14px",
+              display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#FFF"}}>
+                🌍 {selectedCountry} — {filtered.length} range{filtered.length!==1?"s":""}
+              </span>
+              <span style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>{filtered.reduce((a,r)=>a+(r.total_count||0),0)} numbers total</span>
+            </div>
+            {filtered.length===0
+              ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No ranges for this country</div>
+              :<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
+                  <thead>
+                    <tr style={{background:"#F5F5F5"}}>
+                      {["SL","PREFIX / RANGE","PRICE/MIN","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
+                        <th key={i} style={{fontSize:9,color:"#888",fontWeight:700,letterSpacing:"0.8px",
+                          padding:"7px 10px",textAlign:"left",textTransform:"uppercase",
+                          whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((r,i)=>{
+                      const sym=r.currency==="USD"?"$":"€";
+                      const ivr=(r.ivr_context||r.default_ivr||"—").replace("custom/","");
+                      const testNum=getTestNumber(r);
+                      return(
+                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",
+                          background:i%2===0?"#FFF":"#FAFAFA"}}>
+                          <td style={{padding:"10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
+                          <td style={{padding:"10px"}}>
+                            <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>{r.prefix}</div>
+                            <div style={{fontSize:9,color:"#999",marginTop:2}}>{r.range_start} – {r.range_end}</div>
+                          </td>
+                          <td style={{padding:"10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
+                            {sym}{parseFloat(r.rate||0).toFixed(3)}
+                          </td>
+                          <td style={{padding:"10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
+                          <td style={{padding:"10px",fontSize:10,color:"#555"}}>{ivr}</td>
+                          <td style={{padding:"10px"}}>
+                            <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginBottom:4}}>
+                              {testNum}
+                            </div>
+                            <button onClick={()=>{
+                              navigator.clipboard?.writeText(testNum);
+                              setMsg("Copied: "+testNum);
+                              setTimeout(()=>setMsg(null),2000);
+                            }} style={{padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                              background:"rgba(44,173,166,0.1)",color:"#2CADA6",
+                              fontSize:9,fontWeight:700,cursor:"pointer"}}>📋 Copy</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        )}
       </div>
     </div>
   );
