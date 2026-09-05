@@ -3748,9 +3748,9 @@ function TestLabsPage({token}){
   },[token]);
 
   const getTestNumber=(r)=>{
-    const match=dids.find(d=>{
-      const n=(d.number||"").replace("+","");
-      return n.startsWith(r.prefix?.replace(/\s/g,"")||"");
+    const prefix=(r.prefix||"").replace(/\s/g,"");
+    const match=dids.find(d=>(d.number||"").replace("+","")===r.range_start||(d.number||"").replace("+","").startsWith(prefix)&&(d.prefix||"")===(prefix));
+    return match?match.number:(r.range_start?"+"+r.range_start:"—");
     });
     return match?match.number:r.range_start?"+"+r.range_start:"—";
   };
@@ -4757,9 +4757,9 @@ function TestNumbersPage({token}){
     :[];
 
   const getTestNumber=(r)=>{
-    const match=dids.find(d=>(d.number||"").replace("+","").startsWith(r.prefix?.replace(/\s/g,"")||""));
-    return match?match.number:r.range_start?"+"+r.range_start:"—";
-  };
+    const prefix=(r.prefix||"").replace(/\s/g,"");
+    const match=dids.find(d=>(d.number||"").replace("+","")===r.range_start||(d.number||"").replace("+","").startsWith(prefix)&&(d.prefix||"")===(prefix));
+    return match?match.number:(r.range_start?"+"+r.range_start:"—");
 
   const thS={fontSize:9,color:"#FFF",fontWeight:700,letterSpacing:"0.8px",
     padding:"7px 10px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"};
@@ -5145,9 +5145,9 @@ function TestAccessListPage({token}){
   },[token]);
 
   const getTestNumber=(r)=>{
-    const match=dids.find(d=>(d.number||"").replace("+","").startsWith(r.prefix?.replace(/\s/g,"")||""));
-    return match?match.number:r.range_start?"+"+r.range_start:"—";
-  };
+    const prefix=(r.prefix||"").replace(/\s/g,"");
+    const match=dids.find(d=>(d.number||"").replace("+","")===r.range_start||(d.number||"").replace("+","").startsWith(prefix)&&(d.prefix||"")===(prefix));
+    return match?match.number:(r.range_start?"+"+r.range_start:"—");
 
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
     textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",
