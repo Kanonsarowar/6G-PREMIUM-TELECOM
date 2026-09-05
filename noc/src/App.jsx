@@ -38,6 +38,7 @@ const getNavGroups=(role)=>{
     {id:"cdr",label:"CDR",icon:"≡"},
     {id:"revenue",label:"Revenue",icon:"◈"},
     {id:"quality",label:"Call Quality",icon:"📊"},
+    {id:"stats",label:"Statistics",icon:"📈"},
   ]},
   {key:"numbers",label:"Numbers & IVR",items:[
     {id:"numbers",label:"Numbers",icon:"▤"},
@@ -5288,6 +5289,7 @@ export default function App(){
       case "testaccesslist":return <TestAccessListPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "quality":       return <CallQualityPage token={token}/>;
+      case "stats":         return <StatsPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
@@ -5519,6 +5521,254 @@ function AddTestNumberPage({token}){
               {saving?"Importing...":"📋 Import Numbers"}
             </button>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Stats Page ────────────────────────────────────────────────
+function StatsPage({token}){
+  const {BarChart,Bar,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,LineChart,Line,Legend}=window.Recharts||{};
+  const [cdrs,setCdrs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("daily");
+  const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
+
+  useEffect(()=>{
+    apiFetch("/cdr?per_page=2000",token).then(d=>{
+      setCdrs(d.data||[]);setLoading(false);
+    });
+  },[token]);
+
+  // Daily data for selected month
+  const dailyData=()=>{
+    const days={};
+    const [y,m]=month.split("-");
+    const daysInMonth=new Date(y,m,0).getDate();
+    for(let i=1;i<=daysInMonth;i++){
+      const d=`${month}-${String(i).padStart(2,"0")}`;
+      days[d]={date:String(i).padStart(2,"0"),calls:0,revenue:0,minutes:0,eur:0,usd:0};
+    }
+    cdrs.forEach(c=>{
+      const day=(c.call_start||"").slice(0,10);
+      if(days[day]){
+        days[day].calls++;
+        days[day].revenue+=parseFloat(c.revenue||0);
+        days[day].minutes+=parseInt(c.billsec||0)/60;
+        if((c.currency||"EUR")==="USD") days[day].usd+=parseFloat(c.revenue||0);
+        else days[day].eur+=parseFloat(c.revenue||0);
+      }
+    });
+    return Object.values(days);
+  };
+
+  // Monthly data
+  const monthlyData=()=>{
+    const months={};
+    cdrs.forEach(c=>{
+      const m=(c.call_start||"").slice(0,7);
+      if(!m) return;
+      if(!months[m]) months[m]={month:m,calls:0,revenue:0,minutes:0};
+      months[m].calls++;
+      months[m].revenue+=parseFloat(c.revenue||0);
+      months[m].minutes+=parseInt(c.billsec||0)/60;
+    });
+    return Object.values(months).sort((a,b)=>a.month.localeCompare(b.month));
+  };
+
+  // Supplier breakdown
+  const supplierData=()=>{
+    const s={};
+    cdrs.forEach(c=>{
+      const sup=c.trunk_name||"Unknown";
+      if(!s[sup]) s[sup]={name:sup,calls:0,revenue:0,minutes:0};
+      s[sup].calls++;
+      s[sup].revenue+=parseFloat(c.revenue||0);
+      s[sup].minutes+=parseInt(c.billsec||0)/60;
+    });
+    return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
+  };
+
+  const daily=dailyData();
+  const monthly=monthlyData();
+  const bySupplier=supplierData();
+  const totalRevenue=cdrs.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
+  const totalCalls=cdrs.length;
+  const totalMinutes=cdrs.reduce((a,c)=>a+parseInt(c.billsec||0),0)/60;
+
+  const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
+  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
+    textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
+
+  // Simple SVG bar chart (fallback if recharts not available)
+  const SVGBarChart=({data,valueKey,color="#2CADA6",label=""})=>{
+    if(!data||data.length===0) return null;
+    const max=Math.max(...data.map(d=>d[valueKey]||0))||1;
+    const W=data.length;
+    return(
+      <div style={{overflowX:"auto"}}>
+        <svg width={Math.max(600,W*22)} height={180} style={{display:"block"}}>
+          {data.map((d,i)=>{
+            const h=Math.round((d[valueKey]||0)/max*140);
+            const x=i*22+2;
+            return(
+              <g key={i}>
+                <rect x={x} y={150-h} width={18} height={h} fill={color} rx={2} opacity={0.85}/>
+                <text x={x+9} y={165} textAnchor="middle" fontSize={7} fill="#999">{d.date||d.month?.slice(5)||d.name||""}</text>
+                {h>15&&<text x={x+9} y={150-h-3} textAnchor="middle" fontSize={7} fill={color} fontWeight="bold">
+                  {d[valueKey]>1000?Math.round(d[valueKey]/1000)+"k":parseFloat(d[valueKey]).toFixed(1)}
+                </text>}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700}}>📊 Statistics</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>Revenue and call analytics</div>
+      </div>
+      <div style={{padding:"12px 16px"}}>
+
+        {/* Summary Cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+          {[
+            {label:"Total Calls",value:totalCalls,color:"#3B82F6",icon:"📞"},
+            {label:"Total Minutes",value:Math.round(totalMinutes)+"m",color:"#2CADA6",icon:"⏱"},
+            {label:"Total Revenue",value:"€"+totalRevenue.toFixed(2),color:"#10B981",icon:"💶"},
+          ].map((c,i)=>(
+            <div key={i} style={{background:"#FFF",borderRadius:8,padding:12,
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}>
+              <div style={{fontSize:14,marginBottom:2}}>{c.icon}</div>
+              <div style={{fontSize:18,fontWeight:800,color:c.color}}>{c.value}</div>
+              <div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
+          {[["daily","📅 Daily"],["monthly","📆 Monthly"],["supplier","⬡ By Supplier"],["table","📋 Table"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,
+                background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",
+                fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
+          ))}
+        </div>
+
+        {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>:(
+          <>
+            {/* DAILY TAB */}
+            {tab==="daily"&&(
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                {/* Month Selector */}
+                <div style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",
+                  display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:11,fontWeight:600,color:"#555"}}>Month:</span>
+                  <input type="month" value={month} onChange={e=>setMonth(e.target.value)}
+                    style={{padding:"6px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}/>
+                  <span style={{fontSize:11,color:"#999"}}>
+                    {daily.reduce((a,d)=>a+d.calls,0)} calls · €{daily.reduce((a,d)=>a+d.revenue,0).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* Revenue Chart */}
+                <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:12}}>Daily Revenue (€)</div>
+                  <SVGBarChart data={daily} valueKey="revenue" color="#10B981"/>
+                </div>
+
+                {/* Calls Chart */}
+                <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:12}}>Daily Calls</div>
+                  <SVGBarChart data={daily} valueKey="calls" color="#3B82F6"/>
+                </div>
+
+                {/* Minutes Chart */}
+                <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:12}}>Daily Minutes</div>
+                  <SVGBarChart data={daily} valueKey="minutes" color="#2CADA6"/>
+                </div>
+              </div>
+            )}
+
+            {/* MONTHLY TAB */}
+            {tab==="monthly"&&(
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:12}}>Monthly Revenue (€)</div>
+                  <SVGBarChart data={monthly} valueKey="revenue" color="#10B981"/>
+                </div>
+                <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:12}}>Monthly Calls</div>
+                  <SVGBarChart data={monthly} valueKey="calls" color="#3B82F6"/>
+                </div>
+              </div>
+            )}
+
+            {/* SUPPLIER TAB */}
+            {tab==="supplier"&&(
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {bySupplier.map((s,i)=>{
+                  const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;
+                  return(
+                    <div key={i} style={{background:"#FFF",borderRadius:8,padding:14,
+                      boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                        <div>
+                          <span style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{s.name}</span>
+                          <span style={{fontSize:10,color:"#999",marginLeft:8}}>{s.calls} calls · {Math.round(s.minutes)}m</span>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div>
+                          <div style={{fontSize:10,color:"#999"}}>{pct}%</div>
+                        </div>
+                      </div>
+                      <div style={{background:"#F0F0F0",borderRadius:4,height:6,overflow:"hidden"}}>
+                        <div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* TABLE TAB */}
+            {tab==="table"&&(
+              <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
+                boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead>
+                      <tr>{["DATE","DID","CLI","SUPPLIER","DURATION","REVENUE","CURRENCY"].map((h,i)=>(
+                        <th key={i} style={thS}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {cdrs.slice(0,200).map((c,i)=>(
+                        <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                          <td style={{padding:"6px 10px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>{(c.call_start||"").slice(0,16)}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:600}}>{c.did||"—"}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{c.src||"—"}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontWeight:600}}>{c.trunk_name||"—"}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{c.billsec||0}s</td>
+                          <td style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
+                            {c.currency==="USD"?"$":"€"}{parseFloat(c.revenue||0).toFixed(4)}
+                          </td>
+                          <td style={{padding:"6px 10px",fontSize:10,color:"#555"}}>{c.currency||"EUR"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
