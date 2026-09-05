@@ -4245,6 +4245,7 @@ function SIPMonitorPage({token}){
   const [tab,setTab]=useState("invites");
   const logRef=useRef(null);
   const [ts,setTs]=useState("");
+  const [sipSearch,setSipSearch]=useState("");
 
   const load=useCallback(()=>{
     apiFetch("/sip/activity",token).then(d=>{
@@ -4280,6 +4281,7 @@ function SIPMonitorPage({token}){
     return()=>clearInterval(t);
   },[autoRefresh,load,loadLog,tab]);
 
+  const sipFiltered=invites.filter(inv=>!sipSearch||(inv.caller||'').includes(sipSearch)||(inv.did||'').includes(sipSearch)||(inv.supplier||'').toLowerCase().includes(sipSearch.toLowerCase()));
   const rColor=(r)=>r==="ANSWERED"?"#10B981":r==="BUSY"?"#F59E0B":"#EF4444";
   const rIcon=(r)=>r==="ANSWERED"?"✅":r==="BUSY"?"⚠️":"❌";
   const sColor=(s)=>s==="Avail"?"#10B981":s==="Not in use"||s==="NonQual"?"#F59E0B":"#EF4444";
@@ -4332,23 +4334,15 @@ function SIPMonitorPage({token}){
           ))}
         </div>
 
-        {tab==="invites"&&(()=>{
-          const [search,setSearch]=React.useState("");
-          const filtered=invites.filter(inv=>
-            !search||
-            (inv.caller||"").includes(search)||
-            (inv.did||"").includes(search)||
-            (inv.supplier||"").toLowerCase().includes(search.toLowerCase())
-          );
-          return(
+        {tab==="invites"&&(
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)}
+            <input value={sipSearch} onChange={e=>setSipSearch(e.target.value)}
               placeholder="Search by CLI, DID, supplier..."
               style={{width:"100%",padding:"9px 12px",border:"1px solid #E0E0E0",borderRadius:8,
                 fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
               {loading?<div style={{padding:30,textAlign:"center",color:"#999"}}>Loading...</div>
-              :filtered.length===0
+              :sipFiltered.length===0
                 ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No events found</div>
                 :<div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
@@ -4360,7 +4354,7 @@ function SIPMonitorPage({token}){
                         ))}
                       </tr>
                     </thead>
-                    <tbody>{filtered.map((inv,i)=>(
+                    <tbody>{sipFiltered.map((inv,i)=>(
                       <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
                         background:i%2===0?"#FFF":"#FAFAFA"}}>
                         <td style={{padding:"5px 8px",fontSize:9,color:"#555",whiteSpace:"nowrap",fontFamily:"monospace"}}>
@@ -4390,8 +4384,7 @@ function SIPMonitorPage({token}){
                 </div>}
             </div>
           </div>
-          );
-        })()}
+        )}
 
         {tab==="endpoints"&&(
           <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
