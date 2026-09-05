@@ -5812,16 +5812,6 @@ function StatsPage({token}){
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Calls</div><SVGBar data={weekly} vk="calls" color="#3B82F6"/></div>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Minutes</div><SVGBar data={weekly} vk="minutes" color="#2CADA6"/></div>
         </div>}
-        {tab==="weekly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Revenue €</div><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Calls</div><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Minutes</div><SVGBar data={weeklyData()} vk="minutes" color="#2CADA6"/></div>
-        </div>}
-        {tab==="weekly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Revenue €</div><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Calls</div><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Minutes</div><SVGBar data={weeklyData()} vk="minutes" color="#2CADA6"/></div>
-        </div>}
         {tab==="monthly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Revenue €</div><SVGBar data={monthly} vk="revenue" color="#10B981"/></div>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Calls</div><SVGBar data={monthly} vk="calls" color="#3B82F6"/></div>
