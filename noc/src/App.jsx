@@ -1471,22 +1471,24 @@ function SuppliersPage({token}){
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         {/* Supplier List */}
-        <div style={{flex:"0 0 auto",width:180}}>
+        <div style={{flex:"0 0 auto",width:"100%",maxWidth:380}}>
           {loading?<div style={{color:"#999",fontSize:13}}>Loading...</div>
-          :suppliers.map((s,i)=>(
+          :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          {suppliers.map((s,i)=>(
             <div key={s.id} onClick={()=>selectSupplier(s)}
-              style={{padding:"10px 14px",borderRadius:10,marginBottom:6,cursor:"pointer",
+              style={{padding:"10px 12px",borderRadius:10,cursor:"pointer",
                 background:selected?.id===s.id?"#2CADA6":"#FFFFFF",
                 color:selected?.id===s.id?"#FFFFFF":"#333",
                 boxShadow:"0 2px 6px rgba(0,0,0,0.06)",
-                fontWeight:selected?.id===s.id?700:500,fontSize:13,
+                fontWeight:selected?.id===s.id?700:500,fontSize:12,
                 border:selected?.id===s.id?"none":"1px solid #EEEEEE"}}>
-              <div style={{fontWeight:700}}>{s.nickname||s.name}</div>
-              <div style={{fontSize:10,opacity:0.7,marginTop:2}}>
+              <div style={{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.nickname||s.name}</div>
+              <div style={{fontSize:9,opacity:0.7,marginTop:2}}>
                 {s.is_active?"● Active":"○ Inactive"}
               </div>
             </div>
           ))}
+          </div>}
         </div>
 
         {/* Detail Panel */}
