@@ -5258,6 +5258,9 @@ export default function App(){
       case "customers":    return <CustomersPage token={token}/>;
       case "resellers":     return <ResellerPortalPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
+      case "testnumbers":   return <TestNumbersPage token={token}/>;
+      case "testlivecall":  return <TestLiveCallPage token={token}/>;
+      case "testaccesslist":return <TestAccessListPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "quality":       return <CallQualityPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
