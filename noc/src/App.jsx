@@ -527,12 +527,100 @@ function StatsCharts({token}){
       })()}
     </Section>
 
-    {/* Suppliers */}
-    <Section title="⬡ By Supplier" color="#8B5CF6">
-      {supplierData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;return(<div key={i} style={{marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><span style={{fontSize:12,fontWeight:700}}>{s.name}</span><span style={{fontSize:9,color:"#999",marginLeft:8}}>{s.calls} calls</span></div><div style={{textAlign:"right"}}><div style={{fontSize:12,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div></div>
-        <div style={{background:"#F0F0F0",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
-      </div>);})}
+    {/* Supplier Revenue Donut */}
+    <Section title="⬡ Supplier Revenue" color="#8B5CF6">
+      {(()=>{
+        const data=supplierData().slice(0,6);
+        const tot=data.reduce((a,d)=>a+d.revenue,0)||1;
+        const R=60,cx=80,cy=80;let sa=0;
+        const slices=data.map((d,i)=>{const pct=d.revenue/tot;const angle=pct*2*Math.PI;const x1=cx+R*Math.sin(sa);const y1=cy-R*Math.cos(sa);const x2=cx+R*Math.sin(sa+angle);const y2=cy-R*Math.cos(sa+angle);const large=angle>Math.PI?1:0;const path=`M ${cx} ${cy} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`;sa+=angle;return{path,color:COLORS[i%COLORS.length],pct:Math.round(pct*100),name:d.name,revenue:d.revenue,calls:d.calls};});
+        return(<div style={{display:"flex",alignItems:"center",gap:16}}>
+          <svg width={160} height={160} style={{flexShrink:0}}>
+            {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
+            <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
+            <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Revenue</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#10B981" fontWeight="bold">€{tot.toFixed(0)}</text>
+          </svg>
+          <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+            <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.name}</span>
+            <span style={{fontSize:10,color:"#10B981",fontWeight:700}}>€{s.revenue.toFixed(2)}</span>
+            <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
+          </div>))}</div>
+        </div>);
+      })()}
+    </Section>
+
+    {/* Supplier Minutes Donut */}
+    <Section title="⬡ Supplier Minutes" color="#8B5CF6">
+      {(()=>{
+        const data=supplierData().slice(0,6);
+        const tot=data.reduce((a,d)=>a+d.minutes,0)||1;
+        const R=60,cx=80,cy=80;let sa=0;
+        const slices=data.map((d,i)=>{const pct=d.minutes/tot;const angle=pct*2*Math.PI;const x1=cx+R*Math.sin(sa);const y1=cy-R*Math.cos(sa);const x2=cx+R*Math.sin(sa+angle);const y2=cy-R*Math.cos(sa+angle);const large=angle>Math.PI?1:0;const path=`M ${cx} ${cy} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`;sa+=angle;return{path,color:COLORS[i%COLORS.length],pct:Math.round(pct*100),name:d.name,minutes:d.minutes};});
+        return(<div style={{display:"flex",alignItems:"center",gap:16}}>
+          <svg width={160} height={160} style={{flexShrink:0}}>
+            {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
+            <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
+            <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Minutes</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#2CADA6" fontWeight="bold">{Math.round(tot)}m</text>
+          </svg>
+          <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+            <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.name}</span>
+            <span style={{fontSize:10,color:"#2CADA6",fontWeight:700}}>{Math.round(s.minutes)}m</span>
+            <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
+          </div>))}</div>
+        </div>);
+      })()}
+    </Section>
+
+    {/* Weekly Revenue Donut */}
+    <Section title="📊 Weekly Revenue" color="#F59E0B">
+      {(()=>{
+        const data=weeklyData().slice(-6);
+        const tot=data.reduce((a,d)=>a+d.revenue,0)||1;
+        const R=60,cx=80,cy=80;let sa=0;
+        const slices=data.map((d,i)=>{const pct=d.revenue/tot;const angle=pct*2*Math.PI;const x1=cx+R*Math.sin(sa);const y1=cy-R*Math.cos(sa);const x2=cx+R*Math.sin(sa+angle);const y2=cy-R*Math.cos(sa+angle);const large=angle>Math.PI?1:0;const path=`M ${cx} ${cy} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`;sa+=angle;return{path,color:COLORS[i%COLORS.length],pct:Math.round(pct*100),date:d.date,revenue:d.revenue};});
+        return(<div style={{display:"flex",alignItems:"center",gap:16}}>
+          <svg width={160} height={160} style={{flexShrink:0}}>
+            {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
+            <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
+            <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Weekly</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#F59E0B" fontWeight="bold">€{tot.toFixed(0)}</text>
+          </svg>
+          <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+            <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.date}</span>
+            <span style={{fontSize:10,color:"#F59E0B",fontWeight:700}}>€{s.revenue.toFixed(2)}</span>
+            <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
+          </div>))}</div>
+        </div>);
+      })()}
+    </Section>
+
+    {/* Monthly Revenue Donut */}
+    <Section title="📆 Monthly Revenue" color="#EF4444">
+      {(()=>{
+        const data=monthlyData().slice(-6);
+        const tot=data.reduce((a,d)=>a+d.revenue,0)||1;
+        const R=60,cx=80,cy=80;let sa=0;
+        const slices=data.map((d,i)=>{const pct=d.revenue/tot;const angle=pct*2*Math.PI;const x1=cx+R*Math.sin(sa);const y1=cy-R*Math.cos(sa);const x2=cx+R*Math.sin(sa+angle);const y2=cy-R*Math.cos(sa+angle);const large=angle>Math.PI?1:0;const path=`M ${cx} ${cy} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`;sa+=angle;return{path,color:COLORS[i%COLORS.length],pct:Math.round(pct*100),date:d.date,revenue:d.revenue};});
+        return(<div style={{display:"flex",alignItems:"center",gap:16}}>
+          <svg width={160} height={160} style={{flexShrink:0}}>
+            {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
+            <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
+            <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Monthly</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#EF4444" fontWeight="bold">€{tot.toFixed(0)}</text>
+          </svg>
+          <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+            <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.date}</span>
+            <span style={{fontSize:10,color:"#EF4444",fontWeight:700}}>€{s.revenue.toFixed(2)}</span>
+            <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
+          </div>))}</div>
+        </div>);
+      })()}
     </Section>
   </div>);
 }
