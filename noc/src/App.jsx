@@ -5181,6 +5181,35 @@ function StatsPage({token}){
     cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:sup,calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
     return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
   };
+  const countryData=()=>{
+    const countries={};
+    cdrs.forEach(c=>{
+      const cn=c.country_name||c.country||"Unknown";
+      if(!countries[cn])countries[cn]={name:cn,calls:0,revenue:0,minutes:0};
+      countries[cn].calls++;countries[cn].revenue+=parseFloat(c.revenue||0);countries[cn].minutes+=parseInt(c.billsec||0)/60;
+    });
+    return Object.values(countries).sort((a,b)=>b.revenue-a.revenue).slice(0,20);
+  };
+  const getFlag=(country)=>{
+    const flags={
+      "Satellite":"🛰","Anguilla":"🇦🇮","Benin":"🇧🇯","Burundi":"🇧🇮","Cameroon":"🇨🇲",
+      "Chile":"🇨🇱","Congo":"🇨🇬","DR Congo":"🇨🇩","DRC Congo":"🇨🇩","Gabon":"🇬🇦",
+      "Globalstar":"🛰","Globalstar ME":"🛰","Globalstar New":"🛰","Grenada":"🇬🇩",
+      "Guinea":"🇬🇳","Insat":"🛰","Italy":"🇮🇹","Italian Mobile":"🇮🇹","Jersey":"🇯🇪",
+      "Kiribati":"🇰🇮","Maldive":"🇲🇻","Maldive L":"🇲🇻","Morocco":"🇲🇦","Mozambique":"🇲🇿",
+      "Nicaragua":"🇳🇮","Oration":"🛰","Oration PG":"🛰","Oration TPG":"🛰","Poland":"🇵🇱",
+      "Senegal":"🇸🇳","Seychelles":"🇸🇨","Sierra Leone":"🇸🇱","Solomon Islands":"🇸🇧",
+      "Somalia":"🇸🇴","Tanzania":"🇹🇿","Turkey":"🇹🇷","Uganda":"🇺🇬","UK Mobile":"🇬🇧",
+      "UPT":"🌐","Venezuela":"🇻🇪","Emsat":"🛰","Emsat PRO":"🛰","Nauru":"🇳🇷",
+      "Caribbean":"🌴","Gambia":"🇬🇲","Afinna":"🛰","Unknown":"❓","Afinna PG":"🛰",
+      "Congo Brazzaville":"🇨🇬","Dem. Rep. Congo":"🇨🇩","DRC Congo PG3":"🇨🇩",
+      "Morocco Mobile":"🇲🇦","Morocco Sat":"🇲🇦","Italy Mobile 2":"🇮🇹","Jersey PHG":"🇯🇪",
+    };
+    for(const key of Object.keys(flags)){
+      if(country.toLowerCase().includes(key.toLowerCase()))return flags[key];
+    }
+    return "🌍";
+  };
   const totalRevenue=cdrs.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
   const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
   const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
@@ -5204,7 +5233,7 @@ function StatsPage({token}){
         ))}
       </div>
       <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-        {[["daily","📅 Daily"],["weekly","📊 Weekly"],["monthly","📆 Monthly"],["supplier","⬡ Supplier"],["table","📋 Table"]].map(([t,l])=>(
+        {[["daily","📅 Daily"],["weekly","📊 Weekly"],["monthly","📆 Monthly"],["country","🌍 Countries"],["supplier","⬡ Supplier"],["table","📋 Table"]].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)} style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
         ))}
       </div>
@@ -5227,6 +5256,32 @@ function StatsPage({token}){
         {tab==="monthly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Revenue €</div><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></div>
           <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Calls</div><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></div>
+        </div>}
+        {tab==="country"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:12,fontWeight:700,color:"#333"}}>Top Destinations by Revenue</span>
+            <span style={{fontSize:11,color:"#999"}}>{countryData().length} countries</span>
+          </div>
+          {countryData().map((s,i)=>{
+            const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;
+            const flag=getFlag(s.name);
+            return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:20}}>{flag}</span>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:"#1A1A1A"}}>{s.name}</div>
+                    <div style={{fontSize:10,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div>
+                  <div style={{fontSize:10,color:"#999"}}>{pct}%</div>
+                </div>
+              </div>
+              <div style={{background:"#F0F0F0",borderRadius:4,height:6,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
+            </div>);
+          })}
         </div>}
         {tab==="supplier"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
           {supplierData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><div><span style={{fontSize:13,fontWeight:700}}>{s.name}</span><span style={{fontSize:10,color:"#999",marginLeft:8}}>{s.calls} calls</span></div><div style={{textAlign:"right"}}><div style={{fontSize:13,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:10,color:"#999"}}>{pct}%</div></div></div><div style={{background:"#F0F0F0",borderRadius:4,height:6,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div></div>);})}
