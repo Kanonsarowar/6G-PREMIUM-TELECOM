@@ -3750,10 +3750,10 @@ function TestLabsPage({token}){
   },[token]);
 
   const getTestNumber=(r)=>{
-    const prefix=(r.prefix||"").replace(/\s/g,"");
-    const match=dids.find(d=>(d.number||"").replace("+","")===r.range_start||(d.number||"").replace("+","").startsWith(prefix)&&(d.prefix||"")===(prefix));
-    });
-    return match?match.number:r.range_start?"+"+r.range_start:"—";
+    const p=(r.prefix||"").replace(/\s/g,"");
+    const match=dids.find(d=>(d.prefix||"")===p||(d.number||"").replace("+","").startsWith(p));
+    return match?match.number:(r.range_start?"+"+r.range_start:"—");
+  };
   };
 
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
