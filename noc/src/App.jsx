@@ -5146,190 +5146,6 @@ function TestAccessListPage({token}){
 
 
 
-// ── Fraud Control ─────────────────────────────────────────────
-function FraudControlPage({token}){
-  const [tab,setTab]=useState("overview");
-  const [overview,setOverview]=useState({});
-  const [rules,setRules]=useState([]);
-  const [events,setEvents]=useState([]);
-  const [blocks,setBlocks]=useState([]);
-  const [showAddRule,setShowAddRule]=useState(false);
-  const [showAddBlock,setShowAddBlock]=useState(false);
-  const [newRule,setNewRule]=useState({name:"",type:"cps",action:"alert",threshold:"",severity:"medium"});
-  const [newBlock,setNewBlock]=useState({type:"ani",value:"",reason:""});
-  const [saving,setSaving]=useState(false);
-  const [result,setResult]=useState(null);
-  const load=()=>{Promise.all([apiFetch("/fraud/overview",token),apiFetch("/fraud/rules",token),apiFetch("/fraud/events",token),apiFetch("/fraud/blocks",token)]).then(([ov,r,e,b])=>{setOverview(ov);setRules(r.data||[]);setEvents(e.data||[]);setBlocks(b.data||[]);});};
-  useEffect(()=>{load();const t=setInterval(load,15000);return()=>clearInterval(t);},[token]);
-  const sev=(s)=>s==="critical"?"#EF4444":s==="high"?"#F97316":s==="medium"?"#F59E0B":"#10B981";
-  const badge=(s)=>{const c={open:"#EF4444",resolved:"#10B981",active:"#EF4444",released:"#10B981"};return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:(c[s]||"#999")+"20",color:c[s]||"#999"}}>{s}</span>;};
-  const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
-  const inp={width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"};
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}><div style={{fontSize:18,fontWeight:700}}>🛡 Fraud Control</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Monitoring mode</div></div>
-    <div style={{padding:"12px 16px"}}>
-      {result&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",border:"1px solid "+(result.success?"#10B981":"#EF4444"),fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>{result.success?"✅ ":"❌ "}{result.message||result.error}</div>}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-        {[{l:"Open",v:overview.open_events||0,c:"#EF4444",i:"🚨"},{l:"Blocks",v:overview.active_blocks||0,c:"#F97316",i:"🚫"},{l:"Today",v:overview.today_events||0,c:"#F59E0B",i:"📅"},{l:"CPS",v:overview.cps_current||0,c:"#2CADA6",i:"⚡"},{l:"Calls",v:overview.concurrent_calls||0,c:"#3B82F6",i:"📞"},{l:"Critical",v:overview.critical_events||0,c:"#DC2626",i:"🔴"}].map((c,i)=>(
-          <div key={i} style={{background:"#FFF",borderRadius:8,padding:"10px 12px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}><div style={{fontSize:10,marginBottom:2}}>{c.i}</div><div style={{fontSize:20,fontWeight:800,color:c.c}}>{c.v}</div><div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.l}</div></div>
-        ))}
-      </div>
-      <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-        {[["overview","📊 Overview"],["rules","⚙ Rules"],["events","🚨 Events"],["blocks","🚫 Blocks"]].map(([t,l])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:"8px 12px",borderRadius:20,border:"none",fontSize:11,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
-        ))}
-      </div>
-      {tab==="overview"&&<div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:10,padding:14}}><div style={{fontSize:13,fontWeight:700,color:"#F59E0B",marginBottom:4}}>⚠️ Monitoring Mode Active</div><div style={{fontSize:12,color:"#555"}}>Events logged, no auto-blocks.</div></div>}
-      {tab==="rules"&&(<><div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><button onClick={()=>setShowAddRule(!showAddRule)} style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add Rule</button></div>
-        {showAddRule&&<div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Name *</div><input style={inp} value={newRule.name} onChange={e=>setNewRule({...newRule,name:e.target.value})} placeholder="Rule name"/></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div><select style={inp} value={newRule.type} onChange={e=>setNewRule({...newRule,type:e.target.value})}><option value="cps">CPS</option><option value="concurrent">Concurrent</option><option value="country">Country</option><option value="ani">ANI</option></select></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Action</div><select style={inp} value={newRule.action} onChange={e=>setNewRule({...newRule,action:e.target.value})}><option value="alert">Alert</option><option value="monitor">Monitor</option><option value="block">Block</option></select></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Threshold</div><input type="number" style={inp} value={newRule.threshold} onChange={e=>setNewRule({...newRule,threshold:e.target.value})} placeholder="10"/></div>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={async()=>{if(!newRule.name)return;setSaving(true);const d=await apiFetch("/fraud/rules",token,{method:"POST",body:JSON.stringify(newRule)});setResult(d);setSaving(false);if(d.success){setShowAddRule(false);load();}}} disabled={saving} style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>{saving?"...":"Save"}</button>
-            <button onClick={()=>setShowAddRule(false)} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-          </div>
-        </div>}
-        {rules.length===0?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>No rules yet.</div>
-        :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["NAME","TYPE","ACTION","THRESHOLD","STATUS",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{rules.map((r,i)=>(<tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}><td style={{padding:"8px 10px",fontSize:12,fontWeight:600}}>{r.name}</td><td style={{padding:"8px 10px",fontSize:11}}>{r.type}</td><td style={{padding:"8px 10px",fontSize:11}}>{r.action}</td><td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{r.threshold||"—"}</td><td style={{padding:"8px 10px"}}>{badge(r.status)}</td><td style={{padding:"8px 10px",textAlign:"center"}}><button onClick={async()=>{if(!window.confirm("Delete?"))return;await apiFetch("/fraud/rules/"+r.id,token,{method:"DELETE"});load();}} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,cursor:"pointer",fontSize:11,color:"#EF4444",padding:"2px 6px"}}>Del</button></td></tr>))}</tbody></table></div>}
-      </>)}
-      {tab==="events"&&(events.length===0?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>✅ No events</div>
-        :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["TIME","TYPE","CLI","REASON","SEV","STATUS",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{events.map((e,i)=>(<tr key={e.id} style={{borderBottom:"1px solid #F5F5F5"}}><td style={{padding:"6px 10px",fontSize:10,color:"#555"}}>{(e.created_at||"").slice(0,16)}</td><td style={{padding:"6px 10px",fontSize:11,fontWeight:600}}>{e.type}</td><td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{e.src||"—"}</td><td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{e.reason}</td><td style={{padding:"6px 10px"}}><span style={{color:sev(e.severity),fontWeight:700,fontSize:11}}>{e.severity}</span></td><td style={{padding:"6px 10px"}}>{badge(e.status)}</td><td style={{padding:"6px 10px"}}>{e.status==="open"&&<button onClick={async()=>{await apiFetch("/fraud/events/"+e.id,token,{method:"PUT",body:JSON.stringify({status:"resolved"})});load();}} style={{background:"none",border:"1px solid #10B981",borderRadius:4,cursor:"pointer",fontSize:10,color:"#10B981",padding:"2px 6px"}}>Resolve</button>}</td></tr>))}</tbody></table></div>)}
-      {tab==="blocks"&&(<><div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><button onClick={()=>setShowAddBlock(!showAddBlock)} style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#EF4444",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Block</button></div>
-        {showAddBlock&&<div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div><select style={inp} value={newBlock.type} onChange={e=>setNewBlock({...newBlock,type:e.target.value})}><option value="ani">ANI</option><option value="did">DID</option><option value="ip">IP</option><option value="country">Country</option></select></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Value *</div><input style={inp} value={newBlock.value} onChange={e=>setNewBlock({...newBlock,value:e.target.value})} placeholder="Value"/></div>
-          </div>
-          <div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Reason *</div><input style={inp} value={newBlock.reason} onChange={e=>setNewBlock({...newBlock,reason:e.target.value})} placeholder="Reason"/></div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={async()=>{if(!newBlock.value||!newBlock.reason)return;setSaving(true);const d=await apiFetch("/fraud/blocks",token,{method:"POST",body:JSON.stringify(newBlock)});setResult(d);setSaving(false);if(d.success){setShowAddBlock(false);load();}}} disabled={saving} style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#EF4444",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>{saving?"...":"Block"}</button>
-            <button onClick={()=>setShowAddBlock(false)} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-          </div>
-        </div>}
-        {blocks.length===0?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>No blocks</div>
-        :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["TYPE","VALUE","REASON","BY","STATUS",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{blocks.map((b,i)=>(<tr key={b.id} style={{borderBottom:"1px solid #F5F5F5"}}><td style={{padding:"6px 10px"}}><span style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:"#FEE2E2",color:"#EF4444",fontWeight:700}}>{(b.type||"").toUpperCase()}</span></td><td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{b.value}</td><td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{b.reason}</td><td style={{padding:"6px 10px",fontSize:11}}>{b.blocked_by}</td><td style={{padding:"6px 10px"}}>{badge(b.status)}</td><td style={{padding:"6px 10px"}}>{b.status==="active"&&<button onClick={async()=>{if(!window.confirm("Release?"))return;await apiFetch("/fraud/blocks/"+b.id+"/release",token,{method:"PUT"});load();}} style={{background:"none",border:"1px solid #10B981",borderRadius:4,cursor:"pointer",fontSize:10,color:"#10B981",padding:"2px 6px"}}>Release</button>}</td></tr>))}</tbody></table></div>}
-      </>)}
-    </div>
-  </div>);
-}
-
-// ── System Health ─────────────────────────────────────────────
-function SystemHealthPage({token}){
-  const [health,setHealth]=useState(null);
-  const [loading,setLoading]=useState(true);
-  const [lastCheck,setLastCheck]=useState(null);
-  const load=()=>{setLoading(true);apiFetch("/system/health",token).then(d=>{setHealth(d);setLastCheck(new Date().toLocaleTimeString());setLoading(false);}).catch(()=>setLoading(false));};
-  useEffect(()=>{load();const t=setInterval(load,30000);return()=>clearInterval(t);},[token]);
-  const sC=(s)=>s==="healthy"?"#10B981":s==="warning"?"#F59E0B":s==="critical"?"#EF4444":"#9CA3AF";
-  const sI=(s)=>s==="healthy"?"🟢":s==="warning"?"🟡":s==="critical"?"🔴":"⚪";
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div><div style={{fontSize:18,fontWeight:700}}>♥ System Health</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Auto 30s{lastCheck&&" · "+lastCheck}</div></div>
-      <button onClick={load} disabled={loading} style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>{loading?"⏳":"↻"}</button>
-    </div>
-    <div style={{padding:"12px 16px"}}>
-      {loading&&!health?<div style={{textAlign:"center",padding:60,color:"#999"}}>⏳ Checking...</div>
-      :health&&(<>
-        <div style={{background:sC(health.overall)+"15",border:"1px solid "+sC(health.overall)+"40",borderRadius:10,padding:16,marginBottom:12,textAlign:"center"}}>
-          <div style={{fontSize:32,marginBottom:4}}>{sI(health.overall)}</div>
-          <div style={{fontSize:16,fontWeight:800,color:sC(health.overall)}}>{health.overall==="healthy"?"All Systems Operational":"Issues Detected"}</div>
-        </div>
-        <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase"}}>Services</div>
-        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
-          {health.checks&&["asterisk","nginx","php_fpm","mysql","api"].map(key=>{
-            const c=health.checks[key];if(!c)return null;
-            return(<div key={key} style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",borderLeft:"3px solid "+sC(c.status)}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}><div style={{fontSize:13,fontWeight:700}}>{sI(c.status)} {c.name}</div><span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:sC(c.status)+"20",color:sC(c.status)}}>{(c.status||"").toUpperCase()}</span></div>
-              <div style={{fontSize:11,color:"#555"}}>{c.detail}</div>
-              {c.latency&&<div style={{fontSize:10,color:"#999",marginTop:2}}>Latency: {c.latency}</div>}
-              {key==="asterisk"&&<div style={{fontSize:11,color:"#2CADA6",fontWeight:600,marginTop:4}}>📞 {c.active_calls} active calls</div>}
-            </div>);
-          })}
-        </div>
-        {health.checks?.sip&&(<>
-          <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase"}}>SIP Trunks</div>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,marginBottom:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            {Object.entries(health.checks.sip.trunks||{}).map(([name,status])=>{const ok=status.toLowerCase().includes("avail")&&!status.toLowerCase().includes("unavail");return(<div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F5F5F5"}}><span style={{fontSize:12,fontWeight:600}}>{name}</span><span style={{fontSize:11,color:ok?"#10B981":"#F59E0B",fontWeight:600}}>{ok?"🟢":"🟡"} {status}</span></div>);})}
-          </div>
-        </>)}
-        <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase"}}>Resources</div>
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {health.checks&&["cpu","memory","disk"].map(key=>{const c=health.checks[key];if(!c)return null;return(<div key={key} style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",borderLeft:"3px solid "+sC(c.status)}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:13,fontWeight:700}}>{sI(c.status)} {c.name}</span><span style={{fontSize:11,color:"#555"}}>{c.detail}</span></div>{c.percent&&<div style={{background:"#F0F0F0",borderRadius:4,height:6,overflow:"hidden"}}><div style={{width:c.percent+"%",height:"100%",background:sC(c.status),borderRadius:4}}/></div>}</div>);})}
-        </div>
-      </>)}
-    </div>
-  </div>);
-}
-
-// ── SIP Monitor ───────────────────────────────────────────────
-function SIPMonitorPage({token}){
-  const [invites,setInvites]=useState([]);
-  const [eps,setEps]=useState([]);
-  const [activeCalls,setActiveCalls]=useState("0");
-  const [log,setLog]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [autoRefresh,setAutoRefresh]=useState(true);
-  const [tab,setTab]=useState("invites");
-  const [sipSearch,setSipSearch]=useState("");
-  const [ts,setTs]=useState("");
-  const logRef=useRef(null);
-  const load=useCallback(()=>{apiFetch("/sip/activity",token).then(d=>{setInvites(d.invites||[]);setTs(d.timestamp||"");const ac=(d.channels||[]).filter(c=>c.match(/(\d+) active call/)).map(c=>c.match(/(\d+) active call/)?.[1]).join("")||"0";setActiveCalls(ac);const epList=[];let cur=null;for(const line of (d.pjsip||[])){const m=line.match(/Endpoint:\s+([A-Z0-9_-]+)/);if(m){cur={name:m[1],status:"",rtt:"—"};epList.push(cur);}if(cur){const s=line.match(/(Avail|NonQual|Unavail|Not in use|In use)/);if(s&&!cur.status)cur.status=s[1];const r=line.match(/([\d.]+)$/);if(r&&cur.rtt==="—")cur.rtt=r[1]+"ms";}}setEps(epList);setLoading(false);});},[token]);
-  const loadLog=useCallback(()=>{apiFetch("/sip/log",token).then(d=>setLog(d.data||[]));},[token]);
-  useEffect(()=>{load();loadLog();},[load,loadLog]);
-  useEffect(()=>{if(!autoRefresh)return;const t=setInterval(()=>{load();if(tab==="log")loadLog();},5000);return()=>clearInterval(t);},[autoRefresh,load,loadLog,tab]);
-  const rColor=(r)=>r==="ANSWERED"?"#10B981":r==="BUSY"?"#F59E0B":"#EF4444";
-  const rIcon=(r)=>r==="ANSWERED"?"✅":r==="BUSY"?"⚠️":"❌";
-  const sColor=(s)=>s==="Avail"?"#10B981":"#F59E0B";
-  const sIcon=(s)=>s==="Avail"?"🟢":"🟡";
-  const sipFiltered=invites.filter(inv=>!sipSearch||(inv.caller||"").includes(sipSearch)||(inv.did||"").includes(sipSearch)||(inv.supplier||"").toLowerCase().includes(sipSearch.toLowerCase()));
-  const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div><div style={{fontSize:18,fontWeight:700}}>◎ SIP Monitor</div><div style={{fontSize:11,color:"#999",marginTop:2}}>{autoRefresh?"● Live · 5s":"⏸ Paused"} · {ts.slice(11,19)}</div></div>
-      <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>setAutoRefresh(o=>!o)} style={{padding:"7px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",border:"1px solid "+(autoRefresh?"#EF4444":"#10B981"),background:autoRefresh?"rgba(239,68,68,0.1)":"rgba(16,185,129,0.1)",color:autoRefresh?"#EF4444":"#10B981"}}>{autoRefresh?"⏸":"▶"}</button>
-        <button onClick={()=>{load();loadLog();}} style={{padding:"7px 12px",borderRadius:20,border:"2px solid #2CADA6",background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>↻</button>
-      </div>
-    </div>
-    <div style={{padding:"12px 16px"}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-        {[{l:"Active Calls",v:activeCalls,c:"#10B981",i:"📞"},{l:"Endpoints",v:eps.length,c:"#3B82F6",i:"🔌"},{l:"Events",v:invites.length,c:"#2CADA6",i:"📋"}].map((c,i)=>(
-          <div key={i} style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}><div style={{fontSize:14,marginBottom:2}}>{c.i}</div><div style={{fontSize:22,fontWeight:800,color:c.c}}>{c.v}</div><div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.l}</div></div>
-        ))}
-      </div>
-      <div style={{display:"flex",gap:4,marginBottom:12}}>
-        {[["invites","📋 INVITE History"],["endpoints","🔌 Endpoints"],["log","📄 Log"]].map(([t,l])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
-        ))}
-      </div>
-      {tab==="invites"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        <input value={sipSearch} onChange={e=>setSipSearch(e.target.value)} placeholder="Search CLI, DID, supplier..." style={{width:"100%",padding:"9px 12px",border:"1px solid #E0E0E0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-        <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-          {loading?<div style={{padding:30,textAlign:"center",color:"#999"}}>Loading...</div>
-          :sipFiltered.length===0?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No SIP events yet</div>
-          :<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
-            <thead><tr style={{background:"#2CADA6"}}>{["TIME","CALLER","DID","SUPPLIER","DUR","STATUS"].map((h,i)=><th key={i} style={{fontSize:9,color:"#FFF",fontWeight:700,padding:"6px 8px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-            <tbody>{sipFiltered.map((inv,i)=>(<tr key={i} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
-              <td style={{padding:"5px 8px",fontSize:9,color:"#555",whiteSpace:"nowrap",fontFamily:"monospace"}}>{(inv.time||"").slice(0,19)}</td>
-              <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",fontWeight:600}}>{inv.caller||"—"}</td>
-              <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{(inv.did||"—").replace("+","")}</td>
-              <td style={{padding:"5px 8px",fontSize:10,fontWeight:600}}>{inv.supplier||"—"}</td>
-              <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace"}}>{inv.duration>0?inv.duration+"s":"—"}</td>
-              <td style={{padding:"5px 8px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:8,fontWeight:700,background:rColor(inv.result)+"15",color:rColor(inv.result),whiteSpace:"nowrap"}}>{rIcon(inv.result)} {inv.result==="ANSWERED"?"RECEIVED":"REJECTED"}</span></td>
-            </tr>))}</tbody>
-          </table></div>}
-        </div>
-      </div>}
-      {tab==="endpoints"&&<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["ENDPOINT","STATUS","RTT"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{eps.map((ep,i)=>(<tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}><td style={{padding:"12px 10px",fontWeight:700,fontSize:13}}>{ep.name}</td><td style={{padding:"12px 10px"}}><span style={{fontSize:11,fontWeight:700,color:sColor(ep.status)}}>{sIcon(ep.status)} {ep.status||"Unknown"}</span></td><td style={{padding:"12px 10px",fontSize:11,fontFamily:"monospace"}}>{ep.rtt}</td></tr>))}</tbody></table></div>}
-      {tab==="log"&&<div style={{background:"#1A1A2E",borderRadius:8,overflow:"hidden"}}><div style={{padding:"10px 14px",borderBottom:"1px solid rgba(255,255,255,0.1)",display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,fontWeight:700,color:"#FFF"}}>Asterisk Log</span><span style={{fontSize:10,color:"#555"}}>{log.length} lines</span></div><div ref={logRef} style={{maxHeight:400,overflowY:"auto",padding:"8px 0"}}>{log.map((line,i)=>(<div key={i} style={{padding:"2px 14px",fontFamily:"monospace",fontSize:9,lineHeight:1.6,wordBreak:"break-all",color:line.includes("ERROR")||line.includes("WARNING")?"#EF4444":line.includes("NOTICE")?"#F59E0B":"#6B7280"}}>{line}</div>))}</div></div>}
-    </div>
-  </div>);
-}
-
 // ── Stats Page ────────────────────────────────────────────────
 function StatsPage({token}){
   const [cdrs,setCdrs]=useState([]);
@@ -5337,14 +5153,12 @@ function StatsPage({token}){
   const [tab,setTab]=useState("daily");
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   useEffect(()=>{apiFetch("/cdr?per_page=2000",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
-
   const dailyData=()=>{
     const days={};const[y,m]=month.split("-");const dim=new Date(parseInt(y),parseInt(m),0).getDate();
     for(let i=1;i<=dim;i++){const d=month+"-"+String(i).padStart(2,"0");days[d]={date:String(i),calls:0,revenue:0,minutes:0};}
     cdrs.forEach(c=>{const day=(c.call_start||"").slice(0,10);if(days[day]){days[day].calls++;days[day].revenue+=parseFloat(c.revenue||0);days[day].minutes+=parseInt(c.billsec||0)/60;}});
     return Object.values(days);
   };
-
   const weeklyData=()=>{
     const weeks={};
     cdrs.forEach(c=>{
@@ -5357,25 +5171,21 @@ function StatsPage({token}){
     });
     return Object.values(weeks).slice(-16);
   };
-
   const monthlyData=()=>{
     const months={};
     cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
     return Object.values(months).sort((a,b)=>a.date.localeCompare(b.date));
   };
-
   const supplierData=()=>{
     const s={};
     cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:sup,calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
     return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
   };
-
   const totalRevenue=cdrs.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
   const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
   const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
-
   const SVGBar=({data,vk,color})=>{
-    if(!data||!data.length)return(<div style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No data for this period</div>);
+    if(!data||!data.length)return(<div style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No data</div>);
     const max=Math.max(...data.map(d=>d[vk]||0),0.001);
     return(<div style={{overflowX:"auto"}}><svg width={Math.max(600,data.length*24)} height={190} style={{display:"block"}}>
       {data.map((d,i)=>{const h=Math.round((d[vk]||0)/max*140);const x=i*24+2;return(<g key={i}>
@@ -5385,7 +5195,6 @@ function StatsPage({token}){
       </g>);})}
     </svg></div>);
   };
-
   return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
     <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}><div style={{fontSize:18,fontWeight:700}}>📈 Statistics</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Revenue and call analytics</div></div>
     <div style={{padding:"12px 16px"}}>
@@ -5428,47 +5237,6 @@ function StatsPage({token}){
   </div>);
 }
 
-// ── Test Numbers Page ─────────────────────────────────────────
-function TestNumbersPage({token}){
-  const [ranges,setRanges]=useState([]);
-  const [dids,setDids]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [selectedCountry,setSelectedCountry]=useState("");
-  const [msg,setMsg]=useState(null);
-  useEffect(()=>{Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token),apiFetch("/suppliers",token)]).then(([r,d,s])=>{const trunks={};(s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});setRanges(r.data||[]);setDids((d.data||[]).map(x=>({...x,supplier_name:trunks[x.trunk_id]||"—"})));setLoading(false);});},[token]);
-  const countries=[...new Set(ranges.map(r=>r.country_name).filter(Boolean))].sort();
-  const filtered=selectedCountry?ranges.filter(r=>r.country_name===selectedCountry):[];
-  const getTest=(r)=>{const p=(r.prefix||"").replace(/\s/g,"");const match=dids.find(d=>(d.prefix||"")===p||(d.number||"").replace("+","").startsWith(p));return match?match.number:(r.range_start?"+"+r.range_start:"—");};
-  const thS={fontSize:9,color:"#888",fontWeight:700,padding:"7px 10px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5"};
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}><div style={{fontSize:18,fontWeight:700}}>📋 Test Numbers</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Select country to view test numbers</div></div>
-    <div style={{padding:"12px 16px"}}>
-      {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",fontSize:12,color:"#10B981",fontWeight:600}}>{"✅ "+msg}</div>}
-      <div style={{background:"#FFF",borderRadius:10,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12}}>
-        <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Please make a selection from the list below.</div>
-        <div style={{fontSize:11,color:"#999",marginBottom:12}}>Select a country to view available test numbers.</div>
-        <div style={{display:"flex",gap:8}}>
-          <select value={selectedCountry} onChange={e=>setSelectedCountry(e.target.value)} style={{flex:1,padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,fontSize:13,outline:"none"}}><option value="">— Select Country —</option>{countries.map(c=><option key={c} value={c}>{c}</option>)}</select>
-          <button onClick={()=>setSelectedCountry("")} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #E0E0E0",background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>Clear</button>
-        </div>
-      </div>
-      {!selectedCountry?(
-        <div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:36,marginBottom:12}}>🌍</div><div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>{countries.length} countries</div><div style={{fontSize:11,color:"#999",marginBottom:16}}>Select above</div><div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center",maxWidth:400,margin:"0 auto"}}>{countries.map(c=><button key={c} onClick={()=>setSelectedCountry(c)} style={{padding:"5px 12px",borderRadius:16,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.08)",color:"#2CADA6",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}</button>)}</div></div>
-      ):(
-        <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{background:"#2CADA6",padding:"10px 14px"}}><span style={{fontSize:13,fontWeight:700,color:"#FFF"}}>🌍 {selectedCountry} — {filtered.length} ranges</span></div>
-        <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["SL","PREFIX","PRICE","SUPPLIER","TEST NUMBER"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
-        <tbody>{filtered.map((r,i)=>{const sym=r.currency==="USD"?"$":"€";const testNum=getTest(r);return(<tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-          <td style={{padding:"8px 10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
-          <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</td>
-          <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{parseFloat(r.rate||0).toFixed(3)} {sym}</td>
-          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
-          <td style={{padding:"8px 10px"}}><span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,marginRight:8}}>{testNum}</span><button onClick={()=>{navigator.clipboard?.writeText(testNum);setMsg("Copied: "+testNum);setTimeout(()=>setMsg(null),2000);}} style={{padding:"2px 6px",borderRadius:4,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:9,fontWeight:700,cursor:"pointer"}}>Copy</button></td>
-        </tr>);})}</tbody></table></div>
-      )}
-    </div>
-  </div>);
-}
-
 // ── Add Test Number Page ───────────────────────────────────────
 function AddTestNumberPage({token}){
   const [suppliers,setSuppliers]=useState([]);
@@ -5500,63 +5268,9 @@ function AddTestNumberPage({token}){
       {addMode==="bulk"&&<div style={{background:"#FFF",borderRadius:10,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
         <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier *</div><select style={inp} value={bulkSupplier} onChange={e=>setBulkSupplier(e.target.value)}><option value="">— Select —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}</select></div>
         <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Numbers (number, country, prefix, rate, currency)</div><div style={{fontSize:10,color:"#999",marginBottom:6,padding:"6px 10px",background:"#F8F8F8",borderRadius:6,fontFamily:"monospace"}}>+88233770042, Satellite, 88233770, 0.42, EUR</div><textarea rows={8} style={{...inp,fontFamily:"monospace",fontSize:11,resize:"vertical"}} value={bulkText} onChange={e=>setBulkText(e.target.value)}/></div>
-        <button onClick={async()=>{if(!bulkSupplier||!bulkText.trim()){alert("Required");return;}setSaving(true);const lines=bulkText.trim().split("\n").filter(l=>l.trim());let ok=0;for(const line of lines){const p=line.split(",").map(x=>x.trim());const num=p[0]?.startsWith("+")?p[0]:"+"+p[0];const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({number:num,country_name:p[1]||"Unknown",prefix:p[2]||(num.replace("+","").slice(0,-4)),tariff:parseFloat(p[3])||0.42,selling_price:parseFloat(p[3])||0.42,currency:p[4]||"EUR",trunk_id:parseInt(bulkSupplier),payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom"})});if(d.success||d.message)ok++;}setSaving(false);setMsg({ok:true,text:"Imported "+ok});setBulkText("");setBulkSupplier("");setTimeout(()=>setMsg(null),5000);}} disabled={saving} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>{saving?"Importing...":"📋 Import"}</button>
+        <button onClick={async()=>{if(!bulkSupplier||!bulkText.trim()){alert("Required");return;}setSaving(true);const lines=bulkText.trim().split("
+").filter(l=>l.trim());let ok=0;for(const line of lines){const p=line.split(",").map(x=>x.trim());const num=p[0]?.startsWith("+")?p[0]:"+"+p[0];const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({number:num,country_name:p[1]||"Unknown",prefix:p[2]||(num.replace("+","").slice(0,-4)),tariff:parseFloat(p[3])||0.42,selling_price:parseFloat(p[3])||0.42,currency:p[4]||"EUR",trunk_id:parseInt(bulkSupplier),payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom"})});if(d.success||d.message)ok++;}setSaving(false);setMsg({ok:true,text:"Imported "+ok});setBulkText("");setBulkSupplier("");setTimeout(()=>setMsg(null),5000);}} disabled={saving} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>{saving?"Importing...":"📋 Import"}</button>
       </div>}
-    </div>
-  </div>);
-}
-
-// ── Test Live Call Page ────────────────────────────────────────
-function TestLiveCallPage({token}){
-  const [calls,setCalls]=useState([]);
-  const load=()=>{apiFetch("/live-calls",token).then(d=>setCalls(d.data||d||[]));};
-  useEffect(()=>{load();const t=setInterval(load,5000);return()=>clearInterval(t);},[token]);
-  const fmt=(sec)=>{const s=Math.max(0,parseInt(sec)||0);const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return h>0?[h,m,ss].map(v=>String(v).padStart(2,"0")).join(":"):[m,ss].map(v=>String(v).padStart(2,"0")).join(":");};
-  const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:18,fontWeight:700}}>📞 Live Test Call</div><div style={{fontSize:11,color:"#999",marginTop:2}}>{calls.length>0?<span style={{color:"#10B981",fontWeight:700}}>● {calls.length} active</span>:"● No calls"} · Auto 5s</div></div><button onClick={load} style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>↻</button></div>
-    <div style={{padding:"12px 16px"}}>
-      {calls.length===0?<div style={{background:"#FFF",borderRadius:10,padding:60,textAlign:"center",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}><div style={{fontSize:36,marginBottom:12}}>📞</div><div style={{fontSize:14,fontWeight:600,color:"#333",marginBottom:6}}>No Active Calls</div><div style={{fontSize:12,color:"#999"}}>Make a test call to see it here</div></div>
-      :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["SL","CLI","DID","COUNTRY","SUPPLIER","IVR","DURATION"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{calls.map((c,i)=>{const did=(c.did||c.exten||"").replace("+","");return(<tr key={i} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#F9FFFE"}}><td style={{padding:"8px 10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td><td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:600}}>{c.src||"—"}</td><td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{did}</td><td style={{padding:"8px 10px",fontSize:11}}>{c.country||"—"}</td><td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{c.supplier||c.trunk_name||"—"}</td><td style={{padding:"8px 10px",fontSize:10,color:"#555"}}>{(c.ivr||c.ivr_context||"—").replace("custom/","")}</td><td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)))}</td></tr>);})}</tbody></table></div>}
-    </div>
-  </div>);
-}
-
-// ── Test Access List Page ──────────────────────────────────────
-function TestAccessListPage({token}){
-  const [list,setList]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [newEntry,setNewEntry]=useState({cli:"",name:"",company:"",type:"allow",note:""});
-  const [saving,setSaving]=useState(false);
-  const [msg,setMsg]=useState(null);
-  const load=()=>{setLoading(true);apiFetch("/test/access-list",token).then(d=>{setList(d.data||[]);setLoading(false);}).catch(()=>setLoading(false));};
-  useEffect(()=>{load();},[token]);
-  const tC=(t)=>t==="allow"?"#10B981":t==="block"?"#EF4444":"#F59E0B";
-  const tI=(t)=>t==="allow"?"✅":t==="block"?"🚫":"⚗";
-  const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase",whiteSpace:"nowrap"};
-  const inp={width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"};
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}><div style={{fontSize:18,fontWeight:700}}>🔐 Access List</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Manage caller CLIs</div></div>
-    <div style={{padding:"12px 16px"}}>
-      {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,background:msg.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",border:"1px solid "+(msg.success?"#10B981":"#EF4444"),fontSize:12,color:msg.success?"#10B981":"#EF4444",fontWeight:600}}>{msg.success?"✅ ":"❌ "}{msg.message||msg.error}</div>}
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><button onClick={()=>setShowAdd(!showAdd)} style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add CLI</button></div>
-      {showAdd&&<div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>CLI *</div><input style={inp} value={newEntry.cli} onChange={e=>setNewEntry({...newEntry,cli:e.target.value})} placeholder="+966501234567"/></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Type</div><select style={inp} value={newEntry.type} onChange={e=>setNewEntry({...newEntry,type:e.target.value})}><option value="allow">✅ Allow</option><option value="block">🚫 Block</option><option value="test">⚗ Test</option></select></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Name</div><input style={inp} value={newEntry.name} onChange={e=>setNewEntry({...newEntry,name:e.target.value})} placeholder="Name"/></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Company</div><input style={inp} value={newEntry.company} onChange={e=>setNewEntry({...newEntry,company:e.target.value})} placeholder="Company"/></div>
-        </div>
-        <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Note</div><input style={inp} value={newEntry.note} onChange={e=>setNewEntry({...newEntry,note:e.target.value})} placeholder="Optional"/></div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={async()=>{if(!newEntry.cli)return;setSaving(true);const d=await apiFetch("/test/access-list",token,{method:"POST",body:JSON.stringify(newEntry)});setMsg(d);setSaving(false);if(d.success){setShowAdd(false);setNewEntry({cli:"",name:"",company:"",type:"allow",note:""});load();}}} disabled={saving} style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>{saving?"...":"✅ Add"}</button>
-          <button onClick={()=>setShowAdd(false)} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-        </div>
-      </div>}
-      {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-      :list.length===0?<div style={{background:"#FFF",borderRadius:10,padding:40,textAlign:"center",color:"#999",fontSize:12}}>No entries. Add CLIs.</div>
-      :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["CLI","NAME","COMPANY","TYPE","NOTE","ADDED",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{list.map((e,i)=>(<tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}><td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{e.cli}</td><td style={{padding:"8px 10px",fontSize:11}}>{e.name||"—"}</td><td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{e.company||"—"}</td><td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:tC(e.type)+"20",color:tC(e.type)}}>{tI(e.type)} {e.type.toUpperCase()}</span></td><td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{e.note||"—"}</td><td style={{padding:"8px 10px",fontSize:10,color:"#999"}}>{(e.created_at||"").slice(0,10)}</td><td style={{padding:"8px 10px",textAlign:"center"}}><button onClick={async()=>{if(!window.confirm("Remove?"))return;await apiFetch("/test/access-list/"+e.id,token,{method:"DELETE"});load();}} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td></tr>))}</tbody></table></div>}
     </div>
   </div>);
 }
@@ -5579,7 +5293,7 @@ export default function App(){
       "customers":"customers","resellers":"resellers","resellers":"resellers",
       "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
       "sip-monitor":"sipmonitor",
-      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","stats":"statistics","testnumbers":"test-numbers","addtestnumber":"add-test-number","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","statistics":"stats","test-numbers":"testnumbers","add-test-number":"addtestnumber","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
+      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","stats":"statistics","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","statistics":"stats","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
     };
     return routes[path]||"dashboard";
   };
@@ -5590,7 +5304,7 @@ export default function App(){
       "revenue":"revenue","suppliers":"suppliers","numbers":"numbers","didperformance":"did-performance","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
-      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","stats":"statistics","testnumbers":"test-numbers","addtestnumber":"add-test-number","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","statistics":"stats","test-numbers":"testnumbers","add-test-number":"addtestnumber","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
+      "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","stats":"statistics","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","statistics":"stats","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -5777,12 +5491,12 @@ export default function App(){
       case "quality":       return <CallQualityPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
+      case "stats":         return <StatsPage token={token}/>;
+      case "addtestnumber": return <AddTestNumberPage token={token}/>;
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "sipmonitor":    return <SIPMonitorPage token={token}/>;
-      case "stats":         return <StatsPage token={token}/>;
       case "testnumbers":   return <TestNumbersPage token={token}/>;
-      case "addtestnumber": return <AddTestNumberPage token={token}/>;
       case "testlivecall":  return <TestLiveCallPage token={token}/>;
       case "testaccesslist":return <TestAccessListPage token={token}/>;
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
