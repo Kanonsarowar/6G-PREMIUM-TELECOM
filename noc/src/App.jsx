@@ -1595,7 +1595,13 @@ function SuppliersPage({token}){
                   <Field label="Panel URL" k="panel_url" ph="https://panel.supplier.com"/>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <Field label="User" k="panel_user" ph="username"/>
-                    <Field label="Password" k="panel_password" ph="password" type="password"/>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Password</div>
+                      <div style={{position:"relative"}}>
+                        <input type={showPass?"text":"password"} style={{...inp,paddingRight:36}} value={form.panel_password||""} placeholder="password" onChange={e=>setForm(f=>({...f,panel_password:e.target.value}))}/>
+                        <button onClick={()=>setShowPass(p=>!p)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16}}>{showPass?"🙈":"👁"}</button>
+                      </div>
+                    </div>
                   </div>
                   <Field label="Team Link" k="team_link" ph="https://t.me/supplier"/>
                   <Field label="Sales Person" k="sales_person" ph="John Smith"/>
@@ -1678,7 +1684,12 @@ function SuppliersPage({token}){
                   {[
                     ["Panel",selected?.panel_url||"—"],
                     ["User",selected?.panel_user||"—"],
-                    ["Password",selected?.panel_password?"••••••":"—"],
+                    ["Password", selected?.panel_password?(
+                      <span style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontFamily:"monospace"}}>{showPass?selected.panel_password:"••••••••"}</span>
+                        <button onClick={()=>setShowPass(p=>!p)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:0}}>{showPass?"🙈":"👁"}</button>
+                      </span>
+                    ):"—"],
                     ["Team Link",selected?.team_link||"—"],
                     ["Sales Person",selected?.sales_person||"—"],
                     ["WhatsApp",selected?.whatsapp||"—"],

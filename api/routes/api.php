@@ -482,8 +482,8 @@ Route::get('/v1/invoices', function(Request $r) {
 // Generate weekly invoice manually
 Route::post('/v1/invoices/generate-weekly', function() {
     $now = now();
-    $weekStart = $now->copy()->subWeek()->startOfWeek(\Carbon\Carbon::SUNDAY);
-    $weekEnd   = $weekStart->copy()->endOfWeek(\Carbon\Carbon::SATURDAY);
+    $weekStart = $now->copy()->subWeek()->startOfWeek(\Carbon\Carbon::MONDAY);
+    $weekEnd   = $weekStart->copy()->endOfWeek(\Carbon\Carbon::SUNDAY);
 
     $invoiceNum = 'INV-'.date('YW').'-'.strtoupper(substr(md5(time()),0,6));
 
@@ -554,8 +554,8 @@ Route::put('/v1/invoices/{id}/status', function(Request $r, $id) {
 // Generate supplier-wise weekly invoice
 Route::post('/v1/invoices/generate-weekly-supplier', function() {
     $now       = now();
-    $weekStart = $now->copy()->subWeek()->startOfWeek(\Carbon\Carbon::SUNDAY);
-    $weekEnd   = $weekStart->copy()->endOfWeek(\Carbon\Carbon::SATURDAY);
+    $weekStart = $now->copy()->subWeek()->startOfWeek(\Carbon\Carbon::MONDAY);
+    $weekEnd   = $weekStart->copy()->endOfWeek(\Carbon\Carbon::SUNDAY);
     $weekNum   = $now->format('YW');
     $created   = [];
 
@@ -1722,7 +1722,7 @@ Route::get('/v1/whitelist', function() {
     // Get Asterisk PJSIP identifies
     $pjsip = file_get_contents('/etc/asterisk/pjsip.conf');
     $endpoints = [];
-    preg_match_all('/\[(\w+)-identify\]\ntype=identify\nendpoint=\w+\n((?:match=.+\n?)*)/m', $pjsip, $matches, PREG_SET_ORDER);
+    preg_match_all('/\[([\w-]+)-identify\]\ntype=identify\nendpoint=[\w-]+\n((?:match=.+\n?)*)/m', $pjsip, $matches, PREG_SET_ORDER);
     foreach($matches as $m){
         $ips = [];
         preg_match_all('/match=(.+)/', $m[2], $ipMatches);
