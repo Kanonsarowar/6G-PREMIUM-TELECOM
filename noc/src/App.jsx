@@ -1406,6 +1406,7 @@ function SuppliersPage({token}){
     panel_password:"",team_link:"",sales_person:"",whatsapp:"",notes:""
   });
   const [saving,setSaving]=useState(false);
+  const [showPass,setShowPass]=useState(false);
 
   const load=()=>{
     apiFetch("/suppliers",token).then(d=>{setSuppliers(d.data||[]);setLoading(false);});
