@@ -168,7 +168,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'currency'     => 'EUR',
             'payment_terms'=> 'Daily',
             'supplier_name'=> $r->supplier,
-            'default_ivr'  => $r->default_ivr ?? 'custom/telephone-convo',
+            'default_ivr'  => $r->default_ivr ?? 'custom/6g-premium-telecom',
             'total_count'  => $count,
             'is_active'    => 1,
             'created_at'   => now(),
@@ -180,6 +180,19 @@ Route::middleware('auth:sanctum')->group(function() {
     // ── Revenue ───────────────────────────────────────────────
     Route::get('/v1/billing/current-revenue', function() {
         $today = date('Y-m-d');
+        // Current week: Monday 00:00 -> now (same boundary as invoices)
+        $weekStart = now()->startOfWeek(\Carbon\Carbon::MONDAY);
+        $weekEnd   = now()->endOfWeek(\Carbon\Carbon::SUNDAY);
+        $weekData = DB::table('cdrs')
+            ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+            ->whereBetween('call_start', [$weekStart, $weekEnd])
+            ->first();
+        $weekEur = DB::table('cdrs')
+            ->whereBetween('call_start', [$weekStart, $weekEnd])->where('currency','EUR')
+            ->sum('revenue');
+        $weekUsd = DB::table('cdrs')
+            ->whereBetween('call_start', [$weekStart, $weekEnd])->where('currency','USD')
+            ->sum('revenue');
         $data = DB::table('cdrs')
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
             ->first();
@@ -206,6 +219,13 @@ Route::middleware('auth:sanctum')->group(function() {
             'today_revenue' => $todayData->revenue??0,
             'today_eur'     => $todayEur??0,
             'today_usd'     => $todayUsd??0,
+            'week_calls'    => $weekData->calls??0,
+            'week_minutes'  => $weekData->minutes??0,
+            'week_revenue'  => $weekData->revenue??0,
+            'week_eur'      => $weekEur??0,
+            'week_usd'      => $weekUsd??0,
+            'week_start'    => $weekStart->toDateString(),
+            'week_end'      => $weekEnd->toDateString(),
         ]]);
     });
 
@@ -355,10 +375,10 @@ Route::post('/v1/did-ranges/import-range', function(Request $r) {
         'rate'          => $r->tariff ?? 0.063,
         'selling_price' => $r->selling_price ?? 0.07,
         'currency'      => 'EUR',
-        'payment_terms' => $r->payment_terms ?? 'Daily',
-        'supplier_name' => $r->supplier,
+        'payment_terms' => $r->payment_terms ?? 'Weekly',
+        'supplier_name' => $r->supplier ?? (DB::table('trunks')->where('id',$r->trunk_id)->value('nickname') ?? ''),
         'trunk_id'      => $r->trunk_id ?? 1,
-        'default_ivr'   => $r->default_ivr ?? 'custom/telephone-convo',
+        'default_ivr'   => $r->default_ivr ?? 'custom/6g-premium-telecom',
         'total_count'   => $count,
         'is_active'     => 1,
         'created_at'    => now(),
@@ -379,10 +399,10 @@ Route::post('/v1/did-ranges/import-range', function(Request $r) {
             'tariff'           => $r->tariff ?? 0.063,
             'selling_price'    => $r->selling_price ?? 0.07,
             'currency'         => 'EUR',
-            'payment_terms'    => $r->payment_terms ?? 'Daily',
+            'payment_terms'    => $r->payment_terms ?? 'Weekly',
             'lifecycle_status' => 'available',
             'status'           => 'active',
-            'ivr_context'      => $r->default_ivr ?? 'custom/telephone-convo',
+            'ivr_context'      => $r->default_ivr ?? 'custom/6g-premium-telecom',
             'trunk_id'         => $r->trunk_id ?? 1,
             'batch_id'         => $rangeId,
             'created_at'       => now(),
@@ -400,7 +420,6 @@ Route::post('/v1/did-ranges/import-range', function(Request $r) {
         $imported += count($batch);
     }
 
-    DB::table('did_ranges')->where('id',$rangeId)->update(['imported_count'=>$imported]);
 
     return response()->json([
         'success' => true,
@@ -424,10 +443,10 @@ Route::post('/v1/dids/add', function(Request $r) {
         'tariff'          => $r->tariff ?? 0.063,
         'selling_price'   => $r->selling_price ?? 0.07,
         'currency'        => 'EUR',
-        'payment_terms'   => $r->payment_terms ?? 'Daily',
+        'payment_terms'   => $r->payment_terms ?? 'Weekly',
         'lifecycle_status'=> 'available',
         'status'          => 'active',
-        'ivr_context'     => 'custom/telephone-convo',
+        'ivr_context'     => 'custom/6g-premium-telecom',
         'trunk_id'        => $r->trunk_id ?? 1,
         'created_at'      => now(),
         'updated_at'      => now(),
@@ -631,7 +650,7 @@ Route::post('/v1/route-prefixes', function(Request $r) {
         'prefix'       => $r->prefix,
         'country_code' => $r->country_code,
         'country_name' => $r->country_name,
-        'ivr_context'  => $r->ivr_context ?? 'custom/telephone-convo',
+        'ivr_context'  => $r->ivr_context ?? 'custom/6g-premium-telecom',
         'trunk_id'     => $r->trunk_id,
         'supplier_name'=> $r->supplier_name,
         'priority'     => $r->priority ?? 1,
@@ -954,8 +973,7 @@ Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
     
     // Update DIDs in this range
     $count = DB::table('dids')
-        ->where('number','>=',$range->range_start)
-        ->where('number','<=',$range->range_end)
+        ->where('prefix',$range->prefix)
         ->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
     
     DB::table('did_ranges')->where('id',$id)->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
@@ -2238,4 +2256,136 @@ Route::post('/v1/test/access-list', function(Request $r) {
 Route::delete('/v1/test/access-list/{id}', function($id) {
     DB::table('test_access_list')->delete($id);
     return response()->json(['success'=>true]);
+});
+
+// ── Supplier CDR Reconciliation ────────────────────────────────
+Route::get('/v1/reconciliation/summary', function(Request $r) {
+    $from = $r->from ?? date('Y-m-d', strtotime('-7 days'));
+    $to   = $r->to   ?? date('Y-m-d');
+    $sup  = $r->supplier ?? 'WTP';
+
+    $ours = DB::table('cdrs')
+        ->whereBetween(DB::raw('DATE(call_start)'), [$from,$to])
+        ->where('trunk_name',$sup)
+        ->selectRaw('COUNT(*) calls, COALESCE(SUM(billsec),0) sec, COALESCE(SUM(revenue),0) rev')
+        ->first();
+
+    $theirs = DB::table('supplier_cdrs')
+        ->whereBetween(DB::raw('DATE(call_date)'), [$from,$to])
+        ->where('supplier_name',$sup)
+        ->selectRaw('COUNT(*) calls, COALESCE(SUM(billsec),0) sec, COALESCE(SUM(payout),0) rev')
+        ->first();
+
+    $secDiff = (int)$ours->sec - (int)$theirs->sec;
+    return response()->json([
+        'from'=>$from, 'to'=>$to, 'supplier'=>$sup,
+        'ours'   => ['calls'=>(int)$ours->calls,  'sec'=>(int)$ours->sec,
+                     'minutes'=>round($ours->sec/60,2),  'revenue'=>round($ours->rev,4)],
+        'theirs' => ['calls'=>(int)$theirs->calls,'sec'=>(int)$theirs->sec,
+                     'minutes'=>round($theirs->sec/60,2),'revenue'=>round($theirs->rev,4)],
+        'diff'   => ['calls'=>(int)$ours->calls-(int)$theirs->calls,
+                     'sec'=>$secDiff, 'minutes'=>round($secDiff/60,2),
+                     'revenue'=>round($ours->rev-$theirs->rev,4),
+                     'pct'=>$theirs->sec>0?round($secDiff/$theirs->sec*100,2):0],
+    ]);
+});
+
+Route::get('/v1/reconciliation/calls', function(Request $r) {
+    $from = $r->from ?? date('Y-m-d', strtotime('-7 days'));
+    $to   = $r->to   ?? date('Y-m-d');
+    $sup  = $r->supplier ?? 'WTP';
+
+    $rows = DB::select("
+      SELECT s.call_date, s.prn, s.cli, s.operator,
+             c.billsec our_sec, s.billsec sup_sec,
+             (c.billsec - s.billsec) sec_diff,
+             c.revenue our_rev, s.payout sup_rev,
+             s.currency, s.payout_per_min
+      FROM supplier_cdrs s
+      LEFT JOIN cdrs c
+        ON REPLACE(c.did,'+','') = s.prn
+       AND ABS(TIMESTAMPDIFF(SECOND,
+             DATE_ADD(c.call_start, INTERVAL c.billsec SECOND),
+             DATE_ADD(s.call_date,  INTERVAL s.billsec SECOND))) <= 45
+      WHERE s.supplier_name = ?
+        AND DATE(s.call_date) BETWEEN ? AND ?
+      ORDER BY s.call_date DESC
+      LIMIT 500", [$sup,$from,$to]);
+
+    return response()->json(['data'=>$rows,'count'=>count($rows)]);
+});
+
+Route::post('/v1/reconciliation/sync', function(Request $r) {
+    $from = escapeshellarg(($r->from ?? date('Y-m-d',strtotime('-1 day'))).'T00:00:00');
+    $to   = escapeshellarg(($r->to   ?? date('Y-m-d')).'T23:59:59');
+    exec("/usr/bin/php /usr/local/bin/wtp_cdr_sync.php $from $to 2>&1", $out, $rc);
+    return response()->json([
+        'success'=>$rc===0, 'exit_code'=>$rc, 'output'=>array_slice($out,-10),
+    ]);
+});
+
+// ── Access List ────────────────────────────────────────────────
+Route::get('/v1/access-list', function() {
+    $rows = DB::table('access_list')->where('status','active')
+              ->orderBy('operator')->orderBy('country')->orderBy('prefix')->get();
+    $grouped = [];
+    foreach($rows as $r){
+        $grouped[$r->operator]['operator'] = $r->operator;
+        $grouped[$r->operator]['countries'][$r->country][] = $r;
+    }
+    $out = [];
+    foreach($grouped as $op=>$g){
+        $countries = [];
+        foreach($g['countries'] as $cn=>$items){
+            $countries[] = ['country'=>$cn,'entries'=>array_values($items)];
+        }
+        $out[] = ['operator'=>$op,'countries'=>$countries,
+                  'total'=>array_sum(array_map(fn($c)=>count($c['entries']),$countries))];
+    }
+    return response()->json(['data'=>$out,'count'=>count($rows)]);
+});
+
+Route::post('/v1/access-list', function(Request $r) {
+    if(!$r->operator || !$r->country || !$r->prefix)
+        return response()->json(['error'=>'operator, country and prefix are required'],422);
+    try {
+        $id = DB::table('access_list')->insertGetId([
+            'operator'=>$r->operator, 'country'=>$r->country, 'prefix'=>$r->prefix,
+            'supplier'=>$r->supplier, 'price'=>(float)($r->price??0),
+            'currency'=>$r->currency??'EUR', 'test_number'=>$r->test_number,
+            'note'=>$r->note, 'status'=>'active',
+            'created_at'=>now(), 'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true,'id'=>$id]);
+    } catch(\Exception $e){
+        return response()->json(['error'=>str_contains($e->getMessage(),'uniq_op_prefix')
+            ? 'This prefix already exists for that operator' : 'Insert failed'],409);
+    }
+});
+
+Route::delete('/v1/access-list/{id}', function($id) {
+    DB::table('access_list')->delete($id);
+    return response()->json(['success'=>true]);
+});
+
+// ── Delete DID Range (and its numbers) ─────────────────────────
+Route::delete('/v1/did-ranges/{id}', function($id) {
+    $range = DB::table('did_ranges')->find($id);
+    if(!$range) return response()->json(['error'=>'Range not found'],404);
+
+    $didCount = DB::table('dids')->where('prefix',$range->prefix)->count();
+    DB::table('dids')->where('prefix',$range->prefix)->delete();
+    DB::table('did_ranges')->where('id',$id)->delete();
+
+    DB::table('audit_logs')->insert([
+        'user'=>'admin','action'=>'range_deleted','module'=>'Numbers',
+        'details'=>"Deleted range {$range->prefix} ({$range->country_name}) and {$didCount} DIDs",
+        'created_at'=>now(),'updated_at'=>now(),
+    ]);
+
+    return response()->json([
+        'success'=>true,
+        'message'=>"Deleted range {$range->prefix} and {$didCount} numbers",
+        'dids_deleted'=>$didCount,
+    ]);
 });

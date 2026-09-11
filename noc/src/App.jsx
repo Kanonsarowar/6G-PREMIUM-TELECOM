@@ -36,6 +36,7 @@ const getNavGroups=(role)=>{
     {id:"cdr",label:"CDR",icon:"≡"},
     {id:"revenue",label:"Revenue",icon:"◈"},
     {id:"quality",label:"Call Quality",icon:"📊"},
+    {id:"reconciliation",label:"Reconciliation",icon:"⚖"},
   ]},
   {key:"numbers",label:"Numbers & IVR",items:[
     {id:"numbers",label:"Numbers",icon:"▤"},
@@ -627,7 +628,8 @@ function StatsCharts({token}){
 
 function DashboardPage({token}){
   const [stats,setStats]=useState({calls:0,revenue:0,dids:0,live:0,minutes:0,
-    today_calls:0,today_revenue:0,today_minutes:0,asr:0,suppliers:0,today_countries:0});
+    today_calls:0,today_revenue:0,today_minutes:0,asr:0,suppliers:0,today_countries:0,
+    week_calls:0,week_revenue:0,week_minutes:0,week_start:"",week_end:""});
   const [loading,setLoading]=useState(true);
   const loadDash=()=>{
     Promise.all([
@@ -662,6 +664,11 @@ function DashboardPage({token}){
         today_eur:todayEur.toFixed(4),
         today_usd:todayUsd.toFixed(4),
         today_minutes:todayMinutes.toFixed(2),
+        week_calls:parseInt(s.week_calls||0),
+        week_revenue:parseFloat(s.week_revenue||0).toFixed(4),
+        week_minutes:parseFloat(s.week_minutes||0).toFixed(2),
+        week_start:s.week_start||"",
+        week_end:s.week_end||"",
         asr:todayCalls>0?Math.min(98,Math.round(70+Math.random()*20)):0,
       });
       setLoading(false);
@@ -730,6 +737,25 @@ function DashboardPage({token}){
             {label:"Calls",value:loading?"...":stats.today_calls,color:"#60A5FA"},
             {label:"Minutes",value:loading?"...":Math.round(stats.today_minutes||0),color:"#34D399"},
             {label:"Revenue",value:loading?"...":"€"+parseFloat(stats.today_revenue||0).toFixed(2),color:"#FBBF24"},
+          ].map((c,i)=>(
+            <div key={i} style={{textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:800,color:c.color,fontFamily:"monospace",lineHeight:1}}>{c.value}</div>
+              <div style={{fontSize:8,color:"rgba(255,255,255,0.5)",fontWeight:600,textTransform:"uppercase",marginTop:3,letterSpacing:"0.5px"}}>{c.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* This Week Row */}
+      <div style={{background:"linear-gradient(135deg,#3a2a5f,#5a3d8e)",borderRadius:12,padding:"14px 16px",marginBottom:10,boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+        <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:10}}>
+          📆 This Week {stats.week_start?"("+stats.week_start.slice(5)+" → "+(stats.week_end||"").slice(5)+")":""}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          {[
+            {label:"Calls",value:loading?"...":stats.week_calls,color:"#A78BFA"},
+            {label:"Minutes",value:loading?"...":Math.round(stats.week_minutes||0),color:"#34D399"},
+            {label:"Revenue",value:loading?"...":"\u20AC"+parseFloat(stats.week_revenue||0).toFixed(2),color:"#FBBF24"},
           ].map((c,i)=>(
             <div key={i} style={{textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:800,color:c.color,fontFamily:"monospace",lineHeight:1}}>{c.value}</div>
@@ -894,6 +920,14 @@ function LiveCallsPage({token}){
   );
 }
 // ── CDR ───────────────────────────────────────────────────────────
+// mm:ss for individual call durations
+const fmtDur=(sec)=>{
+  const s=Math.max(0,parseInt(sec)||0);
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
+  const p=(v)=>String(v).padStart(2,"0");
+  return h>0 ? h+":"+p(m)+":"+p(ss) : p(m)+":"+p(ss);
+};
+
 function CDRPage({token}){
   const [cdrs,setCdrs]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -901,11 +935,14 @@ function CDRPage({token}){
   const [dateFrom,setDateFrom]=useState("");
   const [dateTo,setDateTo]=useState("");
   const [filterSupplier,setFilterSupplier]=useState("");
+  const [page,setPage]=useState(1);
+  const [perPage,setPerPage]=useState(100);
 
   const load=()=>{
-    apiFetch("/cdr?per_page=500",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});
+    apiFetch("/cdr?per_page=5000",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});
   };
   useEffect(()=>{load();},[token]);
+  useEffect(()=>{setPage(1);},[search,filterSupplier,dateFrom,dateTo,perPage]);
 
   const filtered=cdrs.filter(c=>{
     if(search&&!(c.src||"").includes(search)&&!(c.did||"").includes(search)) return false;
@@ -918,6 +955,9 @@ function CDRPage({token}){
   const totalSec=filtered.reduce((a,c)=>a+parseInt(c.billsec||0),0);
   const totalRev=filtered.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
   const suppliers=[...new Set(cdrs.map(c=>c.trunk_name).filter(Boolean))];
+  const totalPages=Math.max(1,Math.ceil(filtered.length/perPage));
+  const pageSafe=Math.min(page,totalPages);
+  const paged=filtered.slice((pageSafe-1)*perPage,pageSafe*perPage);
 
   const downloadCSV=()=>{
     const rows=[["Date","CLI","PRN","Sec","Revenue","Currency","Supplier","Disposition"]];
@@ -983,7 +1023,7 @@ function CDRPage({token}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
           {[
             {label:"Calls",value:filtered.length,color:"#2CADA6"},
-            {label:"Seconds",value:totalSec,color:"#3B82F6"},
+            {label:"Minutes",value:(totalSec/60).toFixed(2),color:"#3B82F6"},
             {label:"Revenue",value:"€"+totalRev.toFixed(3),color:"#10B981"},
           ].map((s,i)=>(
             <div key={i} style={{background:"#FFF",borderRadius:8,padding:"10px 12px",
@@ -1002,7 +1042,7 @@ function CDRPage({token}){
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
               <thead>
                 <tr>
-                  {["DATE","CLI","PRN","SEC","REVENUE","CURRENCY","SUPPLIER","STATUS"].map((h,i)=>(
+                  {["DATE","CLI","PRN","DURATION","REVENUE","CURRENCY","SUPPLIER","STATUS"].map((h,i)=>(
                     <th key={i} style={thS}>{h}</th>
                   ))}
                 </tr>
@@ -1010,7 +1050,7 @@ function CDRPage({token}){
               <tbody>
                 {filtered.length===0
                   ?<tr><td colSpan={8} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No records found</td></tr>
-                  :filtered.map((c,i)=>(
+                  :paged.map((c,i)=>(
                     <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
                       background:i%2===0?"#FFF":"#FAFAFA"}}>
                       <td style={{padding:"6px 10px",fontSize:11,color:"#555",whiteSpace:"nowrap"}}>
@@ -1060,7 +1100,31 @@ function CDRPage({token}){
                   </tr>
                 </tfoot>
               )}
-            </table>
+              </table>
+              {/* Pagination */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                gap:8,padding:"10px 12px",borderTop:"1px solid #E8E8E8",background:"#FAFAFA",flexWrap:"wrap"}}>
+                <div style={{fontSize:11,color:"#666"}}>
+                  Showing {filtered.length===0?0:(pageSafe-1)*perPage+1}–{Math.min(pageSafe*perPage,filtered.length)} of {filtered.length}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <select value={perPage} onChange={e=>setPerPage(parseInt(e.target.value))}
+                    style={{padding:"5px 8px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:11,outline:"none"}}>
+                    {[50,100,250,500,1000].map(n=><option key={n} value={n}>{n}/page</option>)}
+                  </select>
+                  <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={pageSafe<=1}
+                    style={{padding:"5px 12px",borderRadius:6,border:"1px solid #E0E0E0",
+                      background:pageSafe<=1?"#F0F0F0":"#FFF",color:pageSafe<=1?"#BBB":"#2CADA6",
+                      fontSize:11,fontWeight:700,cursor:pageSafe<=1?"default":"pointer"}}>← Prev</button>
+                  <span style={{fontSize:11,color:"#555",fontWeight:600,minWidth:70,textAlign:"center"}}>
+                    {pageSafe} / {totalPages}
+                  </span>
+                  <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={pageSafe>=totalPages}
+                    style={{padding:"5px 12px",borderRadius:6,border:"1px solid #E0E0E0",
+                      background:pageSafe>=totalPages?"#F0F0F0":"#FFF",color:pageSafe>=totalPages?"#BBB":"#2CADA6",
+                      fontSize:11,fontWeight:700,cursor:pageSafe>=totalPages?"default":"pointer"}}>Next →</button>
+                </div>
+              </div>
           </div>
         </div>}
       </div>
@@ -2086,7 +2150,7 @@ function NumberInventoryPage({token}){
       number:num,trunk_id:addForm.trunk_id,
       country_name:addForm.country_name,country_code:addForm.country_code,
       prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
-      currency:addForm.currency,payment_terms:"Weekly",status:"active",
+      currency:addForm.currency,payment_terms:addForm.payment_terms||"Weekly",status:"active",
       ivr_context:"custom/6g-premium-telecom"
     })});
     setResult(d);setSaving(false);
@@ -2284,6 +2348,8 @@ function NumberInventoryPage({token}){
             {/* Form Fields */}
             <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
 
+              {/* Supplier + Country */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {/* Supplier */}
               <div>
                 <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Supplier *</div>
@@ -2293,7 +2359,6 @@ function NumberInventoryPage({token}){
                 </select>
               </div>
 
-              {/* Country */}
               <div>
                 <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Country</div>
                 <select style={inp} value={addForm.country_name}
@@ -2312,8 +2377,9 @@ function NumberInventoryPage({token}){
                 </select>
               </div>
 
-              {/* Tariff + Currency */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              </div>
+              {/* Tariff + Currency + Terms */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Tariff / min</div>
                   <input style={inp} placeholder="0.070" value={addForm.tariff}
@@ -2324,6 +2390,14 @@ function NumberInventoryPage({token}){
                   <select style={inp} value={addForm.currency} onChange={e=>setAddForm({...addForm,currency:e.target.value})}>
                     <option value="EUR">EUR (€)</option>
                     <option value="USD">USD ($)</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
+                  <select style={inp} value={addForm.payment_terms||"Weekly"} onChange={e=>setAddForm({...addForm,payment_terms:e.target.value})}>
+                    <option value="Daily">Daily</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option>
                   </select>
                 </div>
               </div>
@@ -2434,11 +2508,12 @@ function NumberInventoryPage({token}){
               setSaving(true);setResult(null);
               if((addForm.addType||"range")==="range"){
                 if(!addForm.rangeStart||!addForm.rangeEnd){alert("Enter range start and end");setSaving(false);return;}
-                const d=await apiFetch("/dids/add-range",token,{method:"POST",body:JSON.stringify({
+                const d=await apiFetch("/did-ranges/import-range",token,{method:"POST",body:JSON.stringify({
                   range_start:addForm.rangeStart,range_end:addForm.rangeEnd,
                   trunk_id:addForm.trunk_id,prefix:addForm.prefix,
                   country_name:addForm.country_name,country_code:addForm.country_code,
-                  tariff:addForm.tariff,currency:addForm.currency
+                  tariff:addForm.tariff,currency:addForm.currency,
+                  payment_terms:addForm.payment_terms||"Weekly"
                 })});
                 setResult(d);setSaving(false);
                 if(d.success) load();
@@ -2449,7 +2524,7 @@ function NumberInventoryPage({token}){
                   number:num,trunk_id:addForm.trunk_id,
                   country_name:addForm.country_name,country_code:addForm.country_code,
                   prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
-                  currency:addForm.currency,payment_terms:"Weekly",status:"active",
+                  currency:addForm.currency,payment_terms:addForm.payment_terms||"Weekly",status:"active",
                   ivr_context:"custom/6g-premium-telecom"
                 })});
                 setResult(d);setSaving(false);
@@ -4630,7 +4705,7 @@ function SIPMonitorPage({token}){
                           {inv.supplier||"—"}
                         </td>
                         <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",color:"#555"}}>
-                          {inv.duration>0?inv.duration+"s":"—"}
+                          {inv.duration>0?fmtDur(inv.duration):"—"}
                         </td>
                         <td style={{padding:"5px 8px"}}>
                           <span style={{fontSize:9,padding:"2px 6px",borderRadius:8,fontWeight:700,
@@ -5108,7 +5183,7 @@ function TestNumbersPage({token}){
                   selling_price:parseFloat(newTest.rate)||0.42,
                   currency:newTest.currency,
                   supplier:newTest.supplier,
-                  payment_terms:"Weekly",
+                  payment_terms:addForm.payment_terms||"Weekly",
                   ivr_context:"custom/6g-premium-telecom",
                 })});
                 setSaving(false);
@@ -5281,309 +5356,164 @@ function TestLiveCallPage({token}){
 
 // ── Test Access List Page ──────────────────────────────────────
 function TestAccessListPage({token}){
-  const [ranges,setRanges]=useState([]);
-  const [dids,setDids]=useState([]);
+  const [groups,setGroups]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [openOp,setOpenOp]=useState("STC");
-
-  const OPERATORS=[
-    {name:"STC",country:"Saudi Arabia",prefix:"966"},
-    {name:"Mobily",country:"Saudi Arabia",prefix:"966"},
-    {name:"Zain",country:"Saudi Arabia",prefix:"966"},
-    {name:"Redbull",country:"Saudi Arabia",prefix:"966"},
-    {name:"Salam",country:"Saudi Arabia",prefix:"966"},
-    {name:"Libara",country:"Saudi Arabia",prefix:"966"},
-    {name:"Virgin",country:"Saudi Arabia",prefix:"966"},
-  ];
-
-  useEffect(()=>{
-    Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token),apiFetch("/suppliers",token)])
-    .then(([r,d,s])=>{
-      const trunks={};
-      (s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});
-      setRanges(r.data||[]);
-      setDids((d.data||[]).map(x=>({...x,supplier_name:trunks[x.trunk_id]||"—"})));
-      setLoading(false);
-    });
-  },[token]);
-
-  const getTestNumber=(r)=>{
-    const match=dids.find(d=>(d.number||"").replace("+","").startsWith(r.prefix?.replace(/\s/g,"")||""));
-    return match?match.number:r.range_start?"+"+r.range_start:"—";
-  };
-
-  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
-    textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",
-    textTransform:"uppercase",whiteSpace:"nowrap"};
-
-  return(
-    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
-        <div style={{fontSize:18,fontWeight:700}}>🔐 Access List</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>
-          Operator access — numbers available to call from each network
-        </div>
-      </div>
-
-      <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
-        {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
-        :OPERATORS.map(op=>(
-          <div key={op.name} style={{background:"#FFF",borderRadius:10,
-            overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            {/* Operator Header */}
-            <div onClick={()=>setOpenOp(openOp===op.name?null:op.name)}
-              style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",
-                alignItems:"center",cursor:"pointer",
-                background:openOp===op.name?"rgba(44,173,166,0.06)":"#FFF",
-                borderBottom:openOp===op.name?"1px solid #E8E8E8":"none"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:36,height:36,borderRadius:8,
-                  background:"linear-gradient(135deg,#2CADA6,#1a8f8a)",
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:14,fontWeight:800,color:"#FFF",flexShrink:0}}>
-                  {op.name[0]}
-                </div>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>From {op.name}</div>
-                  <div style={{fontSize:10,color:"#999"}}>{op.country} · +{op.prefix}</div>
-                </div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,
-                  background:"rgba(16,185,129,0.1)",color:"#10B981"}}>
-                  ✅ {ranges.length} ranges
-                </span>
-                <span style={{fontSize:14,color:"#999"}}>{openOp===op.name?"▼":"▶"}</span>
-              </div>
-            </div>
-
-            {/* Operator Table */}
-            {openOp===op.name&&(
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
-                  <thead>
-                    <tr>{["PREFIX","COUNTRY","PRICE/MIN","SUPPLIER","TEST NUMBER"].map((h,i)=>(
-                      <th key={i} style={thS}>{h}</th>
-                    ))}</tr>
-                  </thead>
-                  <tbody>
-                    {ranges.map((r,i)=>{
-                      const sym=r.currency==="USD"?"$":"€";
-                      const testNum=getTestNumber(r);
-                      return(
-                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",
-                          background:i%2===0?"#FFF":"#FAFAFA"}}>
-                          <td style={{padding:"10px 10px"}}>
-                            <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</div>
-                            <div style={{fontSize:9,color:"#999"}}>{r.range_start}–{r.range_end}</div>
-                          </td>
-                          <td style={{padding:"10px 10px",fontSize:11,color:"#333"}}>{r.country_name||"—"}</td>
-                          <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,
-                            color:"#10B981",fontFamily:"monospace"}}>
-                            {sym}{parseFloat(r.rate||0).toFixed(3)}
-                          </td>
-                          <td style={{padding:"10px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>
-                            {r.supplier_name||"—"}
-                          </td>
-                          <td style={{padding:"10px 10px"}}>
-                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>
-                              {testNum}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-
-
-// ── Stats Page ────────────────────────────────────────────────
-function StatsPage({token}){
-  const [cdrs,setCdrs]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState("daily");
-  const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
-  useEffect(()=>{apiFetch("/cdr?per_page=2000",token).then(d=>{setCdrs(d.data||[]);setLoading(false);});},[token]);
-  const dailyData=()=>{
-    const days={};const[y,m]=month.split("-");const dim=new Date(parseInt(y),parseInt(m),0).getDate();
-    for(let i=1;i<=dim;i++){const d=month+"-"+String(i).padStart(2,"0");days[d]={date:String(i),calls:0,revenue:0,minutes:0};}
-    cdrs.forEach(c=>{const day=(c.call_start||"").slice(0,10);if(days[day]){days[day].calls++;days[day].revenue+=parseFloat(c.revenue||0);days[day].minutes+=parseInt(c.billsec||0)/60;}});
-    return Object.values(days);
-  };
-  const weeklyData=()=>{
-    const weeks={};
-    cdrs.forEach(c=>{
-      const d=new Date(c.call_start||"");if(isNaN(d.getTime()))return;
-      const wn=Math.ceil(d.getDate()/7);
-      const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-W"+wn;
-      const label="W"+wn+"/"+String(d.getMonth()+1).padStart(2,"0");
-      if(!weeks[key])weeks[key]={date:label,calls:0,revenue:0,minutes:0};
-      weeks[key].calls++;weeks[key].revenue+=parseFloat(c.revenue||0);weeks[key].minutes+=parseInt(c.billsec||0)/60;
-    });
-    return Object.values(weeks).slice(-16);
-  };
-  const monthlyData=()=>{
-    const months={};
-    cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
-    return Object.values(months).sort((a,b)=>a.date.localeCompare(b.date));
-  };
-  const supplierData=()=>{
-    const s={};
-    cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:sup,calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
-    return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
-  };
-  const countryData=()=>{
-    const countries={};
-    cdrs.forEach(c=>{
-      const cn=c.country_name||c.country||"Unknown";
-      if(!countries[cn])countries[cn]={name:cn,calls:0,revenue:0,minutes:0};
-      countries[cn].calls++;countries[cn].revenue+=parseFloat(c.revenue||0);countries[cn].minutes+=parseInt(c.billsec||0)/60;
-    });
-    return Object.values(countries).sort((a,b)=>b.revenue-a.revenue).slice(0,20);
-  };
-  const getFlag=(country)=>{
-    const flags={
-      "Satellite":"🛰","Anguilla":"🇦🇮","Benin":"🇧🇯","Burundi":"🇧🇮","Cameroon":"🇨🇲",
-      "Chile":"🇨🇱","Congo":"🇨🇬","DR Congo":"🇨🇩","DRC Congo":"🇨🇩","Gabon":"🇬🇦",
-      "Globalstar":"🛰","Globalstar ME":"🛰","Globalstar New":"🛰","Grenada":"🇬🇩",
-      "Guinea":"🇬🇳","Insat":"🛰","Italy":"🇮🇹","Italian Mobile":"🇮🇹","Jersey":"🇯🇪",
-      "Kiribati":"🇰🇮","Maldive":"🇲🇻","Maldive L":"🇲🇻","Morocco":"🇲🇦","Mozambique":"🇲🇿",
-      "Nicaragua":"🇳🇮","Oration":"🛰","Oration PG":"🛰","Oration TPG":"🛰","Poland":"🇵🇱",
-      "Senegal":"🇸🇳","Seychelles":"🇸🇨","Sierra Leone":"🇸🇱","Solomon Islands":"🇸🇧",
-      "Somalia":"🇸🇴","Tanzania":"🇹🇿","Turkey":"🇹🇷","Uganda":"🇺🇬","UK Mobile":"🇬🇧",
-      "UPT":"🌐","Venezuela":"🇻🇪","Emsat":"🛰","Emsat PRO":"🛰","Nauru":"🇳🇷",
-      "Caribbean":"🌴","Gambia":"🇬🇲","Afinna":"🛰","Unknown":"❓","Afinna PG":"🛰",
-      "Congo Brazzaville":"🇨🇬","Dem. Rep. Congo":"🇨🇩","DRC Congo PG3":"🇨🇩",
-      "Morocco Mobile":"🇲🇦","Morocco Sat":"🇲🇦","Italy Mobile 2":"🇮🇹","Jersey PHG":"🇯🇪",
-    };
-    for(const key of Object.keys(flags)){
-      if(country.toLowerCase().includes(key.toLowerCase()))return flags[key];
-    }
-    return "🌍";
-  };
-  const totalRevenue=cdrs.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
-  const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
-  const thS={fontSize:9,color:"#888",fontWeight:600,padding:"8px 10px",textAlign:"left",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
-  const SVGBar=({data,vk,color})=>{
-    if(!data||!data.length)return(<div style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No data</div>);
-    const max=Math.max(...data.map(d=>d[vk]||0),0.001);
-    return(<div style={{overflowX:"auto"}}><svg width={Math.max(600,data.length*24)} height={190} style={{display:"block"}}>
-      {data.map((d,i)=>{const h=Math.round((d[vk]||0)/max*140);const x=i*24+2;return(<g key={i}>
-        <rect x={x} y={150-h} width={20} height={h||1} fill={color} rx={3} opacity={0.85}/>
-        <text x={x+10} y={168} textAnchor="middle" fontSize={8} fill="#999">{d.date||""}</text>
-        {h>14&&<text x={x+10} y={150-h-4} textAnchor="middle" fontSize={8} fill={color} fontWeight="bold">{parseFloat(d[vk]).toFixed(d[vk]<10?1:0)}</text>}
-      </g>);})}
-    </svg></div>);
-  };
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}><div style={{fontSize:18,fontWeight:700}}>📈 Statistics</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Revenue and call analytics</div></div>
-    <div style={{padding:"12px 16px"}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-        {[{l:"Total Calls",v:cdrs.length,c:"#3B82F6",i:"📞"},{l:"Minutes",v:Math.round(cdrs.reduce((a,c)=>a+parseInt(c.billsec||0),0)/60)+"m",c:"#2CADA6",i:"⏱"},{l:"Revenue",v:"€"+totalRevenue.toFixed(2),c:"#10B981",i:"💶"}].map((c,i)=>(
-          <div key={i} style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}><div style={{fontSize:14,marginBottom:2}}>{c.i}</div><div style={{fontSize:18,fontWeight:800,color:c.c}}>{c.v}</div><div style={{fontSize:9,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{c.l}</div></div>
-        ))}
-      </div>
-      <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-        {[["daily","📅 Daily"],["weekly","📊 Weekly"],["monthly","📆 Monthly"],["country","🌍 Countries"],["supplier","⬡ Supplier"],["table","📋 Table"]].map(([t,l])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:"8px 14px",borderRadius:20,border:"none",fontSize:11,background:tab===t?"#2CADA6":"#F0F0F0",color:tab===t?"#FFF":"#555",fontWeight:tab===t?700:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{l}</button>
-        ))}
-      </div>
-      {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>:(<>
-        {tab==="daily"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:11,fontWeight:600,color:"#555"}}>Month:</span>
-            <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{padding:"6px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}/>
-            <span style={{fontSize:11,color:"#999"}}>{dailyData().reduce((a,d)=>a+d.calls,0)} calls</span>
-          </div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Revenue €</div><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Calls</div><SVGBar data={dailyData()} vk="calls" color="#3B82F6"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Minutes</div><SVGBar data={dailyData()} vk="minutes" color="#2CADA6"/></div>
-        </div>}
-        {tab==="weekly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Revenue €</div><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Calls</div><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Weekly Minutes</div><SVGBar data={weeklyData()} vk="minutes" color="#2CADA6"/></div>
-        </div>}
-        {tab==="monthly"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Revenue €</div><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></div>
-          <div style={{background:"#FFF",borderRadius:8,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{fontSize:12,fontWeight:700,marginBottom:10}}>Monthly Calls</div><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></div>
-        </div>}
-        {tab==="country"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:12,fontWeight:700,color:"#333"}}>Top Destinations by Revenue</span>
-            <span style={{fontSize:11,color:"#999"}}>{countryData().length} countries</span>
-          </div>
-          {countryData().map((s,i)=>{
-            const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;
-            const flag=getFlag(s.name);
-            return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:20}}>{flag}</span>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:700,color:"#1A1A1A"}}>{s.name}</div>
-                    <div style={{fontSize:10,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div>
-                  </div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div>
-                  <div style={{fontSize:10,color:"#999"}}>{pct}%</div>
-                </div>
-              </div>
-              <div style={{background:"#F0F0F0",borderRadius:4,height:6,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
-            </div>);
-          })}
-        </div>}
-        {tab==="supplier"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {supplierData().map((s,i)=>{const pct=totalRevenue>0?Math.round(s.revenue/totalRevenue*100):0;return(<div key={i} style={{background:"#FFF",borderRadius:8,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><div><span style={{fontSize:13,fontWeight:700}}>{s.name}</span><span style={{fontSize:10,color:"#999",marginLeft:8}}>{s.calls} calls</span></div><div style={{textAlign:"right"}}><div style={{fontSize:13,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:10,color:"#999"}}>{pct}%</div></div></div><div style={{background:"#F0F0F0",borderRadius:4,height:6,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div></div>);})}
-        </div>}
-        {tab==="table"&&<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["DATE","DID","CLI","SUPPLIER","SEC","REVENUE","CUR"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead><tbody>{cdrs.slice(0,200).map((c,i)=>(<tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}><td style={{padding:"6px 10px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>{(c.call_start||"").slice(0,16)}</td><td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:600}}>{c.did||"—"}</td><td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{c.src||"—"}</td><td style={{padding:"6px 10px",fontSize:11,fontWeight:600}}>{c.trunk_name||"—"}</td><td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{c.billsec||0}</td><td style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{c.currency==="USD"?"$":"€"}{parseFloat(c.revenue||0).toFixed(4)}</td><td style={{padding:"6px 10px",fontSize:10,color:"#555"}}>{c.currency||"EUR"}</td></tr>))}</tbody></table></div></div>}
-      </>)}
-    </div>
-  </div>);
-}
-
-// ── Add Test Number Page ───────────────────────────────────────
-function AddTestNumberPage({token}){
-  const [suppliers,setSuppliers]=useState([]);
-  const [countries,setCountries]=useState([]);
-  const [addMode,setAddMode]=useState("single");
+  const [showAdd,setShowAdd]=useState(false);
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState(null);
-  const [newTest,setNewTest]=useState({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier_id:""});
-  const [bulkSupplier,setBulkSupplier]=useState("");
-  const [bulkText,setBulkText]=useState("");
-  useEffect(()=>{Promise.all([apiFetch("/suppliers",token),apiFetch("/did-ranges",token)]).then(([s,r])=>{setSuppliers(s.data||[]);setCountries([...new Set((r.data||[]).map(x=>x.country_name).filter(Boolean))].sort());});},[token]);
-  const inp={width:"100%",padding:"9px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"};
+  const [open,setOpen]=useState({});
+  const [f,setF]=useState({operator:"",country:"",prefix:"",supplier:"",price:"",currency:"EUR",test_number:""});
+  const [suppliers,setSuppliers]=useState([]);
+
+  const load=()=>{
+    setLoading(true);
+    apiFetch("/access-list",token).then(d=>{setGroups(d.data||[]);setLoading(false);})
+      .catch(()=>setLoading(false));
+    apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));
+  };
+  useEffect(()=>{load();},[token]);
+
+  const OPS=["Mobily","STC","Zain","Redbull","Salam","Lebara","Virgin"];
+  const inp={width:"100%",padding:"9px 10px",border:"1px solid #E0E0E0",borderRadius:6,
+    fontSize:12,outline:"none",boxSizing:"border-box"};
+  const thS={fontSize:9,color:"#888",fontWeight:700,padding:"6px 10px",textAlign:"left",
+    textTransform:"uppercase",whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5"};
+
+  const save=async()=>{
+    if(!f.operator||!f.country||!f.prefix){alert("Operator, Country and Prefix are required");return;}
+    setSaving(true);
+    const d=await apiFetch("/access-list",token,{method:"POST",body:JSON.stringify(f)});
+    setSaving(false);
+    if(d.success){
+      setMsg({ok:true,t:"Added "+f.prefix+" for "+f.operator});
+      setF({operator:"",country:"",prefix:"",supplier:"",price:"",currency:"EUR",test_number:""});
+      setShowAdd(false); load();
+    } else setMsg({ok:false,t:d.error||"Failed"});
+    setTimeout(()=>setMsg(null),4000);
+  };
+
+  const del=async(id)=>{
+    if(!window.confirm("Remove this entry?")) return;
+    await apiFetch("/access-list/"+id,token,{method:"DELETE"});
+    load();
+  };
+
   return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}><div style={{fontSize:18,fontWeight:700}}>➕ Add Test Number</div><div style={{fontSize:11,color:"#999",marginTop:2}}>Single or bulk</div></div>
+    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+      <div style={{fontSize:18,fontWeight:700}}>🔐 Access List</div>
+      <div style={{fontSize:11,color:"#999",marginTop:2}}>
+        {groups.length} operator{groups.length!==1?"s":""} · {groups.reduce((a,g)=>a+g.total,0)} entries
+      </div>
+    </div>
+
     <div style={{padding:"12px 16px"}}>
-      {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,background:msg.ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",border:"1px solid "+(msg.ok?"#10B981":"#EF4444"),fontSize:12,color:msg.ok?"#10B981":"#EF4444",fontWeight:600}}>{msg.ok?"✅ ":"❌ "}{msg.text}</div>}
-      <div style={{display:"flex",gap:4,marginBottom:12}}>{[["single","Single"],["bulk","Bulk"]].map(([m,l])=>(<button key={m} onClick={()=>setAddMode(m)} style={{padding:"9px 18px",borderRadius:20,border:"none",fontSize:12,background:addMode===m?"#2CADA6":"#FFF",color:addMode===m?"#FFF":"#555",fontWeight:addMode===m?700:400,cursor:"pointer",boxShadow:"0 1px 4px rgba(0,0,0,0.08)"}}>{l}</button>))}</div>
-      {addMode==="single"&&<div style={{background:"#FFF",borderRadius:10,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier *</div><select style={inp} value={newTest.supplier_id} onChange={e=>setNewTest({...newTest,supplier_id:e.target.value})}><option value="">— Select —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}</select></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Country *</div><select style={inp} value={newTest.country} onChange={e=>setNewTest({...newTest,country:e.target.value})}><option value="">— Select —</option>{countries.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Number *</div><input style={inp} value={newTest.number} onChange={e=>{const n=e.target.value;setNewTest({...newTest,number:n,prefix:n.replace("+","").slice(0,-4)});}} placeholder="+88233770042"/></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Prefix</div><input style={{...inp,background:"#F8F8F8"}} value={newTest.prefix} onChange={e=>setNewTest({...newTest,prefix:e.target.value})}/></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Rate/Min *</div><input type="number" step="0.001" style={inp} value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
-          <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Currency</div><select style={inp} value={newTest.currency} onChange={e=>setNewTest({...newTest,currency:e.target.value})}><option value="EUR">EUR</option><option value="USD">USD</option></select></div>
+      {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+        background:msg.ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+        border:"1px solid "+(msg.ok?"#10B981":"#EF4444"),
+        fontSize:12,color:msg.ok?"#10B981":"#EF4444",fontWeight:600}}>
+        {msg.ok?"✅ ":"❌ "}{msg.t}</div>}
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button onClick={()=>setShowAdd(!showAdd)}
+          style={{padding:"9px 18px",borderRadius:20,border:"none",background:"#2CADA6",
+            color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          {showAdd?"✕ Close":"+ Add Access"}</button>
+      </div>
+
+      {showAdd&&(
+        <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:14,
+          boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Add Access Entry</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Access From *</div>
+              <input list="oplist" style={inp} value={f.operator}
+                onChange={e=>setF({...f,operator:e.target.value})} placeholder="Mobily"/>
+              <datalist id="oplist">{OPS.map(o=><option key={o} value={o}/>)}</datalist></div>
+            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Country *</div>
+              <input style={inp} value={f.country}
+                onChange={e=>setF({...f,country:e.target.value})} placeholder="Tanzania"/></div>
+            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Prefix *</div>
+              <input style={inp} value={f.prefix}
+                onChange={e=>setF({...f,prefix:e.target.value})} placeholder="255901135"/></div>
+            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier</div>
+              <select style={inp} value={f.supplier} onChange={e=>setF({...f,supplier:e.target.value})}>
+                <option value="">— Select —</option>
+                {suppliers.map(s=><option key={s.id} value={s.nickname}>{s.nickname}</option>)}
+              </select></div>
+            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Price /min</div>
+              <input type="number" step="0.001" style={inp} value={f.price}
+                onChange={e=>setF({...f,price:e.target.value})} placeholder="0.095"/></div>
+            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Currency</div>
+              <select style={inp} value={f.currency} onChange={e=>setF({...f,currency:e.target.value})}>
+                <option value="EUR">EUR</option><option value="USD">USD</option></select></div>
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Test Number</div>
+            <input style={inp} value={f.test_number}
+              onChange={e=>setF({...f,test_number:e.target.value})} placeholder="+255901135280"/></div>
+          <button onClick={save} disabled={saving}
+            style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"#2CADA6",
+              color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            {saving?"Saving...":"✅ Add Access"}</button>
         </div>
-        <button onClick={async()=>{if(!newTest.number||!newTest.supplier_id||!newTest.country||!newTest.rate){alert("All required");return;}setSaving(true);const num=newTest.number.startsWith("+")?newTest.number:"+"+newTest.number;const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({number:num,prefix:newTest.prefix,country_name:newTest.country,tariff:parseFloat(newTest.rate),selling_price:parseFloat(newTest.rate),currency:newTest.currency,trunk_id:parseInt(newTest.supplier_id),payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom"})});setSaving(false);setMsg(d.success||d.message?{ok:true,text:"Added: "+num}:{ok:false,text:"Failed"});if(d.success||d.message)setNewTest({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier_id:""});setTimeout(()=>setMsg(null),3000);}} disabled={saving} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>{saving?"Saving...":"✅ Add"}</button>
-      </div>}
-      {addMode==="bulk"&&<div style={{background:"#FFF",borderRadius:10,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-        <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier *</div><select style={inp} value={bulkSupplier} onChange={e=>setBulkSupplier(e.target.value)}><option value="">— Select —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname}</option>)}</select></div>
-        <div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Numbers (number, country, prefix, rate, currency)</div><div style={{fontSize:10,color:"#999",marginBottom:6,padding:"6px 10px",background:"#F8F8F8",borderRadius:6,fontFamily:"monospace"}}>+88233770042, Satellite, 88233770, 0.42, EUR</div><textarea rows={8} style={{...inp,fontFamily:"monospace",fontSize:11,resize:"vertical"}} value={bulkText} onChange={e=>setBulkText(e.target.value)}/></div>
-        <button onClick={async()=>{if(!bulkSupplier||!bulkText.trim()){alert("Required");return;}setSaving(true);const lines=bulkText.trim().split("\n").filter(l=>l.trim());let ok=0;for(const line of lines){const p=line.split(",").map(x=>x.trim());const num=p[0]?.startsWith("+")?p[0]:"+"+p[0];const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({number:num,country_name:p[1]||"Unknown",prefix:p[2]||(num.replace("+","").slice(0,-4)),tariff:parseFloat(p[3])||0.42,selling_price:parseFloat(p[3])||0.42,currency:p[4]||"EUR",trunk_id:parseInt(bulkSupplier),payment_terms:"Weekly",ivr_context:"custom/6g-premium-telecom"})});if(d.success||d.message)ok++;}setSaving(false);setMsg({ok:true,text:"Imported "+ok});setBulkText("");setBulkSupplier("");setTimeout(()=>setMsg(null),5000);}} disabled={saving} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>{saving?"Importing...":"📋 Import"}</button>
+      )}
+
+      {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
+      :groups.length===0?<div style={{background:"#FFF",borderRadius:10,padding:40,
+        textAlign:"center",color:"#999",fontSize:12}}>
+        No access entries yet. Use “Add Access” to create one.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {groups.map(g=>(
+          <div key={g.operator} style={{background:"#FFF",borderRadius:10,overflow:"hidden",
+            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div onClick={()=>setOpen(o=>({...o,[g.operator]:o[g.operator]===false}))}
+              style={{background:"linear-gradient(135deg,#2CADA6,#1a8f8a)",padding:"12px 16px",
+                display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:"#FFF"}}>ACCESS FROM {g.operator.toUpperCase()}</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.75)",marginTop:2}}>
+                  {g.countries.length} countr{g.countries.length!==1?"ies":"y"} · {g.total} prefixes</div>
+              </div>
+              <span style={{fontSize:14,color:"#FFF"}}>{open[g.operator]===false?"▶":"▼"}</span>
+            </div>
+            {open[g.operator]!==false&&g.countries.map(co=>(
+              <div key={co.country}>
+                <div style={{padding:"8px 16px",background:"#F5F5F5",fontSize:12,
+                  fontWeight:700,color:"#333",borderBottom:"1px solid #E8E8E8"}}>
+                  {co.country} <span style={{fontSize:10,color:"#999",fontWeight:400}}>
+                    ({co.entries.length})</span></div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:440}}>
+                    <thead><tr>{["PREFIX","SUPPLIER","PRICE","TEST NUMBER",""].map((h,i)=>
+                      <th key={i} style={thS}>{h}</th>)}</tr></thead>
+                    <tbody>{co.entries.map((e,i)=>(
+                      <tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",
+                        background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{e.prefix}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{e.supplier||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
+                          {parseFloat(e.price||0).toFixed(3)} {e.currency==="USD"?"$":"€"}</td>
+                        <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
+                          {e.test_number?<>
+                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,marginRight:6}}>{e.test_number}</span>
+                            <button onClick={()=>{navigator.clipboard?.writeText(e.test_number);
+                              setMsg({ok:true,t:"Copied "+e.test_number});setTimeout(()=>setMsg(null),2000);}}
+                              style={{padding:"2px 6px",borderRadius:4,border:"1px solid #2CADA6",
+                                background:"rgba(44,173,166,0.1)",color:"#2CADA6",
+                                fontSize:9,fontWeight:700,cursor:"pointer"}}>Copy</button></>
+                            :<span style={{fontSize:11,color:"#BBB"}}>—</span>}
+                        </td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={()=>del(e.id)}
+                            style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
       </div>}
     </div>
   </div>);
@@ -5661,7 +5591,7 @@ export default function App(){
     if(!token)return;
     const loadStats=()=>{
       apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
-      apiFetch("/billing/current-revenue",token).then(d=>setRevenue(parseFloat((d.data||{}).revenue||0).toFixed(4)));
+      apiFetch("/billing/current-revenue",token).then(d=>setRevenue(parseFloat((d.data||{}).week_revenue||0).toFixed(4)));
     };
     loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
   },[token]);
@@ -5803,6 +5733,7 @@ export default function App(){
       case "testaccesslist":return <TestAccessListPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "quality":       return <CallQualityPage token={token}/>;
+      case "reconciliation":return <ReconciliationPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
       case "addtestnumber": return <AddTestNumberPage token={token}/>;
