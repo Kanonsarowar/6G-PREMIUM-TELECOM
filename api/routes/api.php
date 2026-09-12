@@ -1,5 +1,13 @@
+<?php
 
 // ── Auto-whitelist helper ──────────────────────────────────────
+// NOTE: this function and its doc comment used to sit before the file's
+// opening `<?php` tag, which made PHP treat them as literal output —
+// printed ahead of every response/CLI command that loaded this routes
+// file, and meaning this function itself was never actually declared
+// (its call further below would fatal with "Call to undefined
+// function"). Fixed by moving the opening tag to the top of the file;
+// no other behavior here has changed.
 function autoWhitelistSupplierIPs($host){
     if(empty($host)) return;
     $ips = array_filter(array_map('trim', explode(',', $host)));
@@ -14,7 +22,6 @@ function autoWhitelistSupplierIPs($host){
     }
 }
 
-<?php
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Hash;
