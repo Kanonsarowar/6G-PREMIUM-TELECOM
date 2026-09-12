@@ -1,3 +1,4 @@
+#!/usr/bin/php
 <?php
 $env = [];
 while (($line = fgets(STDIN)) !== false) {
