@@ -1471,11 +1471,25 @@ function SuppliersPage({token}){
   });
   const [saving,setSaving]=useState(false);
   const [showPass,setShowPass]=useState(false);
+  const [revealedPassword,setRevealedPassword]=useState(null);
+  const [revealing,setRevealing]=useState(false);
 
   const load=()=>{
+    // GET /suppliers never returns secret values (panel_password/api_key/
+    // api_secret) — only has_panel_password/has_api_key/has_api_secret
+    // flags. Actual secrets are fetched on demand via revealPassword().
     apiFetch("/suppliers",token).then(d=>{setSuppliers(d.data||[]);setLoading(false);});
   };
   useEffect(()=>{load();},[token]);
+
+  const revealPassword=async()=>{
+    if(showPass){setShowPass(false);return;}
+    if(!selected) return;
+    setRevealing(true);
+    const d=await apiFetch("/suppliers/"+selected.id+"/reveal",token,{method:"POST",body:JSON.stringify({field:"panel_password"})});
+    setRevealing(false);
+    if(d&&d.value!==undefined){setRevealedPassword(d.value);setShowPass(true);}
+  };
 
   const save=async()=>{
     setSaving(true);
@@ -1499,12 +1513,16 @@ function SuppliersPage({token}){
 
   const selectSupplier=(s)=>{
     setSelected(s);setEditing(false);
+    setShowPass(false);setRevealedPassword(null);
     setForm({
       name:s.name||"",nickname:s.nickname||"",host:s.host||"",
       port:s.port||"5060",transport:s.transport||"udp",
       codecs:s.codecs||"ulaw,alaw,g729",
+      // panel_password is intentionally left blank here — the API no
+      // longer returns the secret value in the list, and leaving it blank
+      // on save preserves the existing password (see PUT /v1/suppliers).
       panel_url:s.panel_url||"",panel_user:s.panel_user||"",
-      panel_password:s.panel_password||"",team_link:s.team_link||"",
+      panel_password:"",team_link:s.team_link||"",
       sales_person:s.sales_person||"",whatsapp:s.whatsapp||"",
       notes:s.notes||""
     });
@@ -1663,7 +1681,7 @@ function SuppliersPage({token}){
                     <div style={{marginBottom:10}}>
                       <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Password</div>
                       <div style={{position:"relative"}}>
-                        <input type={showPass?"text":"password"} style={{...inp,paddingRight:36}} value={form.panel_password||""} placeholder="password" onChange={e=>setForm(f=>({...f,panel_password:e.target.value}))}/>
+                        <input type={showPass?"text":"password"} style={{...inp,paddingRight:36}} value={form.panel_password||""} placeholder={selected?.has_panel_password?"Leave blank to keep current password":"password"} onChange={e=>setForm(f=>({...f,panel_password:e.target.value}))}/>
                         <button onClick={()=>setShowPass(p=>!p)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16}}>{showPass?"🙈":"👁"}</button>
                       </div>
                     </div>
@@ -1749,10 +1767,10 @@ function SuppliersPage({token}){
                   {[
                     ["Panel",selected?.panel_url||"—"],
                     ["User",selected?.panel_user||"—"],
-                    ["Password", selected?.panel_password?(
+                    ["Password", selected?.has_panel_password?(
                       <span style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontFamily:"monospace"}}>{showPass?selected.panel_password:"••••••••"}</span>
-                        <button onClick={()=>setShowPass(p=>!p)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:0}}>{showPass?"🙈":"👁"}</button>
+                        <span style={{fontFamily:"monospace"}}>{showPass&&revealedPassword!==null?revealedPassword:"••••••••"}</span>
+                        <button onClick={revealPassword} disabled={revealing} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:0}}>{revealing?"⏳":showPass?"🙈":"👁"}</button>
                       </span>
                     ):"—"],
                     ["Team Link",selected?.team_link||"—"],
