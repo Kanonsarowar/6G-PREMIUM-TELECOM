@@ -31,7 +31,10 @@ foreach($endpointMap as $endpoint => $codeName){
 }
 
 try {
-    $pdo = new PDO('mysql:host=127.0.0.1;dbname=telecom_api', 'telecom_user', 'Kanon@DB2026');
+    // Credentials live in db_config.php (git-ignored, deployed separately
+    // from source control) — see db_config.php.example for the shape.
+    $db  = require __DIR__.'/db_config.php';
+    $pdo = new PDO("mysql:host={$db['host']};dbname={$db['dbname']}", $db['user'], $db['pass']);
 
     // Get DID tariff and currency
     $stmt = $pdo->prepare("SELECT tariff, currency FROM dids WHERE number=? OR number=? LIMIT 1");

@@ -1,0 +1,17 @@
+<?php
+// Database credentials for the Asterisk AGI scripts (did_router.php,
+// save_cdr.php). Copy this file to db_config.php in the same directory
+// and fill in the real password — db_config.php is git-ignored and must
+// never be committed.
+//
+// Deploy db_config.php to the Asterisk server's asterisk/agi-bin/
+// directory (next to did_router.php / save_cdr.php) with permissions
+// restricted to the user Asterisk runs the AGI scripts as, e.g.:
+//   chown asterisk:asterisk db_config.php
+//   chmod 640 db_config.php
+return [
+    'host'   => '127.0.0.1',
+    'dbname' => 'telecom_api',
+    'user'   => 'telecom_user',
+    'pass'   => 'REPLACE_WITH_ROTATED_PASSWORD',
+];

@@ -17,7 +17,10 @@ $didClean = preg_replace('/^\+|^00/', '', $did);
 
 // DB lookup
 try {
-    $pdo = new PDO('mysql:host=127.0.0.1;dbname=telecom_api','telecom_user','Kanon@DB2026');
+    // Credentials live in db_config.php (git-ignored, deployed separately
+    // from source control) — see db_config.php.example for the shape.
+    $db  = require __DIR__.'/db_config.php';
+    $pdo = new PDO("mysql:host={$db['host']};dbname={$db['dbname']}", $db['user'], $db['pass']);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Try all formats
