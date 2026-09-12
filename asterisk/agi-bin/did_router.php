@@ -17,7 +17,10 @@ $didClean = preg_replace('/^\+|^00/', '', $did);
 
 // DB lookup
 try {
-    $pdo = new PDO('mysql:host=127.0.0.1;dbname=telecom_api','telecom_user','Kanon@DB2026');
+    // Credentials live in db_config.php (git-ignored, deployed separately
+    // from source control) — see db_config.php.example for the shape.
+    $db  = require __DIR__.'/db_config.php';
+    $pdo = new PDO("mysql:host={$db['host']};dbname={$db['dbname']}", $db['user'], $db['pass']);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Try all formats
@@ -30,7 +33,11 @@ try {
     $tariff  = $row['tariff']      ?? 0.063;
     $country = $row['country_name']?? 'Unknown';
 
-} catch(Exception $e){
+} catch(\Throwable $e){
+    // \Throwable (not just Exception) so a missing/unreadable
+    // db_config.php - which PHP raises as an uncatchable-by-Exception
+    // Error from require() - still falls back gracefully here instead of
+    // crashing the AGI script uncaught.
     $ivr    = 'custom/6g-premium-telecom';
     $tariff = 0.063;
     $country= 'Unknown';

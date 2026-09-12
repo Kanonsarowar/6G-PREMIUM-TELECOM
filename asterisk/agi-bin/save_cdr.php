@@ -1,3 +1,4 @@
+#!/usr/bin/php
 <?php
 $env = [];
 while (($line = fgets(STDIN)) !== false) {
@@ -31,7 +32,10 @@ foreach($endpointMap as $endpoint => $codeName){
 }
 
 try {
-    $pdo = new PDO('mysql:host=127.0.0.1;dbname=telecom_api', 'telecom_user', 'Kanon@DB2026');
+    // Credentials live in db_config.php (git-ignored, deployed separately
+    // from source control) — see db_config.php.example for the shape.
+    $db  = require __DIR__.'/db_config.php';
+    $pdo = new PDO("mysql:host={$db['host']};dbname={$db['dbname']}", $db['user'], $db['pass']);
 
     // Get DID tariff and currency
     $stmt = $pdo->prepare("SELECT tariff, currency FROM dids WHERE number=? OR number=? LIMIT 1");
@@ -58,7 +62,11 @@ try {
         date('Y-m-d H:i:s')." DID=$did SRC=$src BILLSEC=$billsec TARIFF=$tariff REV=$revenue SUPPLIER=$trunk_name\n",
         FILE_APPEND);
 
-} catch(Exception $e){
+} catch(\Throwable $e){
+    // \Throwable (not just Exception) so a missing/unreadable
+    // db_config.php - which PHP raises as an uncatchable-by-Exception
+    // Error from require() - still gets logged here instead of crashing
+    // the AGI script uncaught (and silently dropping the CDR).
     file_put_contents('/tmp/cdr_error.log',
         date('Y-m-d H:i:s')." | ".$e->getMessage()."\n",
         FILE_APPEND);

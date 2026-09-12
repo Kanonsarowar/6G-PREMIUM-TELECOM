@@ -1,5 +1,13 @@
+<?php
 
 // ── Auto-whitelist helper ──────────────────────────────────────
+// NOTE: this function and its doc comment used to sit before the file's
+// opening `<?php` tag, which made PHP treat them as literal output —
+// printed ahead of every response/CLI command that loaded this routes
+// file, and meaning this function itself was never actually declared
+// (its call further below would fatal with "Call to undefined
+// function"). Fixed by moving the opening tag to the top of the file;
+// no other behavior here has changed.
 function autoWhitelistSupplierIPs($host){
     if(empty($host)) return;
     $ips = array_filter(array_map('trim', explode(',', $host)));
@@ -14,12 +22,25 @@ function autoWhitelistSupplierIPs($host){
     }
 }
 
-<?php
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
+
+// ── Supplier/trunk secret redaction ─────────────────────────────
+// Strips secret fields from a trunk row before it is ever serialized to
+// the frontend. Every response that includes trunk/supplier data must go
+// through this — never return panel_password/api_key/api_secret directly.
+function redactTrunk($trunk) {
+    if (!$trunk) return $trunk;
+    $arr = (array) $trunk;
+    foreach (['panel_password', 'api_key', 'api_secret'] as $secretField) {
+        $arr['has_'.$secretField] = !empty($arr[$secretField]);
+        unset($arr[$secretField]);
+    }
+    return $arr;
+}
 
 // ── Auth ──────────────────────────────────────────────────────────
 Route::post('/v1/auth/login', function(Request $request) {
@@ -47,16 +68,18 @@ Route::post('/v1/auth/login', function(Request $request) {
     return response()->json(['token'=>$token, 'user'=>$user]);
 });
 
-// Public health check
-Route::get('/v1/system/health', function() {
-    try {
-        DB::connection()->getPdo();
-        $db = 'connected';
-    } catch(\Exception $e) {
-        $db = 'error';
-    }
-    return response()->json(['api'=>'online','database'=>$db,'timestamp'=>now()->toDateTimeString()]);
-});
+// NOTE: /v1/system/health is defined once, further down (see "System
+// Health" near the fraud-control routes). It used to be registered three
+// times (here, inside the auth group below, and again near the end of the
+// file); Laravel always matches the first-registered route for a given
+// method+URI, so this minimal stub — and a second, equally minimal copy
+// inside the auth:sanctum group — were silently shadowing the fuller
+// implementation the SystemHealthPage frontend actually expects
+// (health.overall / health.checks.{asterisk,nginx,php_fpm,mysql,cpu,
+// memory,disk,sip}). Consolidated to the one real implementation as part
+// of the route-dedup pass; this fixes SystemHealthPage rather than just
+// removing dead code, since the page was silently receiving the wrong
+// shape before.
 
 Route::middleware('auth:sanctum')->group(function() {
 
@@ -253,19 +276,13 @@ Route::middleware('auth:sanctum')->group(function() {
     });
 
     // ── Suppliers ─────────────────────────────────────────────
+    // Secrets (panel_password, api_key, api_secret) are never returned by
+    // this list — every authenticated role gets full non-secret metadata
+    // plus has_panel_password/has_api_key/has_api_secret flags. Actual
+    // secret values are only obtainable via the superadmin-only /reveal
+    // endpoint below, which is audit-logged.
     Route::get('/v1/suppliers', function(Request $request) {
-        $user = $request->user();
-        $trunks = DB::table('trunks')->get();
-        // Admin only sees nickname list
-        if ($user && $user->role === 'admin') {
-            $trunks = $trunks->map(function($t) {
-                return [
-                    'id'       => $t->id,
-                    'nickname' => $t->nickname ?? $t->name,
-                    'status'   => $t->is_active ? 'active' : 'inactive',
-                ];
-            });
-        }
+        $trunks = DB::table('trunks')->get()->map(fn($t) => redactTrunk($t))->values();
         return response()->json(['data'=>$trunks]);
     });
 
@@ -285,11 +302,14 @@ Route::middleware('auth:sanctum')->group(function() {
         ]);
         // Auto-whitelist supplier IPs
         autoWhitelistSupplierIPs($r->host);
-        return response()->json(['data'=>DB::table('trunks')->find($id),'success'=>true]);
+        return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true]);
     });
 
     Route::put('/v1/suppliers/{id}', function(Request $r, $id) {
-        DB::table('trunks')->where('id',$id)->update([
+        if ($r->user()->role !== 'superadmin') {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
+        $data = [
             'name'              => $r->name,
             'nickname'          => $r->nickname,
             'host'              => $r->host,
@@ -300,13 +320,10 @@ Route::middleware('auth:sanctum')->group(function() {
             'notes'             => $r->notes,
             'panel_url'         => $r->panel_url,
             'panel_user'        => $r->panel_user,
-            'panel_password'    => $r->panel_password,
             'team_link'         => $r->team_link,
             'sales_person'      => $r->sales_person,
             'whatsapp'          => $r->whatsapp,
             'api_url'           => $r->api_url,
-            'api_key'           => $r->api_key,
-            'api_secret'        => $r->api_secret,
             'api_did'           => $r->api_did ?? '0',
             'api_livecalls'     => $r->api_livecalls ?? '0',
             'api_cdr'           => $r->api_cdr ?? '0',
@@ -314,24 +331,58 @@ Route::middleware('auth:sanctum')->group(function() {
             'api_did_path'      => $r->api_did_path,
             'api_livecalls_path'=> $r->api_livecalls_path,
             'updated_at'        => now(),
-        ]);
-        return response()->json(['data'=>DB::table('trunks')->find($id),'success'=>true]);
+        ];
+        // Secrets are only overwritten when a new value is actually
+        // submitted, since the client no longer receives the current
+        // value back from GET /v1/suppliers and so can't round-trip it.
+        foreach (['panel_password', 'api_key', 'api_secret'] as $secretField) {
+            if ($r->filled($secretField)) $data[$secretField] = $r->$secretField;
+        }
+        DB::table('trunks')->where('id',$id)->update($data);
+        return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true]);
     });
 
-    Route::delete('/v1/suppliers/{id}', function($id) {
+    Route::delete('/v1/suppliers/{id}', function(Request $r, $id) {
+        if ($r->user()->role !== 'superadmin') {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
         DB::table('trunks')->delete($id);
         return response()->json(['success'=>true]);
+    });
+
+    // Reveal a single supplier secret. Superadmin only, and audited.
+    Route::post('/v1/suppliers/{id}/reveal', function(Request $r, $id) {
+        if ($r->user()->role !== 'superadmin') {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
+        $field = $r->field;
+        if (!in_array($field, ['panel_password', 'api_key', 'api_secret'], true)) {
+            return response()->json(['error'=>'Invalid field'],422);
+        }
+        $trunk = DB::table('trunks')->find($id);
+        if (!$trunk) return response()->json(['error'=>'Supplier not found'],404);
+
+        DB::table('audit_logs')->insert([
+            'user'       => $r->user()->name,
+            'role'       => $r->user()->role ?? 'unknown',
+            'action'     => 'REVEAL_SECRET',
+            'module'     => 'Suppliers',
+            'details'    => "Revealed {$field} for supplier #{$id} (".($trunk->nickname ?? $trunk->name).")",
+            'ip_address' => $r->ip(),
+            'method'     => 'POST',
+            'url'        => "/api/v1/suppliers/{$id}/reveal",
+            'status_code'=> 200,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json(['field'=>$field,'value'=>$trunk->$field]);
     });
 
     // ── IVR ───────────────────────────────────────────────────
     Route::get('/v1/ivr-lib/audio', function() {
         $ivrs = DB::table('ivrs')->get();
         return response()->json(['data'=>$ivrs]);
-    });
-
-    // ── System Health ─────────────────────────────────────────
-    Route::get('/v1/system/health', function() {
-        return response()->json(['api'=>'online','database'=>'connected']);
     });
 
     Route::post('/v1/system/exec', function(Request $r) {
@@ -1144,168 +1195,12 @@ Route::get('/v1/suppliers/{id}/live-calls', function($id) {
     return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
 });
 
-// ── Supplier API Sync ─────────────────────────────────────────
-Route::post('/v1/suppliers/{id}/sync-dids', function($id) {
-    $supplier = DB::table('trunks')->find($id);
-    if(!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-    if(!$supplier->api_url) return response()->json(['error'=>'No API URL configured'],400);
-    if(!$supplier->api_did || $supplier->api_did==='0') return response()->json(['error'=>'DID API not enabled'],400);
-
-    // Build API URL
-    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_did_path??'dids','/');
-
-    // Call supplier API
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer '.($supplier->api_key??''),
-            'X-API-Key: '.($supplier->api_key??''),
-            'Accept: application/json',
-        ],
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if(!$response) return response()->json(['error'=>'Could not reach supplier API'],502);
-
-    $data = json_decode($response, true);
-    if(!$data) return response()->json(['error'=>'Invalid JSON response from supplier'],502);
-
-    // ── Universal Normalizer ──────────────────────────────────
-    // Try to find the array of numbers in response
-    $numbers = [];
-    $possibleArrayKeys = ['data','numbers','dids','items','results','list','records','numbers_list'];
-    foreach($possibleArrayKeys as $key){
-        if(isset($data[$key]) && is_array($data[$key])){
-            $numbers = $data[$key];
-            break;
-        }
-    }
-    // If response itself is array
-    if(empty($numbers) && isset($data[0])) $numbers = $data;
-
-    if(empty($numbers)) return response()->json(['error'=>'Could not find numbers in response','raw'=>substr($response,0,500)],422);
-
-    // Field name variations for each standard field
-    $fieldMap = [
-        'number'       => ['number','did','ddi','msisdn','e164','phone','phonenumber','num','cli','destination','tn'],
-        'country_code' => ['country_code','countrycode','cc','country','iso','iso2','country_iso'],
-        'country_name' => ['country_name','countryname','country','nation','country_label'],
-        'rate'         => ['rate','tariff','price','cost','buy_rate','buying_rate','rate_per_min','price_per_minute'],
-        'currency'     => ['currency','cur','currency_code','curr'],
-    ];
-
-    $imported = 0;
-    $skipped  = 0;
-    $errors   = 0;
-
-    foreach($numbers as $item){
-        if(!is_array($item)) continue;
-
-        // Normalize keys to lowercase
-        $item = array_change_key_case($item, CASE_LOWER);
-
-        // Extract each field trying all variations
-        $extracted = [];
-        foreach($fieldMap as $standard => $variations){
-            foreach($variations as $v){
-                if(isset($item[$v]) && $item[$v]!==null && $item[$v]!==''){
-                    $extracted[$standard] = $item[$v];
-                    break;
-                }
-            }
-        }
-
-        // Must have a number at minimum
-        if(empty($extracted['number'])) { $errors++; continue; }
-
-        // Normalize number format to E.164
-        $num = preg_replace('/[^0-9+]/','',$extracted['number']);
-        if(!str_starts_with($num,'+')) $num = '+'.$num;
-
-        // Skip if already exists
-        $exists = DB::table('dids')->where('number',$num)->orWhere('number',ltrim($num,'+'  ))->exists();
-        if($exists){ $skipped++; continue; }
-
-        // Detect country from number if not provided
-        $countryCode = $extracted['country_code'] ?? null;
-        $countryName = $extracted['country_name'] ?? null;
-        if(!$countryCode){
-            // Basic prefix detection
-            $prefixMap = [
-                '39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
-                '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
-                '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'86'=>['CN','China'],
-                '91'=>['IN','India'],'55'=>['BR','Brazil'],'52'=>['MX','Mexico'],
-                '880'=>['BD','Bangladesh'],'92'=>['PK','Pakistan'],'998'=>['UZ','Uzbekistan'],
-                '593'=>['EC','Ecuador'],'995'=>['GE','Georgia'],'882'=>['SAT','Satellite'],
-            ];
-            $stripped = ltrim($num,'+');
-            foreach([3,2,1] as $len){
-                $prefix = substr($stripped,0,$len);
-                if(isset($prefixMap[$prefix])){
-                    $countryCode = $prefixMap[$prefix][0];
-                    $countryName = $prefixMap[$prefix][1];
-                    break;
-                }
-            }
-        }
-
-        // Insert normalized DID
-        DB::table('dids')->insert([
-            'number'       => $num,
-            'trunk_id'     => $supplier->id,
-            'country_code' => $countryCode ?? 'XX',
-            'country_name' => $countryName ?? 'Unknown',
-            'rate'         => floatval($extracted['rate'] ?? 0),
-            'currency'     => $extracted['currency'] ?? 'USD',
-            'status'       => 'active',
-            'created_at'   => now(),
-            'updated_at'   => now(),
-        ]);
-        $imported++;
-    }
-
-    // Update last sync time
-    DB::table('trunks')->where('id',$id)->update(['updated_at'=>now()]);
-
-    return response()->json([
-        'success'  => true,
-        'imported' => $imported,
-        'skipped'  => $skipped,
-        'errors'   => $errors,
-        'total'    => count($numbers),
-        'message'  => "Sync complete: {$imported} imported, {$skipped} already exist, {$errors} failed",
-    ]);
-});
-
-// ── Supplier Live Calls Sync ───────────────────────────────────
-Route::get('/v1/suppliers/{id}/live-calls', function($id) {
-    $supplier = DB::table('trunks')->find($id);
-    if(!$supplier||!$supplier->api_url) return response()->json(['data'=>[]]);
-
-    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_livecalls_path??'livecalls','/');
-    $ch = curl_init();
-    curl_setopt_array($ch,[
-        CURLOPT_URL=>$url,
-        CURLOPT_RETURNTRANSFER=>true,
-        CURLOPT_TIMEOUT=>10,
-        CURLOPT_HTTPHEADER=>[
-            'Authorization: Bearer '.($supplier->api_key??''),
-            'X-API-Key: '.($supplier->api_key??''),
-            'Accept: application/json',
-        ],
-    ]);
-    $response = curl_exec($ch);
-    curl_close($ch);
-    $data = json_decode($response,true);
-    return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
-});
-
+// NOTE: the /sync-dids and /live-calls routes above (lines ~1107-1129 in the
+// pre-cleanup file) already registered these two endpoints. Laravel matches
+// the first-registered route for a given method+URI, so the two duplicate
+// definitions that used to follow here were byte-for-byte identical dead
+// code (never reachable). Removed as part of the route-dedup pass —
+// behavior is unchanged since the duplicates could never execute.
 
 // ── Invoice PDF Download ───────────────────────────────────────
 Route::get('/v1/invoices/{id}/pdf', function($id) {
@@ -1315,49 +1210,14 @@ Route::get('/v1/invoices/{id}/pdf', function($id) {
     return $pdf->download('invoice-'.$invoice->invoice_number.'.pdf');
 });
 
-// ── Invoice Status Update ──────────────────────────────────────
-Route::put('/v1/invoices/{id}/status', function(Request $r, $id) {
-    DB::table('invoices')->where('id',$id)->update([
-        'status'     => $r->status,
-        'updated_at' => now(),
-    ]);
-    return response()->json(['success'=>true]);
-});
-
-// ── Auto Generate Weekly Invoice (cron) ───────────────────────
-Route::post('/v1/invoices/generate-weekly-supplier', function() {
-    $suppliers = DB::table('trunks')->where('is_active',1)->get();
-    $created = [];
-    foreach($suppliers as $supplier){
-        $cdrs = DB::table('cdrs')
-            ->where('trunk_name',$supplier->name)
-            ->where('created_at','>=',now()->startOfWeek())
-            ->where('created_at','<=',now()->endOfWeek())
-            ->get();
-        if($cdrs->isEmpty()) continue;
-        $total = $cdrs->sum('revenue');
-        $calls = $cdrs->count();
-        $minutes = $cdrs->sum('billsec') / 60;
-        $invNum = 'SINV-'.date('YW').'-'.strtoupper($supplier->name);
-        DB::table('invoices')->insert([
-            'invoice_number' => $invNum,
-            'supplier_name'  => $supplier->nickname??$supplier->name,
-            'period_start'   => now()->startOfWeek(),
-            'period_end'     => now()->endOfWeek(),
-            'total_calls'    => $calls,
-            'total_minutes'  => round($minutes,2),
-            'total_amount'   => round($total,4),
-            'currency'       => 'EUR',
-            'status'         => 'unpaid',
-            'invoice_type'   => 'supplier-weekly',
-            'due_date'       => now()->addDays(7),
-            'created_at'     => now(),
-            'updated_at'     => now(),
-        ]);
-        $created[] = $invNum;
-    }
-    return response()->json(['success'=>true,'created'=>$created,'message'=>count($created).' supplier invoices generated']);
-});
+// NOTE: /v1/invoices/{id}/status and /v1/invoices/generate-weekly-supplier
+// are already registered earlier in this file (near the Billing/Invoices
+// section). Laravel matches the first-registered route for a given
+// method+URI, so the duplicate PUT/POST definitions that used to follow
+// here were dead code. The earlier generate-weekly-supplier implementation
+// is also the more complete one (per-currency invoicing, previous-week
+// boundaries, and a duplicate-invoice-number guard) — it was already the
+// one actually running, so removing this shadowed copy is a no-op change.
 
 // ── Call Quality Monitor ───────────────────────────────────────
 Route::get('/v1/quality/overview', function() {

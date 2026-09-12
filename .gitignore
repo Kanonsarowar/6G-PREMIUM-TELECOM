@@ -8,5 +8,8 @@ api/storage/logs/*.log
 noc/node_modules/
 noc/dist/
 
+# Asterisk AGI scripts - real DB credentials, never commit
+asterisk/agi-bin/db_config.php
+
 # Logs
 *.log
