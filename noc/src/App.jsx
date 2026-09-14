@@ -67,8 +67,19 @@ const getNavGroups=(role)=>{
   {key:"system",label:"System",items:[
     {id:"systemhealth",label:"System Health",icon:"♥"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
-    ...(isSuperAdmin?[{id:"asterisk-config",label:"Asterisk Configuration",icon:"📡"}]:[]),
   ]},
+  ...(isSuperAdmin?[{key:"asterisk",label:"Asterisk Configuration",items:[
+    {id:"ast-general",label:"General",icon:"⚙"},
+    {id:"ast-suppliers",label:"Suppliers / SIP Auth",icon:"📞"},
+    {id:"ast-did",label:"DID / Prefix Routing",icon:"🔀"},
+    {id:"ast-ivr",label:"IVR Routing",icon:"🎙"},
+    {id:"ast-rtp",label:"RTP",icon:"📡"},
+    {id:"ast-firewall",label:"Firewall Info",icon:"🧱"},
+    {id:"ast-preview",label:"Config Preview",icon:"👁"},
+    {id:"ast-apply",label:"Apply Configuration",icon:"🚀"},
+    {id:"ast-reload",label:"Reload / Status",icon:"🔄"},
+    {id:"ast-history",label:"History / Backup",icon:"🕘"},
+  ]}]:[]),
 ]};
 
 const apiFetch=async(path,token,opts={})=>{
@@ -4398,8 +4409,8 @@ function SettingsPage({user,logout}){
 }
 
 // ── Asterisk Configuration ──────────────────────────────────────────
-function AsteriskConfigPage({token,user}){
-  const [tab,setTab]=useState("general");
+function AsteriskConfigPage({token,user,initialTab}){
+  const [tab,setTab]=useState(initialTab||"general");
   const [status,setStatus]=useState(null);
   const [general,setGeneral]=useState(null);
   const [generalForm,setGeneralForm]=useState(null);
@@ -6247,7 +6258,11 @@ export default function App(){
       "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
       "sip-monitor":"sipmonitor",
       "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
-      "asterisk-config":"asterisk-config","asterisk":"asterisk-config",
+      "asterisk-config":"ast-general","asterisk":"ast-general",
+      "asterisk-general":"ast-general","asterisk-suppliers":"ast-suppliers","asterisk-did":"ast-did",
+      "asterisk-ivr":"ast-ivr","asterisk-rtp":"ast-rtp","asterisk-firewall":"ast-firewall",
+      "asterisk-preview":"ast-preview","asterisk-apply":"ast-apply","asterisk-reload":"ast-reload",
+      "asterisk-history":"ast-history",
     };
     return routes[path]||"dashboard";
   };
@@ -6259,7 +6274,10 @@ export default function App(){
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
-      "asterisk-config":"asterisk-config",
+      "ast-general":"asterisk-general","ast-suppliers":"asterisk-suppliers","ast-did":"asterisk-did",
+      "ast-ivr":"asterisk-ivr","ast-rtp":"asterisk-rtp","ast-firewall":"asterisk-firewall",
+      "ast-preview":"asterisk-preview","ast-apply":"asterisk-apply","ast-reload":"asterisk-reload",
+      "ast-history":"asterisk-history",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -6457,7 +6475,16 @@ export default function App(){
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
-      case "asterisk-config": return <AsteriskConfigPage token={token} user={user}/>;
+      case "ast-general":   return <AsteriskConfigPage key="ast-general" token={token} user={user} initialTab="general"/>;
+      case "ast-suppliers": return <AsteriskConfigPage key="ast-suppliers" token={token} user={user} initialTab="suppliers"/>;
+      case "ast-did":       return <AsteriskConfigPage key="ast-did" token={token} user={user} initialTab="did"/>;
+      case "ast-ivr":       return <AsteriskConfigPage key="ast-ivr" token={token} user={user} initialTab="ivr"/>;
+      case "ast-rtp":       return <AsteriskConfigPage key="ast-rtp" token={token} user={user} initialTab="rtp"/>;
+      case "ast-firewall":  return <AsteriskConfigPage key="ast-firewall" token={token} user={user} initialTab="firewall"/>;
+      case "ast-preview":   return <AsteriskConfigPage key="ast-preview" token={token} user={user} initialTab="preview"/>;
+      case "ast-apply":     return <AsteriskConfigPage key="ast-apply" token={token} user={user} initialTab="apply"/>;
+      case "ast-reload":    return <AsteriskConfigPage key="ast-reload" token={token} user={user} initialTab="reload"/>;
+      case "ast-history":   return <AsteriskConfigPage key="ast-history" token={token} user={user} initialTab="history"/>;
       default:             return <DashboardPage token={token}/>;
     }
   };
