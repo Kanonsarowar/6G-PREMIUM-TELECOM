@@ -16,7 +16,13 @@ $ivr       = $argv[5] ?? 'custom/6g-premium-telecom';
 $channel   = $argv[6] ?? $env['channel'] ?? '';
 $call_start= time() - $billsec;
 
-// Detect supplier from channel
+// Detect supplier from channel. Historical hardcoded names are tried
+// first so existing dashboards/reports that already group by these exact
+// strings keep working unchanged; anything not in this map (including
+// every supplier added later through the Asterisk Configuration module)
+// falls back to a live lookup against the trunks table by pjsip_name,
+// which is what the PJSIP config generator actually bakes into the
+// channel name (see AsteriskConfigGenerator::pjsipManagedBlock).
 $trunk_name = 'PROFESSOR';
 $endpointMap = [
     'WTP'=>'WTP',
@@ -24,9 +30,11 @@ $endpointMap = [
     'PHONEGROUP' => 'Berlin',
     'GAMA'       => 'Nairobi',
 ];
+$matched = false;
 foreach($endpointMap as $endpoint => $codeName){
     if(stripos($channel, $endpoint) !== false){
         $trunk_name = $codeName;
+        $matched = true;
         break;
     }
 }
@@ -36,6 +44,25 @@ try {
     // from source control) — see db_config.php.example for the shape.
     $db  = require __DIR__.'/db_config.php';
     $pdo = new PDO("mysql:host={$db['host']};dbname={$db['dbname']}", $db['user'], $db['pass']);
+
+    if (!$matched && $channel !== '') {
+        // Best-effort: a lookup failure here must never block the CDR
+        // insert below, so it stays inside its own try/catch and simply
+        // leaves $trunk_name at the 'PROFESSOR' default on any error.
+        try {
+            $stmt = $pdo->query("SELECT nickname, name, pjsip_name FROM trunks WHERE pjsip_name IS NOT NULL AND pjsip_name != ''");
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $t) {
+                if (stripos($channel, $t['pjsip_name']) !== false) {
+                    $trunk_name = $t['nickname'] ?: $t['name'];
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            file_put_contents('/tmp/cdr_error.log',
+                date('Y-m-d H:i:s')." | trunk lookup failed: ".$e->getMessage()."\n",
+                FILE_APPEND);
+        }
+    }
 
     // Get DID tariff and currency
     $stmt = $pdo->prepare("SELECT tariff, currency FROM dids WHERE number=? OR number=? LIMIT 1");
