@@ -165,6 +165,19 @@ class AsteriskConfigGenerator
     {
         $validation = $this->validatePrefixes($routePrefixes);
 
+        $activeIvrNames = [];
+        foreach ($ivrs as $ivr) {
+            $ivr = (object) $ivr;
+            if (!empty($ivr->is_active)) {
+                $activeIvrNames[$ivr->name] = true;
+            }
+        }
+        foreach ($validation['active'] as $row) {
+            if (!isset($activeIvrNames[$row->ivr_context])) {
+                $validation['warnings'][] = "Route \"{$row->prefix}\" (#{$row->id}) references IVR context \"{$row->ivr_context}\" which doesn't match any active IVR — this route will Goto a context that doesn't exist";
+            }
+        }
+
         $out = [self::DIALPLAN_BEGIN, ''];
 
         $out[] = "[{$inboundContext}]";

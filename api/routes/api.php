@@ -740,10 +740,17 @@ Route::delete('/v1/route-prefixes/{id}', function($id) {
 });
 
 Route::put('/v1/route-prefixes/{id}', function(Request $r, $id) {
+    $current = DB::table('route_prefixes')->find($id);
+    if (!$current) {
+        return response()->json(['error'=>'Route not found'],404);
+    }
     DB::table('route_prefixes')->where('id',$id)->update([
-        'ivr_context'  => $r->ivr_context,
-        'is_active'    => $r->is_active ?? 1,
-        'priority'     => $r->priority ?? 1,
+        'prefix'       => $r->has('prefix') ? $r->prefix : $current->prefix,
+        'country_code' => $r->has('country_code') ? $r->country_code : $current->country_code,
+        'country_name' => $r->has('country_name') ? $r->country_name : $current->country_name,
+        'ivr_context'  => $r->has('ivr_context') ? $r->ivr_context : $current->ivr_context,
+        'is_active'    => $r->has('is_active') ? $r->is_active : $current->is_active,
+        'priority'     => $r->has('priority') ? $r->priority : $current->priority,
         'updated_at'   => now(),
     ]);
     return response()->json(['success'=>true]);
