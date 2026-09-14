@@ -19,12 +19,13 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
+use App\Http\Controllers\AsteriskConfigController;
 
 // -- Supplier/trunk secret redaction --
 function redactTrunk($trunk) {
     if (!$trunk) return $trunk;
     $arr = (array) $trunk;
-    foreach (['panel_password', 'api_key', 'api_secret'] as $secretField) {
+    foreach (['panel_password', 'api_key', 'api_secret', 'sip_password'] as $secretField) {
         $arr['has_'.$secretField] = !empty($arr[$secretField]);
         unset($arr[$secretField]);
     }
@@ -315,10 +316,14 @@ Route::middleware('auth:sanctum')->group(function() {
             'auth_type'         => in_array($r->auth_type,['ip','userpass','both']) ? $r->auth_type : 'ip',
             'max_channels'      => is_numeric($r->max_channels) ? (int)$r->max_channels : 500,
             'max_call_duration' => is_numeric($r->max_call_duration) ? (int)$r->max_call_duration : 1800,
+            'sip_username'      => $r->sip_username,
             'updated_at'        => now(),
         ];
         foreach (['panel_password', 'api_key', 'api_secret'] as $secretField) {
             if ($r->filled($secretField)) $data[$secretField] = $r->$secretField;
+        }
+        if ($r->filled('sip_password')) {
+            $data['sip_password'] = \Illuminate\Support\Facades\Crypt::encryptString($r->sip_password);
         }
         DB::table('trunks')->where('id',$id)->update($data);
         return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true]);
@@ -337,7 +342,7 @@ Route::middleware('auth:sanctum')->group(function() {
             return response()->json(['error'=>'Unauthorized'],403);
         }
         $field = $r->field;
-        if (!in_array($field, ['panel_password', 'api_key', 'api_secret'], true)) {
+        if (!in_array($field, ['panel_password', 'api_key', 'api_secret', 'sip_password'], true)) {
             return response()->json(['error'=>'Invalid field'],422);
         }
         $trunk = DB::table('trunks')->find($id);
@@ -357,7 +362,16 @@ Route::middleware('auth:sanctum')->group(function() {
             'updated_at' => now(),
         ]);
 
-        return response()->json(['field'=>$field,'value'=>$trunk->$field]);
+        $value = $trunk->$field;
+        if ($field === 'sip_password' && $value) {
+            try {
+                $value = \Illuminate\Support\Facades\Crypt::decryptString($value);
+            } catch (\Throwable $e) {
+                $value = null;
+            }
+        }
+
+        return response()->json(['field'=>$field,'value'=>$value]);
     });
 
     // ── IVR ───────────────────────────────────────────────────
@@ -388,6 +402,26 @@ Route::middleware('auth:sanctum')->group(function() {
         if(!isset($allowed[$cmd])) return response()->json(['error'=>'Not allowed'],403);
         exec($allowed[$cmd].' 2>&1', $out, $code);
         return response()->json(['success'=>$code===0,'output'=>implode("\n",$out)]);
+    });
+
+    // ── Asterisk Configuration module ──────────────────────────
+    Route::prefix('v1/asterisk-config')->group(function () {
+        Route::get('/status', [AsteriskConfigController::class, 'status']);
+        Route::get('/general', [AsteriskConfigController::class, 'generalShow']);
+        Route::put('/general', [AsteriskConfigController::class, 'generalUpdate']);
+        Route::get('/rtp', [AsteriskConfigController::class, 'rtpShow']);
+        Route::put('/rtp', [AsteriskConfigController::class, 'rtpUpdate']);
+        Route::get('/firewall', [AsteriskConfigController::class, 'firewallInfo']);
+        Route::get('/preview', [AsteriskConfigController::class, 'preview']);
+        Route::post('/apply', [AsteriskConfigController::class, 'apply']);
+        Route::post('/reload/pjsip', [AsteriskConfigController::class, 'reloadPjsip']);
+        Route::post('/reload/dialplan', [AsteriskConfigController::class, 'reloadDialplan']);
+        Route::post('/reload/all', [AsteriskConfigController::class, 'reloadAll']);
+        Route::post('/test', [AsteriskConfigController::class, 'testConfiguration']);
+        Route::get('/history', [AsteriskConfigController::class, 'historyIndex']);
+        Route::get('/history/{id}', [AsteriskConfigController::class, 'historyShow']);
+        Route::get('/history/{id}/download', [AsteriskConfigController::class, 'historyDownload']);
+        Route::post('/history/{id}/rollback', [AsteriskConfigController::class, 'rollback']);
     });
 
 });

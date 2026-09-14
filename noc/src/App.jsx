@@ -67,6 +67,7 @@ const getNavGroups=(role)=>{
   {key:"system",label:"System",items:[
     {id:"systemhealth",label:"System Health",icon:"♥"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
+    ...(isSuperAdmin?[{id:"asterisk-config",label:"Asterisk Configuration",icon:"📡"}]:[]),
   ]},
 ]};
 
@@ -1471,25 +1472,11 @@ function SuppliersPage({token}){
   });
   const [saving,setSaving]=useState(false);
   const [showPass,setShowPass]=useState(false);
-  const [revealedPassword,setRevealedPassword]=useState(null);
-  const [revealing,setRevealing]=useState(false);
 
   const load=()=>{
-    // GET /suppliers never returns secret values (panel_password/api_key/
-    // api_secret) — only has_panel_password/has_api_key/has_api_secret
-    // flags. Actual secrets are fetched on demand via revealPassword().
     apiFetch("/suppliers",token).then(d=>{setSuppliers(d.data||[]);setLoading(false);});
   };
   useEffect(()=>{load();},[token]);
-
-  const revealPassword=async()=>{
-    if(showPass){setShowPass(false);return;}
-    if(!selected) return;
-    setRevealing(true);
-    const d=await apiFetch("/suppliers/"+selected.id+"/reveal",token,{method:"POST",body:JSON.stringify({field:"panel_password"})});
-    setRevealing(false);
-    if(d&&d.value!==undefined){setRevealedPassword(d.value);setShowPass(true);}
-  };
 
   const save=async()=>{
     setSaving(true);
@@ -1513,16 +1500,12 @@ function SuppliersPage({token}){
 
   const selectSupplier=(s)=>{
     setSelected(s);setEditing(false);
-    setShowPass(false);setRevealedPassword(null);
     setForm({
       name:s.name||"",nickname:s.nickname||"",host:s.host||"",
       port:s.port||"5060",transport:s.transport||"udp",
       codecs:s.codecs||"ulaw,alaw,g729",
-      // panel_password is intentionally left blank here — the API no
-      // longer returns the secret value in the list, and leaving it blank
-      // on save preserves the existing password (see PUT /v1/suppliers).
       panel_url:s.panel_url||"",panel_user:s.panel_user||"",
-      panel_password:"",team_link:s.team_link||"",
+      panel_password:s.panel_password||"",team_link:s.team_link||"",
       sales_person:s.sales_person||"",whatsapp:s.whatsapp||"",
       notes:s.notes||""
     });
@@ -1681,7 +1664,7 @@ function SuppliersPage({token}){
                     <div style={{marginBottom:10}}>
                       <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Password</div>
                       <div style={{position:"relative"}}>
-                        <input type={showPass?"text":"password"} style={{...inp,paddingRight:36}} value={form.panel_password||""} placeholder={selected?.has_panel_password?"Leave blank to keep current password":"password"} onChange={e=>setForm(f=>({...f,panel_password:e.target.value}))}/>
+                        <input type={showPass?"text":"password"} style={{...inp,paddingRight:36}} value={form.panel_password||""} placeholder="password" onChange={e=>setForm(f=>({...f,panel_password:e.target.value}))}/>
                         <button onClick={()=>setShowPass(p=>!p)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16}}>{showPass?"🙈":"👁"}</button>
                       </div>
                     </div>
@@ -1767,10 +1750,10 @@ function SuppliersPage({token}){
                   {[
                     ["Panel",selected?.panel_url||"—"],
                     ["User",selected?.panel_user||"—"],
-                    ["Password", selected?.has_panel_password?(
+                    ["Password", selected?.panel_password?(
                       <span style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontFamily:"monospace"}}>{showPass&&revealedPassword!==null?revealedPassword:"••••••••"}</span>
-                        <button onClick={revealPassword} disabled={revealing} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:0}}>{revealing?"⏳":showPass?"🙈":"👁"}</button>
+                        <span style={{fontFamily:"monospace"}}>{showPass?selected.panel_password:"••••••••"}</span>
+                        <button onClick={()=>setShowPass(p=>!p)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:0}}>{showPass?"🙈":"👁"}</button>
                       </span>
                     ):"—"],
                     ["Team Link",selected?.team_link||"—"],
@@ -4414,6 +4397,487 @@ function SettingsPage({user,logout}){
   );
 }
 
+// ── Asterisk Configuration ──────────────────────────────────────────
+function AsteriskConfigPage({token,user}){
+  const [tab,setTab]=useState("general");
+  const [status,setStatus]=useState(null);
+  const [general,setGeneral]=useState(null);
+  const [suppliers,setSuppliers]=useState([]);
+  const [prefixes,setPrefixes]=useState([]);
+  const [ivrs,setIvrs]=useState([]);
+  const [firewall,setFirewall]=useState(null);
+  const [preview,setPreview]=useState(null);
+  const [previewLoading,setPreviewLoading]=useState(false);
+  const [history,setHistory]=useState([]);
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState(null);
+  const [confirmApply,setConfirmApply]=useState(false);
+
+  const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
+    background:"#FFF",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
+  const btn=(col)=>({padding:"9px 14px",borderRadius:8,border:`1px solid ${col}40`,
+    background:`${col}15`,color:col,fontSize:12,fontWeight:700,cursor:"pointer"});
+
+  const loadStatus=useCallback(()=>{apiFetch("/asterisk-config/status",token).then(d=>setStatus(d.data||null));},[token]);
+  const loadGeneral=useCallback(()=>{apiFetch("/asterisk-config/general",token).then(d=>setGeneral(d.data||null));},[token]);
+  const loadSuppliers=useCallback(()=>{apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));},[token]);
+  const loadPrefixes=useCallback(()=>{apiFetch("/route-prefixes",token).then(d=>setPrefixes(d.data||[]));},[token]);
+  const loadIvrs=useCallback(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
+  const loadFirewall=useCallback(()=>{apiFetch("/asterisk-config/firewall",token).then(d=>setFirewall(d.data||null));},[token]);
+  const loadHistory=useCallback(()=>{apiFetch("/asterisk-config/history",token).then(d=>setHistory(d.data||[]));},[token]);
+  const loadPreview=useCallback(()=>{
+    setPreviewLoading(true);
+    apiFetch("/asterisk-config/preview",token).then(d=>{setPreview(d.data||null);setPreviewLoading(false);});
+  },[token]);
+
+  useEffect(()=>{ loadStatus(); loadGeneral(); },[loadStatus,loadGeneral]);
+  useEffect(()=>{
+    if(tab==="suppliers") loadSuppliers();
+    if(tab==="did") { loadPrefixes(); loadSuppliers(); loadIvrs(); }
+    if(tab==="ivr") loadIvrs();
+    if(tab==="firewall") loadFirewall();
+    if(tab==="preview"||tab==="apply") loadPreview();
+    if(tab==="reload") loadStatus();
+    if(tab==="history") loadHistory();
+  },[tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveGeneral=async(patch)=>{
+    setBusy(true);
+    const d=await apiFetch("/asterisk-config/general",token,{method:"PUT",body:JSON.stringify({...general,...patch})});
+    setGeneral(d.data||general);setBusy(false);
+  };
+
+  const saveRtp=async(rtp_start,rtp_end)=>{
+    setBusy(true);setResult(null);
+    const d=await apiFetch("/asterisk-config/rtp",token,{method:"PUT",body:JSON.stringify({rtp_start,rtp_end})});
+    setResult(d.data?{success:true,note:d.note}:{success:false,error:d.error});
+    setGeneral(d.data||general);setBusy(false);
+  };
+
+  const doApply=async()=>{
+    setBusy(true);setResult(null);setConfirmApply(false);
+    const d=await apiFetch("/asterisk-config/apply",token,{method:"POST"});
+    setResult(d.data||d);setBusy(false);
+    loadStatus();loadPreview();loadHistory();
+  };
+
+  const doReload=async(which)=>{
+    setBusy(true);setResult(null);
+    const d=await apiFetch(`/asterisk-config/reload/${which}`,token,{method:"POST"});
+    setResult(d.data||d);setBusy(false);loadStatus();
+  };
+
+  const doTest=async()=>{
+    setBusy(true);setResult(null);
+    const d=await apiFetch("/asterisk-config/test",token,{method:"POST"});
+    setResult(d.data||d);setBusy(false);
+  };
+
+  const doRollback=async(id)=>{
+    if(!window.confirm(`Rollback to history #${id}? This restores that backup and reloads Asterisk now.`)) return;
+    setBusy(true);setResult(null);
+    const d=await apiFetch(`/asterisk-config/history/${id}/rollback`,token,{method:"POST"});
+    setResult(d.data||d);setBusy(false);loadHistory();loadStatus();
+  };
+
+  const doDownload=async(id)=>{
+    const r=await fetch(`${API}/asterisk-config/history/${id}/download`,{
+      headers:{Authorization:`Bearer ${token}`}});
+    if(!r.ok){alert("Download failed");return;}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`asterisk-backup-${id}.zip`;a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyText=(text)=>{navigator.clipboard?.writeText(text);};
+
+  const tabs=[
+    {id:"general",label:"General"},
+    {id:"suppliers",label:"Suppliers / SIP Auth"},
+    {id:"did",label:"DID / Prefix Routing"},
+    {id:"ivr",label:"IVR Routing"},
+    {id:"rtp",label:"RTP"},
+    {id:"firewall",label:"Firewall Info"},
+    {id:"preview",label:"Config Preview"},
+    {id:"apply",label:"Apply Configuration"},
+    {id:"reload",label:"Reload / Status"},
+    {id:"history",label:"History / Backup"},
+  ];
+
+  const statusDot=(ok)=>(
+    <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",
+      background:ok?C.green:C.red,marginRight:6}}/>
+  );
+
+  const codeBlock=(title,text)=>(
+    <div style={{marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.text}}>{title}</div>
+        <button onClick={()=>copyText(text)} style={{...btn(C.blue),padding:"4px 10px",fontSize:11}}>Copy</button>
+      </div>
+      <pre style={{background:"#0F1420",color:"#D4D8E4",padding:14,borderRadius:8,
+        fontSize:11.5,lineHeight:1.6,overflowX:"auto",maxHeight:320,whiteSpace:"pre",fontFamily:"monospace"}}>
+        {text||"(empty)"}
+      </pre>
+    </div>
+  );
+
+  return(
+    <div style={{padding:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{fontSize:16,fontWeight:800}}>📡 Asterisk Configuration</div>
+      </div>
+      <div style={{fontSize:11,color:C.muted,marginBottom:14}}>
+        Supplier SIP → IP Authentication → DID/Prefix/Range → IVR → CDR/Billsec — managed here, never by hand-editing /etc/asterisk/*.conf.
+      </div>
+
+      {/* Dashboard cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:16}}>
+        {[
+          ["Asterisk Status",status?(status.online?"Online":"Offline"):"…",status?.online?C.green:C.red],
+          ["Active Suppliers",status?.active_suppliers??"…",C.blue],
+          ["Active DID Ranges",status?.active_did_ranges??"…",C.blue],
+          ["Active IVRs",status?.active_ivrs??"…",C.blue],
+          ["Last Reload",status?.last_reload_at?new Date(status.last_reload_at).toLocaleString():"Never",C.yellow],
+          ["Config Status",status?.last_apply_at?"Applied":"Not yet applied",status?.last_apply_at?C.green:C.yellow],
+        ].map(([label,val,col])=>(
+          <Card key={label} style={{padding:12}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{label}</div>
+            <div style={{fontSize:14,fontWeight:800,color:col}}>{String(val)}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
+            style={{padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11.5,fontWeight:700,
+              background:tab===t.id?C.accent:"#F0F0F5",color:tab===t.id?"#FFF":C.muted}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {result&&(
+        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:`1px solid ${result.success?C.green:C.red}`}}>
+          <div style={{fontSize:12,fontWeight:700,color:result.success?C.green:C.red}}>
+            {result.success?"Success":(result.status||"Failed")}
+          </div>
+          {result.summary&&<div style={{fontSize:11,color:C.text,marginTop:4,whiteSpace:"pre-wrap"}}>{result.summary}</div>}
+          {result.error&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{result.error}</div>}
+          {result.note&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>{result.note}</div>}
+        </div>
+      )}
+
+      {/* 1. General */}
+      {tab==="general"&&general&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>General Settings</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {[["Asterisk Version",status?.version||"—"],
+              ["Public IP",status?.public_ip||"—"],
+              ["SIP Port",general.sip_port],
+              ["RTP Range",`${general.rtp_start}-${general.rtp_end}`]].map(([k,v])=>(
+              <div key={k}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{k}</div>
+                <div style={{fontSize:13,fontFamily:"monospace"}}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{height:1,background:C.border,margin:"14px 0"}}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Default Codecs</div>
+              <input style={inp} defaultValue={general.codecs} onBlur={e=>saveGeneral({codecs:e.target.value})}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Inbound Context</div>
+              <input style={inp} defaultValue={general.inbound_context} onBlur={e=>saveGeneral({inbound_context:e.target.value})}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Public IP Override</div>
+              <input style={inp} defaultValue={general.public_ip_override||""} placeholder="auto-detected if blank"
+                onBlur={e=>saveGeneral({public_ip_override:e.target.value})}/>
+            </div>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:10}}>Changes here are saved immediately but only take effect on Asterisk after Apply Configuration.</div>
+        </Card>
+      )}
+
+      {/* 2. Suppliers / SIP Authentication */}
+      {tab==="suppliers"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Suppliers / SIP Authentication</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
+            IP authentication is the preferred method. Full business details (panel/API credentials) are managed on the Suppliers page — this view covers only what feeds the generated PJSIP config.
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
+                <th style={{padding:"6px 8px"}}>Supplier</th><th>Auth</th><th>SIP IP(s)</th><th>Port</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                {suppliers.map(s=>(
+                  <tr key={s.id} style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px"}}>{s.nickname||s.name}</td>
+                    <td>{s.auth_type||"ip"}{s.has_sip_password?" 🔒":""}</td>
+                    <td style={{fontFamily:"monospace"}}>{s.host}</td>
+                    <td>{s.port||5060}</td>
+                    <td>{statusDot(!!s.is_active)}{s.is_active?"Active":"Disabled"}</td>
+                  </tr>
+                ))}
+                {!suppliers.length&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:C.muted}}>No suppliers yet — add one from the Suppliers page.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* 3. DID / Prefix Routing */}
+      {tab==="did"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>DID / Prefix / Range Routing</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
+            Full add/edit/delete is on the Route Prefix page. This view shows what the dialplan will generate from it.
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
+                <th style={{padding:"6px 8px"}}>Country</th><th>Prefix / Range</th><th>IVR</th><th>Priority</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                {[...prefixes].sort((a,b)=>(a.priority??1)-(b.priority??1)).map(p=>(
+                  <tr key={p.id} style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px"}}>{p.country_name||p.country_code}</td>
+                    <td style={{fontFamily:"monospace"}}>{p.prefix}</td>
+                    <td>{p.ivr_context}</td>
+                    <td>{p.priority}</td>
+                    <td>{statusDot(!!p.is_active)}{p.is_active?"Active":"Disabled"}</td>
+                  </tr>
+                ))}
+                {!prefixes.length&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:C.muted}}>No DID/prefix routes yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* 4. IVR Routing */}
+      {tab==="ivr"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>IVR Routing</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
+            IVRs are authored on the IVR Library page. Every active one below gets its own dialplan context.
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+            {ivrs.map(ivr=>(
+              <Card key={ivr.id||ivr.name} style={{padding:12}}>
+                <div style={{fontSize:12,fontWeight:700}}>{ivr.title||ivr.name}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:4}}>Context: <span style={{fontFamily:"monospace"}}>{ivr.name}</span></div>
+                <div style={{fontSize:10,color:C.muted}}>Audio: <span style={{fontFamily:"monospace"}}>{ivr.audio_file}</span></div>
+                <div style={{marginTop:6}}>{statusDot(!!ivr.is_active)}{ivr.is_active?"Active":"Disabled"}</div>
+              </Card>
+            ))}
+            {!ivrs.length&&<div style={{color:C.muted,fontSize:12}}>No IVRs yet.</div>}
+          </div>
+        </Card>
+      )}
+
+      {/* 5. RTP */}
+      {tab==="rtp"&&general&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>RTP Configuration</div>
+          <RtpForm general={general} onSave={saveRtp} busy={busy} inp={inp} btn={btn}/>
+          <div style={{fontSize:10,color:C.muted,marginTop:10}}>
+            RTP port range is only re-read by Asterisk on a full reload/restart — Apply Configuration will write it, but Reload PJSIP/Dialplan alone won't pick it up.
+          </div>
+        </Card>
+      )}
+
+      {/* 6. Firewall Information */}
+      {tab==="firewall"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Firewall Information</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Read-only summary. Manage rules from the IP Whitelist page.</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
+                <th style={{padding:"6px 8px"}}>#</th><th>Port</th><th>Action</th><th>From</th>
+              </tr></thead>
+              <tbody>
+                {(firewall?.firewall_rules||[]).map(r=>(
+                  <tr key={r.num} style={{borderTop:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px"}}>{r.num}</td><td>{r.port}</td>
+                    <td style={{color:r.action==="ALLOW"?C.green:C.red}}>{r.action}</td><td>{r.from}</td>
+                  </tr>
+                ))}
+                {!(firewall?.firewall_rules||[]).length&&<tr><td colSpan={4} style={{padding:16,textAlign:"center",color:C.muted}}>No rules found.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* 7. Configuration Preview */}
+      {tab==="preview"&&(
+        <Card style={{padding:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <div style={{fontSize:13,fontWeight:700}}>Configuration Preview</div>
+            <button onClick={loadPreview} style={btn(C.blue)}>⟳ Refresh</button>
+          </div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Nothing here is written to Asterisk — this is a preview only.</div>
+          {previewLoading&&<div style={{color:C.muted,fontSize:12}}>Generating…</div>}
+          {preview&&<>
+            {!!preview.errors?.length&&(
+              <div style={{padding:12,borderRadius:8,background:"rgba(239,68,68,0.1)",border:`1px solid ${C.red}`,marginBottom:12,fontSize:11,color:C.red}}>
+                {preview.errors.map((e,i)=><div key={i}>⛔ {e}</div>)}
+              </div>
+            )}
+            {!!preview.warnings?.length&&(
+              <div style={{padding:12,borderRadius:8,background:"rgba(245,158,11,0.1)",border:`1px solid ${C.yellow}`,marginBottom:12,fontSize:11,color:"#92650A"}}>
+                {preview.warnings.map((w,i)=><div key={i}>⚠ {w}</div>)}
+              </div>
+            )}
+            <div style={{padding:12,borderRadius:8,background:"#F8F9FA",border:`1px solid ${C.border}`,marginBottom:14,fontSize:12}}>
+              {(preview.changes||[]).map((c,i)=>(
+                <div key={i} style={{color:c.startsWith("+")?C.green:c.startsWith("-")?C.red:c.startsWith("~")?C.yellow:C.muted}}>{c}</div>
+              ))}
+            </div>
+            {codeBlock("PJSIP CONFIGURATION",preview.pjsip)}
+            {codeBlock("DIALPLAN CONFIGURATION",preview.dialplan)}
+            {codeBlock("RTP CONFIGURATION",preview.rtp)}
+          </>}
+        </Card>
+      )}
+
+      {/* 8. Apply Configuration */}
+      {tab==="apply"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Apply Configuration</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
+            Validates → backs up current config → atomically writes → reloads → verifies. Automatically reverts if verification fails.
+          </div>
+          {preview&&!!preview.errors?.length&&(
+            <div style={{padding:12,borderRadius:8,background:"rgba(239,68,68,0.1)",border:`1px solid ${C.red}`,marginBottom:12,fontSize:11,color:C.red}}>
+              Cannot apply — fix these first:
+              {preview.errors.map((e,i)=><div key={i}>⛔ {e}</div>)}
+            </div>
+          )}
+          <div style={{padding:12,borderRadius:8,background:"#F8F9FA",border:`1px solid ${C.border}`,marginBottom:14,fontSize:12}}>
+            {(preview?.changes||["Loading preview…"]).map((c,i)=>(
+              <div key={i} style={{color:c.startsWith("+")?C.green:c.startsWith("-")?C.red:c.startsWith("~")?C.yellow:C.muted}}>{c}</div>
+            ))}
+          </div>
+          <button disabled={busy||(preview&&!!preview.errors?.length)} onClick={()=>setConfirmApply(true)}
+            style={{...btn(C.green),padding:"14px 24px",fontSize:14,opacity:busy?0.6:1}}>
+            🚀 Apply Configuration
+          </button>
+
+          {confirmApply&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,
+              display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setConfirmApply(false)}>
+              <div style={{background:"#FFF",borderRadius:12,padding:20,width:420,maxWidth:"90vw"}} onClick={e=>e.stopPropagation()}>
+                <div style={{fontSize:14,fontWeight:800,marginBottom:8}}>Are you sure?</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:10}}>The following changes will be applied:</div>
+                <div style={{fontSize:12,marginBottom:16,maxHeight:200,overflowY:"auto"}}>
+                  {(preview?.changes||[]).map((c,i)=><div key={i}>{c}</div>)}
+                </div>
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setConfirmApply(false)} style={btn(C.muted)}>Cancel</button>
+                  <button onClick={doApply} style={btn(C.green)}>Apply Configuration</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* 9. Reload / Status */}
+      {tab==="reload"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Reload / Status</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:16}}>
+            <button disabled={busy} onClick={()=>doReload("pjsip")} style={btn(C.blue)}>Reload PJSIP</button>
+            <button disabled={busy} onClick={()=>doReload("dialplan")} style={btn(C.blue)}>Reload Dialplan</button>
+            <button disabled={busy} onClick={()=>doReload("all")} style={btn(C.purple)}>Reload All</button>
+            <button disabled={busy} onClick={doTest} style={btn(C.orange)}>Test Configuration</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:12}}>
+            {[["Asterisk",status?.online?"ONLINE":"OFFLINE",status?.online],
+              ["PJSIP Identifies",status?.live_identify_count,true],
+              ["Active Calls",status?.active_calls,true],
+              ["RTP",`${status?.rtp_start}-${status?.rtp_end}`,true]].map(([k,v,ok])=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                <span style={{color:C.muted}}>{k}</span>
+                <span>{statusDot(!!ok)}{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* 10. History / Backup */}
+      {tab==="history"&&(
+        <Card style={{padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Configuration History</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
+                <th style={{padding:"6px 8px"}}>#</th><th>User</th><th>Date/Time</th><th>Action</th><th>Status</th><th>Backup</th><th></th>
+              </tr></thead>
+              <tbody>
+                {history.map(h=>(
+                  <tr key={h.id} style={{borderTop:`1px solid ${C.border}`,verticalAlign:"top"}}>
+                    <td style={{padding:"8px"}}>#{h.id}</td>
+                    <td>{h.user_name||h.user_email}</td>
+                    <td>{new Date(h.created_at).toLocaleString()}</td>
+                    <td style={{maxWidth:260,whiteSpace:"pre-wrap"}}>{h.action}<div style={{color:C.muted,fontSize:10}}>{h.summary}</div></td>
+                    <td style={{color:h.status==="success"?C.green:h.status==="rolled_back"?C.yellow:C.red}}>{h.status}</td>
+                    <td style={{fontFamily:"monospace",fontSize:10}}>{h.pjsip_backup_path||"—"}</td>
+                    <td>
+                      <div style={{display:"flex",gap:6}}>
+                        {h.pjsip_backup_path&&<button onClick={()=>doDownload(h.id)} style={{...btn(C.blue),padding:"4px 8px",fontSize:10}}>Download</button>}
+                        {h.pjsip_backup_path&&<button onClick={()=>doRollback(h.id)} style={{...btn(C.red),padding:"4px 8px",fontSize:10}}>Rollback</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!history.length&&<tr><td colSpan={7} style={{padding:16,textAlign:"center",color:C.muted}}>No history yet — apply a configuration to start one.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function RtpForm({general,onSave,busy,inp,btn}){
+  const [start,setStart]=useState(general.rtp_start);
+  const [end,setEnd]=useState(general.rtp_end);
+  const invalid=Number(start)>=Number(end)||Number(start)<1||Number(end)>65535;
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+        <div>
+          <div style={{fontSize:10,color:"#64748B",marginBottom:4}}>RTP Start</div>
+          <input type="number" style={inp} value={start} onChange={e=>setStart(e.target.value)}/>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:"#64748B",marginBottom:4}}>RTP End</div>
+          <input type="number" style={inp} value={end} onChange={e=>setEnd(e.target.value)}/>
+        </div>
+      </div>
+      {invalid&&<div style={{color:"#EF4444",fontSize:11,marginBottom:10}}>Start must be less than End, both within 1-65535.</div>}
+      <button disabled={busy||invalid} onClick={()=>onSave(Number(start),Number(end))} style={btn(C.green)}>Save RTP Range</button>
+    </div>
+  );
+}
 
 function RoutePrefixPage({token}){
   const [prefixes,setPrefixes]=useState([]);
@@ -5556,6 +6020,7 @@ export default function App(){
       "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
       "sip-monitor":"sipmonitor",
       "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
+      "asterisk-config":"asterisk-config","asterisk":"asterisk-config",
     };
     return routes[path]||"dashboard";
   };
@@ -5567,6 +6032,7 @@ export default function App(){
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
+      "asterisk-config":"asterisk-config",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -5764,6 +6230,7 @@ export default function App(){
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
+      case "asterisk-config": return <AsteriskConfigPage token={token} user={user}/>;
       default:             return <DashboardPage token={token}/>;
     }
   };

@@ -21,7 +21,9 @@ class Trunk extends Model
         'api_url', 'api_key', 'api_secret',
         'api_did', 'api_livecalls', 'api_cdr', 'api_balance',
         'api_did_path', 'api_livecalls_path',
+        'pjsip_name', 'qualify', 'auth_type', 'max_channels', 'max_call_duration',
+        'sip_username', 'sip_password',
     ];
 
-    protected $hidden = ['panel_password', 'api_key', 'api_secret'];
+    protected $hidden = ['panel_password', 'api_key', 'api_secret', 'sip_password'];
 }
