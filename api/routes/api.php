@@ -602,9 +602,11 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::get('/v1/suppliers', function(Request $request) {
         $didCounts = DB::table('dids')->select('trunk_id', DB::raw('COUNT(*) as c'))
             ->groupBy('trunk_id')->pluck('c', 'trunk_id');
-        $trunks = DB::table('trunks')->get()->map(function($t) use ($didCounts) {
+        $supplierNames = DB::table('suppliers')->pluck('name', 'id');
+        $trunks = DB::table('trunks')->get()->map(function($t) use ($didCounts, $supplierNames) {
             $t = redactTrunk($t);
             $t['did_count'] = $didCounts[$t['id']] ?? 0;
+            $t['supplier_name'] = $t['supplier_id'] ? ($supplierNames[$t['supplier_id']] ?? null) : null;
             return $t;
         })->values();
         return response()->json(['data'=>$trunks]);
@@ -615,6 +617,7 @@ Route::middleware('auth:sanctum')->group(function() {
             return response()->json(['error'=>'Unauthorized'],403);
         }
         $id = DB::table('trunks')->insertGetId([
+            'supplier_id' => $r->supplier_id ?: null,
             'name'       => $r->name,
             'host'       => $r->host,
             'port'       => $r->port ?? 5060,
@@ -633,6 +636,7 @@ Route::middleware('auth:sanctum')->group(function() {
             return response()->json(['error'=>'Unauthorized'],403);
         }
         $data = [
+            'supplier_id'       => $r->supplier_id ?: null,
             'name'              => $r->name,
             'nickname'          => $r->nickname,
             'host'              => $r->host,

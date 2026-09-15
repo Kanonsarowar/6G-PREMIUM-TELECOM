@@ -5087,6 +5087,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   const [result,setResult]=useState(null);
   const [confirmApply,setConfirmApply]=useState(false);
   const [supplierModal,setSupplierModal]=useState(null); // {mode:'add'|'edit', id, form}
+  const [commercialSuppliers,setCommercialSuppliers]=useState([]); // Partners -> Suppliers records, for the trunk's Supplier picker
   const [routeModal,setRouteModal]=useState(null); // {mode:'add'|'edit', id, form}
 
   const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
@@ -5099,6 +5100,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   const loadStatus=useCallback(()=>{apiFetch("/asterisk-config/status",token).then(d=>setStatus(d.data||null));},[token]);
   const loadGeneral=useCallback(()=>{apiFetch("/asterisk-config/general",token).then(d=>{setGeneral(d.data||null);setGeneralForm(d.data||null);});},[token]);
   const loadSuppliers=useCallback(()=>{apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));},[token]);
+  const loadCommercialSuppliers=useCallback(()=>{apiFetch("/supplier-accounts",token).then(d=>setCommercialSuppliers(d.data||[]));},[token]);
   const loadPrefixes=useCallback(()=>{apiFetch("/route-prefixes",token).then(d=>setPrefixes(d.data||[]));},[token]);
   const loadIvrs=useCallback(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
   const loadFirewall=useCallback(()=>{apiFetch("/asterisk-config/firewall",token).then(d=>setFirewall(d.data||null));},[token]);
@@ -5110,7 +5112,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
 
   useEffect(()=>{ loadStatus(); loadGeneral(); },[loadStatus,loadGeneral]);
   useEffect(()=>{
-    if(tab==="suppliers") loadSuppliers();
+    if(tab==="suppliers") { loadSuppliers(); loadCommercialSuppliers(); }
     if(tab==="did") { loadPrefixes(); loadSuppliers(); loadIvrs(); }
     if(tab==="ivr") loadIvrs();
     if(tab==="firewall") { loadFirewall(); loadSuppliers(); }
@@ -5174,26 +5176,27 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
 
   // ── Supplier / SIP Auth CRUD ──────────────────────────────────────
   const openAddSupplier=()=>setSupplierModal({mode:"add",id:null,form:{
-    name:"",nickname:"",host:"",port:"5060",transport:"udp",pjsip_name:"",
+    supplier_id:"",name:"",nickname:"",host:"",port:"5060",transport:"udp",pjsip_name:"",
     auth_type:"ip",sip_username:"",sip_password:"",qualify:"60",
     codecs:"ulaw,alaw",max_channels:"500",max_call_duration:"1800"}});
   const openEditSupplier=(s)=>setSupplierModal({mode:"edit",id:s.id,form:{
-    name:s.name||"",nickname:s.nickname||"",host:s.host||"",port:s.port||"5060",
+    supplier_id:s.supplier_id||"",name:s.name||"",nickname:s.nickname||"",host:s.host||"",port:s.port||"5060",
     transport:s.transport||"udp",pjsip_name:s.pjsip_name||"",
     auth_type:s.auth_type||"ip",sip_username:s.sip_username||"",sip_password:"",
     qualify:s.qualify??"60",codecs:s.codecs||"ulaw,alaw",
     max_channels:s.max_channels??"500",max_call_duration:s.max_call_duration??"1800"}});
   const saveSupplierModal=async()=>{
     if(!supplierModal) return;
-    setBusy(true);
     const f=supplierModal.form;
+    if(!f.supplier_id){alert("Select a supplier first");return;}
+    setBusy(true);
     if(supplierModal.mode==="add"){
       const created=await apiFetch("/suppliers",token,{method:"POST",
-        body:JSON.stringify({name:f.name,host:f.host,port:f.port})});
+        body:JSON.stringify({supplier_id:f.supplier_id,name:f.name,host:f.host,port:f.port})});
       const newId=created?.data?.id;
       if(newId){
         await apiFetch(`/suppliers/${newId}`,token,{method:"PUT",body:JSON.stringify({
-          ...created.data,nickname:f.nickname||f.name,auth_type:f.auth_type,
+          ...created.data,supplier_id:f.supplier_id,nickname:f.nickname||f.name,auth_type:f.auth_type,
           sip_username:f.sip_username,sip_password:f.sip_password||undefined,
           qualify:f.qualify,transport:f.transport,pjsip_name:f.pjsip_name,
           codecs:f.codecs,max_channels:f.max_channels,max_call_duration:f.max_call_duration,
@@ -5403,12 +5406,13 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
-                <th style={{padding:"6px 8px"}}>Trunk</th><th>PJSIP Name</th><th>SIP IP</th><th>Port</th><th>Authentication</th><th>Max Ch</th><th>DIDs</th><th>Status</th><th></th>
+                <th style={{padding:"6px 8px"}}>Trunk</th><th>Supplier</th><th>PJSIP Name</th><th>SIP IP</th><th>Port</th><th>Authentication</th><th>Max Ch</th><th>DIDs</th><th>Status</th><th></th>
               </tr></thead>
               <tbody>
                 {suppliers.map(s=>(
                   <tr key={s.id} style={{borderTop:`1px solid ${C.border}`}}>
                     <td style={{padding:"8px"}}>{s.nickname||s.name}</td>
+                    <td style={{color:s.supplier_name?C.text:C.red,fontSize:11}}>{s.supplier_name||"Not linked"}</td>
                     <td style={{fontFamily:"monospace",fontSize:11}}>{s.pjsip_name||"—"}</td>
                     <td style={{fontFamily:"monospace"}}>{s.host}</td>
                     <td>{s.port||5060}</td>
@@ -5425,7 +5429,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
                     </td>
                   </tr>
                 ))}
-                {!suppliers.length&&<tr><td colSpan={9} style={{padding:16,textAlign:"center",color:C.muted}}>No trunks yet — click "+ Add Trunk".</td></tr>}
+                {!suppliers.length&&<tr><td colSpan={10} style={{padding:16,textAlign:"center",color:C.muted}}>No trunks yet — click "+ Add Trunk".</td></tr>}
               </tbody>
             </table>
           </div>
@@ -5705,10 +5709,17 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
 
       {/* Supplier add/edit modal */}
       {supplierModal&&modalShell(
-        supplierModal.mode==="add"?"Add Supplier IP":"Edit Supplier SIP Authentication",
+        supplierModal.mode==="add"?"Add Trunk":"Edit Trunk",
         ()=>setSupplierModal(null),
         <>
-          {supplierModal.mode==="add"&&field("Supplier Name *",
+          {field("Select Supplier *",
+            <select style={sel} value={supplierModal.form.supplier_id} onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,supplier_id:e.target.value}}))}>
+              <option value="">— Select —</option>
+              {commercialSuppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+            </select>)}
+          {!commercialSuppliers.length&&<div style={{fontSize:11,color:C.orange,marginTop:-6,marginBottom:10}}>
+            No suppliers yet — add one under Partners → Suppliers first.</div>}
+          {supplierModal.mode==="add"&&field("Trunk Name *",
             <input style={inp} value={supplierModal.form.name} onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,name:e.target.value}}))}/>)}
           {supplierModal.mode==="add"&&field("Nickname",
             <input style={inp} value={supplierModal.form.nickname} onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,nickname:e.target.value}}))}/>)}
@@ -5771,7 +5782,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
             </div>)}
         </>,
         saveSupplierModal,
-        supplierModal.mode==="add"?"Add Supplier":"Save Changes"
+        supplierModal.mode==="add"?"Add Trunk":"Save Changes"
       )}
 
       {/* DID/Prefix add/edit modal */}
