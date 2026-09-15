@@ -89,7 +89,11 @@ class AsteriskConfigManager
         $routePrefixes = DB::table('route_prefixes')->get();
         $ivrs = DB::table('ivrs')->get();
 
-        $pjsip = $this->generator->pjsipManagedBlock($trunks, $settings->inbound_context, $settings->codecs);
+        // Supplier trunk endpoints route into the hand-written from-carrier
+        // context (dynamic per-DID IVR lookup via did_router.php, looped
+        // Playback until hangup) rather than the generated from-suppliers/
+        // number-routing block - see AsteriskConfigGenerator::PJSIP_INBOUND_CONTEXT.
+        $pjsip = $this->generator->pjsipManagedBlock($trunks, AsteriskConfigGenerator::PJSIP_INBOUND_CONTEXT, $settings->codecs);
         $dialplan = $this->generator->dialplanManagedBlock($routePrefixes, $ivrs, $settings->inbound_context);
         $rtp = $this->generator->rtpConf($settings->rtp_start, $settings->rtp_end);
 
@@ -182,7 +186,7 @@ class AsteriskConfigManager
         // Step 2: generate
         $oldPjsip = $this->extractManagedBlock(config('asterisk.pjsip_conf'), AsteriskConfigGenerator::PJSIP_BEGIN, AsteriskConfigGenerator::PJSIP_END);
         $oldDialplan = $this->extractManagedBlock(config('asterisk.extensions_conf'), AsteriskConfigGenerator::DIALPLAN_BEGIN, AsteriskConfigGenerator::DIALPLAN_END);
-        $pjsip = $this->generator->pjsipManagedBlock($trunks, $settings->inbound_context, $settings->codecs);
+        $pjsip = $this->generator->pjsipManagedBlock($trunks, AsteriskConfigGenerator::PJSIP_INBOUND_CONTEXT, $settings->codecs);
         $dialplan = $this->generator->dialplanManagedBlock($routePrefixes, $ivrs, $settings->inbound_context);
 
         // Step 3: static re-validation of the generated text (brackets/dupes)
