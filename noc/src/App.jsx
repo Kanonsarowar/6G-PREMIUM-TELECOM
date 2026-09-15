@@ -1629,7 +1629,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [supplierCdr,setSupplierCdr]=useState([]);
 
   const liveCallRef=useRef(null);
-  const PAYMENT_TERMS=["Net 0","Net 7","Net 15","Net 30","Net 45","Net 60","Custom"];
+  const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
@@ -2346,7 +2346,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 </div>
               ):(
                 <textarea value={importText} onChange={e=>setImportText(e.target.value)}
-                  placeholder={"Paste numbers/ranges here, any format, e.g.:\n+919876543210, India, 0.040, Net 30, STC\n9779767851000  9779767851099  Nepal  0.06  Weekly  Ncell"}
+                  placeholder={"Paste numbers/ranges here, any format, e.g.:\n+919876543210, India, 0.040, 30/45, STC\n9779767851000  9779767851099  Nepal  0.06  Weekly  Ncell"}
                   style={{...inpS,minHeight:220,resize:"vertical",fontFamily:"monospace",fontSize:12,marginBottom:12}}/>
               )}
               <div style={{display:"flex",gap:8}}>
