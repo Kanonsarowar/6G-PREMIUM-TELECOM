@@ -1628,6 +1628,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});
   const [showAddNum,setShowAddNum]=useState(false);
   const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
+  const [showAddTest,setShowAddTest]=useState(false);
+  const [addTest,setAddTest]=useState({prefix_id:"",number:""});
 
   const [showPayment,setShowPayment]=useState(false);
   const [payLoading,setPayLoading]=useState(false);
@@ -1773,6 +1775,20 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
   const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
 
+  const addTestNumber=async()=>{
+    if(!addTest.prefix_id){alert("Select a Prefix first");return;}
+    if(!addTest.number){alert("Test number is required");return;}
+    setSaving(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token,{method:"POST",body:JSON.stringify(addTest)});
+    setSaving(false);
+    if(d.success){
+      flash("Test number added");
+      setAddTest({prefix_id:"",number:""});
+      setShowAddTest(false); loadTest(); loadPrefixes();
+    } else alert(d.error||"Failed to add");
+  };
+  const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); loadPrefixes(); };
+
   // ── Payment: closed-period gating computed client-side from the
   // existing /supplier-payments/pending + /history endpoints (no backend
   // change) - a period is never shown as payable while still open.
@@ -1869,6 +1885,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <button onClick={()=>scrollTo(liveCallRef)} style={actionBtn("#2CADA6")}>+ LIVE CALL</button>
           <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
           <button onClick={()=>setShowAddNum(true)} style={actionBtn("#2CADA6")}>+ ADD NUMBER / RANGE</button>
+          <button onClick={()=>setShowAddTest(true)} style={actionBtn("#2CADA6")}>+ ADD TEST NUMBER</button>
           <button onClick={openPaymentModal} style={actionBtn("#F5F5F5","#555")}>PAYMENT</button>
           <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
         </div>
@@ -1877,6 +1894,41 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       <div style={{padding:"12px 16px"}}>
         {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
           background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
+
+        {/* LIVE CALL — supplier-specific only, never the global NOC feed */}
+        <div ref={liveCallRef} style={{...cardS,overflow:"hidden",marginBottom:14}}>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>LIVE CALL</span>
+            <button onClick={loadLiveCalls} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+              background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+              <thead><tr>{["Status","Number","Caller","Start Time","Duration","Prefix","Route/IVR","Source"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <tbody>
+                {loadingLive?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
+                liveCalls.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No live calls right now</td></tr>:
+                liveCalls.map((c,i)=>(
+                  <tr key={c.key+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                    <td style={{padding:"8px 10px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                        background:"rgba(16,185,129,0.1)",color:"#10B981"}}>{c.status}</span></td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{c.number}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.caller}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.start_time}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.duration}s</td>
+                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{c.prefix}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.route}</td>
+                    <td style={{padding:"8px 10px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                        background:c.source==="API"?"rgba(91,79,207,0.1)":"rgba(44,173,166,0.1)",
+                        color:c.source==="API"?"#5B4FCF":"#2CADA6"}}>{c.source}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         {/* ACTIVE PREFIX */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
@@ -1944,39 +1996,23 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* LIVE CALL */}
-        <div ref={liveCallRef} style={{...cardS,overflow:"hidden",marginBottom:14}}>
-          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>LIVE CALL</span>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={loadLiveCalls} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
-                background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
-              <button onClick={()=>setPage&&setPage("testlivecall")}
-                style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-                  color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>📞 Live Test Call</button>
-            </div>
-          </div>
+        {/* TEST NUMBERS */}
+        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>TEST NUMBERS</div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-              <thead><tr>{["Status","Number","Caller","Start Time","Duration","Prefix","Route/IVR","Source"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
+              <thead><tr>{["Country","Prefix","Price","Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {loadingLive?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
-                liveCalls.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No live calls right now</td></tr>:
-                liveCalls.map((c,i)=>(
-                  <tr key={c.key+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:"rgba(16,185,129,0.1)",color:"#10B981"}}>{c.status}</span></td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{c.number}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.caller}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.start_time}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.duration}s</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{c.prefix}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.route}</td>
-                    <td style={{padding:"8px 10px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:c.source==="API"?"rgba(91,79,207,0.1)":"rgba(44,173,166,0.1)",
-                        color:c.source==="API"?"#5B4FCF":"#2CADA6"}}>{c.source}</span></td>
+                {testNumbers.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet — use "+ ADD TEST NUMBER" above</td></tr>:
+                testNumbers.map((n,i)=>(
+                  <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{n.prefix||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
+                    <td style={{padding:"8px 10px",textAlign:"center"}}>
+                      <button onClick={()=>delTest(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                        cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -2107,6 +2143,37 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
                 {saving?"Saving...":"✅ Add"}</button>
               <button onClick={()=>setShowAddNum(false)}
+                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddTest&&(
+        <div onClick={()=>setShowAddTest(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Add Test Number</div>
+            <div style={{marginBottom:10}}>
+              <div style={lblS}>Prefix *</div>
+              <select style={inpS} value={addTest.prefix_id} onChange={e=>setAddTest({...addTest,prefix_id:e.target.value})}>
+                <option value="">— Select Prefix —</option>
+                {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
+              </select>
+            </div>
+            {addTest.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addTest.prefix_id));return p&&(
+              <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555"}}>
+                <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span>
+              </div>
+            );})()}
+            <div style={{marginBottom:16}}>
+              <div style={lblS}>Number *</div>
+              <input style={inpS} value={addTest.number} onChange={e=>setAddTest({...addTest,number:e.target.value})} placeholder="+919876543210"/>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={addTestNumber} disabled={saving}
+                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Add Test Number"}</button>
+              <button onClick={()=>setShowAddTest(false)}
                 style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
             </div>
           </div>
