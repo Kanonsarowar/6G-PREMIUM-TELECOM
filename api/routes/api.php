@@ -147,8 +147,15 @@ function importCountryNames() {
 // quoted value containing the delimiter is never split into extra columns
 // and never merged with its neighbor - each CSV row stays exactly one
 // record, with prefix/number/price etc. as separate fields throughout.
+//
+// Semicolon is checked before comma: many European exports use semicolon
+// as the true field separator specifically because comma is the decimal
+// separator there (e.g. a price field of "0,042"). If comma were tried
+// first, a line like `...;0,042;EUR;...` would be wrongly split on that
+// decimal comma instead of the real semicolon boundaries, shredding the
+// price/currency field into unrelated fragments.
 function importSplitLine($line) {
-    foreach ([",", "\t", ";", "|"] as $d) {
+    foreach ([";", ",", "\t", "|"] as $d) {
         if (substr_count($line, $d) >= 1) {
             return array_map(fn($p) => trim(is_string($p) ? $p : '', " \t\"'"), str_getcsv($line, $d));
         }
@@ -180,6 +187,18 @@ function importDetectHeaderMap($tokens) {
 
 function importNormalizeDigits($v) { return preg_replace('/[^0-9]/', '', (string)$v); }
 
+// Accepts both "0.042" (dot-decimal) and the European "0,042"
+// (comma-decimal) formats now that fields are correctly delimiter-split;
+// returns null for anything that isn't a plain decimal number so a bad
+// value never silently becomes 0 or some other misleading default.
+function importParsePrice($v) {
+    if ($v === null) return null;
+    $v = trim((string)$v);
+    if ($v === '') return null;
+    if (preg_match('/^\d+,\d+$/', $v)) $v = str_replace(',', '.', $v);
+    return is_numeric($v) ? (float)$v : null;
+}
+
 function importDerivePrefix($digits) {
     $digits = ltrim($digits, '+');
     return strlen($digits) > 4 ? substr($digits, 0, -4) : $digits;
@@ -194,7 +213,7 @@ function importParseRecordFromHeader($tokens, $headerMap) {
     if ($rec['number']) $rec['number'] = importNormalizeDigits($rec['number']);
     if ($rec['range_start']) $rec['range_start'] = importNormalizeDigits($rec['range_start']);
     if ($rec['range_end']) $rec['range_end'] = importNormalizeDigits($rec['range_end']);
-    if ($rec['price'] !== null) $rec['price'] = is_numeric($rec['price']) ? (float)$rec['price'] : null;
+    if ($rec['price'] !== null) $rec['price'] = importParsePrice($rec['price']);
     if (!$rec['prefix']) {
         $base = $rec['range_start'] ?: $rec['number'];
         if ($base) $rec['prefix'] = importDerivePrefix($base);
@@ -229,8 +248,13 @@ function importParseRecordHeuristic($tokens) {
     foreach ($tokens as $tok) {
         if ($tok === '') continue;
         $digits = preg_replace('/[^0-9]/', '', $tok);
-        if (preg_match('/^\d+\.\d+$/', $tok) && $rec['price'] === null) {
-            $rec['price'] = (float)$tok;
+        if (preg_match('/^\d+[.,]\d+$/', $tok) && $rec['price'] === null) {
+            $rec['price'] = importParsePrice($tok);
+        } elseif (preg_match('/^(EUR|USD|USDT|GBP|SAR|AED)$/i', $tok)) {
+            // The platform is USDT-only regardless of what currency a
+            // supplier's own file quotes - the code is simply discarded
+            // rather than risk it being misread as an operator/prefix.
+            continue;
         } elseif (preg_match('/^(net\s*\d+|daily|weekly|monthly|custom)$/i', $tok) && $rec['payment_term'] === null) {
             $rec['payment_term'] = ucwords(strtolower($tok));
         } elseif (in_array($tok, $countries, true) && $rec['country'] === null) {
