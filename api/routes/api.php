@@ -1521,6 +1521,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'payment_method_id' => $usdtMethodId,
             'paid_at'           => $r->paid_at ? \Carbon\Carbon::parse($r->paid_at) : now(),
             'reference'         => $r->reference,
+            'payment_term'      => $r->payment_term,
             'notes'             => $r->notes,
             'created_at'        => now(),
             'updated_at'        => now(),
@@ -1544,6 +1545,7 @@ Route::middleware('auth:sanctum')->group(function() {
         if ($r->supplier_id) $q->where('invoices.supplier_id', $r->supplier_id);
         if ($r->payment_method_id) $q->where('invoices.payment_method_id', $r->payment_method_id);
         if ($r->currency) $q->where('invoices.currency', $r->currency);
+        if ($r->payment_term) $q->where('invoices.payment_term', $r->payment_term);
         if ($r->date_from) $q->whereDate('invoices.paid_at', '>=', $r->date_from);
         if ($r->date_to) $q->whereDate('invoices.paid_at', '<=', $r->date_to);
         $data = $q->orderByDesc('invoices.paid_at')->get();

@@ -1610,6 +1610,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [payLoading,setPayLoading]=useState(false);
   const [currentPeriod,setCurrentPeriod]=useState(null);
   const [payHistory,setPayHistory]=useState([]);
+  const [payHistFilter,setPayHistFilter]=useState({payment_term:"",date_from:"",date_to:""});
   const [payForm,setPayForm]=useState({payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
     payment_status:supplier.payment_status||"",notes:supplier.notes||""});
   const [payDialog,setPayDialog]=useState(null);
@@ -1858,18 +1859,27 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     return true;
   };
 
+  const loadPayHistory=async(filter=payHistFilter)=>{
+    const params=new URLSearchParams({supplier_id:supplier.id});
+    if(filter.payment_term) params.set("payment_term",filter.payment_term);
+    if(filter.date_from) params.set("date_from",filter.date_from);
+    if(filter.date_to) params.set("date_to",filter.date_to);
+    const historyRes=await apiFetch("/supplier-payments/history?"+params.toString(),token);
+    setPayHistory(historyRes.data||[]);
+  };
+
   const openPaymentModal=async()=>{
     setShowPayment(true);
     setPayLoading(true);
-    const [pendingRes,historyRes]=await Promise.all([
+    setPayHistFilter({payment_term:"",date_from:"",date_to:""});
+    const [pendingRes]=await Promise.all([
       apiFetch("/supplier-payments/pending",token),
-      apiFetch("/supplier-payments/history?supplier_id="+supplier.id,token),
+      loadPayHistory({payment_term:"",date_from:"",date_to:""}),
     ]);
     const bucket=Object.values(pendingRes.data||{}).flat().filter(r=>r.supplier_id===supplier.id);
     const term=supplier.payment_terms||"Other";
     const withStatus=bucket.map(r=>({...r,closed:isPeriodClosed(term,r.period_start)}));
     setCurrentPeriod(withStatus[0]||null);
-    setPayHistory(historyRes.data||[]);
     setPayLoading(false);
   };
 
@@ -2452,15 +2462,38 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               </div>
 
               <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Payment History</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:10}}>
+                <div><div style={lblS}>Term</div>
+                  <select style={{...inpS,width:120}} value={payHistFilter.payment_term} onChange={e=>{
+                    const f={...payHistFilter,payment_term:e.target.value}; setPayHistFilter(f); loadPayHistory(f);
+                  }}>
+                    <option value="">All</option>
+                    <option value="Daily">Daily</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option>
+                  </select></div>
+                <div><div style={lblS}>From</div>
+                  <input type="date" style={{...inpS,width:140}} value={payHistFilter.date_from} onChange={e=>{
+                    const f={...payHistFilter,date_from:e.target.value}; setPayHistFilter(f); loadPayHistory(f);
+                  }}/></div>
+                <div><div style={lblS}>To</div>
+                  <input type="date" style={{...inpS,width:140}} value={payHistFilter.date_to} onChange={e=>{
+                    const f={...payHistFilter,date_to:e.target.value}; setPayHistFilter(f); loadPayHistory(f);
+                  }}/></div>
+                <div style={{marginLeft:"auto",textAlign:"right"}}>
+                  <div style={lblS}>Revenue (filtered)</div>
+                  <div style={{fontSize:15,fontWeight:800,color:"#10B981",fontFamily:"monospace"}}>
+                    {fmtUSDT(payHistory.reduce((sum,h)=>sum+Number(h.total_amount||0),0))}</div>
+                </div>
+              </div>
               <div style={{overflowX:"auto",marginBottom:16}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:480}}>
-                  <thead><tr>{["Paid Date","Period","Rate","Amount","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
+                  <thead><tr>{["Paid Date","Period","Term","Rate","Amount","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {payHistory.length===0?<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
+                    {payHistory.length===0?<tr><td colSpan={6} style={{padding:16,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
                     payHistory.map(h=>(
                       <tr key={h.id} style={{borderBottom:"1px solid #F5F5F5"}}>
                         <td style={{padding:"6px 10px",fontSize:11}}>{(h.paid_at||"").slice(0,10)}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{h.payment_term||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(h.rate)}</td>
                         <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.total_amount)}</td>
                         <td style={{padding:"6px 10px"}}><span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,background:"rgba(16,185,129,0.1)",color:"#10B981"}}>PAID</span></td>
@@ -2476,7 +2509,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
                     <option value="">— Select —</option>
                     <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
-                    <option value="Monthly">Monthly</option><option value="Other">Other</option></select></div>
+                    <option value="Monthly">Monthly</option></select></div>
                 <div><div style={lblS}>Payment Status</div>
                   <select style={inpS} value={payForm.payment_status} onChange={e=>setPayForm({...payForm,payment_status:e.target.value})}>
                     <option value="">— Select —</option>
