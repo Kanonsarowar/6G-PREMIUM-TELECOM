@@ -5403,36 +5403,38 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
           <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
             The SIP/PJSIP connection side (IP/port/transport/auth/codecs/capacity) of each supplier trunk. Commercial details (contact, panel, notes) live on Partners → Suppliers — both views edit the same trunk record. Each enabled trunk below gets its own PJSIP endpoint + identify section in the generated config.
           </div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
-                <th style={{padding:"6px 8px"}}>Trunk</th><th>Supplier</th><th>PJSIP Name</th><th>SIP IP</th><th>Port</th><th>Authentication</th><th>Max Ch</th><th>DIDs</th><th>Status</th><th></th>
-              </tr></thead>
-              <tbody>
-                {suppliers.map(s=>(
-                  <tr key={s.id} style={{borderTop:`1px solid ${C.border}`}}>
-                    <td style={{padding:"8px"}}>{s.nickname||s.name}</td>
-                    <td style={{color:s.supplier_name?C.text:C.red,fontSize:11}}>{s.supplier_name||"Not linked"}</td>
-                    <td style={{fontFamily:"monospace",fontSize:11}}>{s.pjsip_name||"—"}</td>
-                    <td style={{fontFamily:"monospace"}}>{s.host}</td>
-                    <td>{s.port||5060}</td>
-                    <td>{s.auth_type||"ip"}{s.has_sip_password?" 🔒":""}</td>
-                    <td>{s.max_channels??"—"}</td>
-                    <td>{s.did_count??0}</td>
-                    <td>{statusDot(!!s.is_active)}{s.is_active?"Enabled":"Disabled"}</td>
-                    <td>
-                      <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>openEditSupplier(s)} style={smallBtn(C.blue)}>Edit</button>
-                        <button onClick={()=>toggleSupplierActive(s)} style={smallBtn(s.is_active?C.yellow:C.green)}>{s.is_active?"Disable":"Enable"}</button>
-                        <button onClick={()=>deleteSupplier(s)} style={smallBtn(C.red)}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!suppliers.length&&<tr><td colSpan={10} style={{padding:16,textAlign:"center",color:C.muted}}>No trunks yet — click "+ Add Trunk".</td></tr>}
-              </tbody>
-            </table>
+          {!suppliers.length?
+            <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>No trunks yet — click "+ Add Trunk".</div>
+          :
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+            {suppliers.map(s=>(
+              <div key={s.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:14,background:"#FAFAFA"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                  <div style={{fontSize:13,fontWeight:700}}>{s.nickname||s.name}</div>
+                  <div style={{fontSize:11}}>{statusDot(!!s.is_active)}{s.is_active?"Enabled":"Disabled"}</div>
+                </div>
+                <div style={{fontSize:11,color:s.supplier_name?C.muted:C.red,marginBottom:10}}>
+                  {s.supplier_name?`Supplier: ${s.supplier_name}`:"Not linked to a supplier"}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:11,marginBottom:12}}>
+                  {[["PJSIP Name",s.pjsip_name||"—",true],["SIP IP",s.host||"—",true],
+                    ["Port",s.port||5060],["Authentication",(s.auth_type||"ip")+(s.has_sip_password?" 🔒":"")],
+                    ["Max Channels",s.max_channels??"—"],["DIDs",s.did_count??0]].map(([k,v,mono])=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                      <span style={{color:C.muted}}>{k}</span>
+                      <span style={{fontFamily:mono?"monospace":"inherit",textAlign:"right",wordBreak:"break-all"}}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>openEditSupplier(s)} style={smallBtn(C.blue)}>Edit</button>
+                  <button onClick={()=>toggleSupplierActive(s)} style={smallBtn(s.is_active?C.yellow:C.green)}>{s.is_active?"Disable":"Enable"}</button>
+                  <button onClick={()=>deleteSupplier(s)} style={smallBtn(C.red)}>Delete</button>
+                </div>
+              </div>
+            ))}
           </div>
+          }
         </Card>
       )}
 
