@@ -5763,7 +5763,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
               onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,max_call_duration:e.target.value}}))}/>)}
           {field("Codecs",
             <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-              {["ulaw","alaw","g722","gsm","slin","g726","speex","opus"].map(codec=>{
+              {["g729","ulaw","alaw","g722","gsm","slin","g726","speex","opus"].map(codec=>{
                 const selected=(supplierModal.form.codecs||"").split(",").map(c=>c.trim()).includes(codec);
                 return(
                   <label key={codec} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,
