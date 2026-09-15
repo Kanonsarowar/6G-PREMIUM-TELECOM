@@ -143,10 +143,14 @@ function importCountryNames() {
 // fixed template" import can freely mix comma-delimited rows with
 // whitespace-delimited rows in the same paste/file, and a single global
 // delimiter would silently mangle whichever lines don't use it.
+// str_getcsv (not a naive explode) correctly respects quoted fields, so a
+// quoted value containing the delimiter is never split into extra columns
+// and never merged with its neighbor - each CSV row stays exactly one
+// record, with prefix/number/price etc. as separate fields throughout.
 function importSplitLine($line) {
     foreach ([",", "\t", ";", "|"] as $d) {
         if (substr_count($line, $d) >= 1) {
-            return array_map(fn($p) => trim($p, " \t\"'"), explode($d, $line));
+            return array_map(fn($p) => trim(is_string($p) ? $p : '', " \t\"'"), str_getcsv($line, $d));
         }
     }
     return array_map(fn($p) => trim($p, " \t\"'"), preg_split('/\s+/', trim($line)));
@@ -242,9 +246,22 @@ function importParseRecordHeuristic($tokens) {
         }
     }
 
+    // Two number-like tokens are ambiguous: a genuine range's start/end
+    // share the same digit length (same prefix, differing suffix), while a
+    // (prefix, number) pair does not - the prefix is always shorter than
+    // the full number it prefixes. Only treat them as a range when the
+    // lengths match; otherwise the shorter one is the prefix and the
+    // longer one is the number, kept as two separate fields.
     if (count($numberLike) >= 2) {
-        $rec['range_start'] = $numberLike[0];
-        $rec['range_end']   = $numberLike[1];
+        [$a, $b] = [$numberLike[0], $numberLike[1]];
+        if (strlen($a) === strlen($b)) {
+            $rec['range_start'] = $a;
+            $rec['range_end']   = $b;
+        } elseif (strlen($a) < strlen($b)) {
+            $rec['prefix'] = $a; $rec['number'] = $b;
+        } else {
+            $rec['prefix'] = $b; $rec['number'] = $a;
+        }
     } elseif (count($numberLike) === 1) {
         $rec['number'] = $numberLike[0];
     }
@@ -268,7 +285,13 @@ function importParseRecordHeuristic($tokens) {
 }
 
 function parseSupplierImportRecords($text) {
-    $lines = preg_split('/\r\n|\r|\n/', trim((string)$text));
+    $text = (string)$text;
+    // Strip a UTF-8 BOM (common in Excel-exported CSVs) - left in place it
+    // silently attaches to the first header cell (e.g. "\xEF\xBB\xBFPrefix")
+    // so it never matches a known column name, and the whole row falls
+    // through to heuristic parsing instead of the header-mapped path.
+    if (substr($text, 0, 3) === "\xEF\xBB\xBF") $text = substr($text, 3);
+    $lines = preg_split('/\r\n|\r|\n/', trim($text));
     $lines = array_values(array_filter($lines, fn($l) => trim($l) !== ''));
     if (empty($lines)) return [];
 
