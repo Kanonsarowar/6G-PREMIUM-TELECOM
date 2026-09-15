@@ -1786,6 +1786,30 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
   const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
 
+  // Group individual DIDs by country + prefix so the main table shows one
+  // row per prefix/range (count computed from the live dids data) instead
+  // of every DID; expanding a row reveals the underlying numbers.
+  const [numSearch,setNumSearch]=useState("");
+  const [expandedNumGroups,setExpandedNumGroups]=useState({});
+  const toggleNumGroup=(key)=>setExpandedNumGroups(e=>({...e,[key]:!e[key]}));
+  const numberGroups=(()=>{
+    const map={};
+    numbers.numbers.forEach(n=>{
+      const key=(n.country_name||"—")+"|"+(n.prefix||n.number);
+      if(!map[key]) map[key]={key,country_name:n.country_name,prefix:n.prefix||n.number,items:[]};
+      map[key].items.push(n);
+    });
+    return Object.values(map);
+  })();
+  const numSearchLower=numSearch.trim().toLowerCase();
+  const filteredNumberGroups=numSearchLower?numberGroups.map(g=>{
+    const prefixMatch=(g.prefix||"").toLowerCase().includes(numSearchLower)||(g.country_name||"").toLowerCase().includes(numSearchLower);
+    if(prefixMatch) return g;
+    const items=g.items.filter(n=>(n.number||"").toLowerCase().includes(numSearchLower));
+    return items.length?{...g,items}:null;
+  }).filter(Boolean):numberGroups;
+  const filteredRangesForSearch=numSearchLower?numbers.ranges.filter(r=>(r.prefix||"").toLowerCase().includes(numSearchLower)||(r.country_name||"").toLowerCase().includes(numSearchLower)):numbers.ranges;
+
   const addTestNumber=async()=>{
     if(!addTest.prefix_id){alert("Select a Prefix first");return;}
     if(!addTest.number){alert("Test number is required");return;}
@@ -2014,31 +2038,60 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
         {/* NUMBER / RANGES */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
-          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>NUMBER / RANGES</div>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",
+            justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <span>NUMBER / RANGES</span>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <input value={numSearch} onChange={e=>setNumSearch(e.target.value)}
+                placeholder="Search by number, country or prefix..."
+                style={{...inpS,width:220,fontWeight:400,fontSize:11}}/>
+              {numSearch&&<button onClick={()=>setNumSearch("")} style={{padding:"6px 10px",borderRadius:6,
+                border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:11,cursor:"pointer"}}>Clear</button>}
+            </div>
+          </div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-              <thead><tr>{["Number / Range","Country","Price","Term","Prefix","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Country","Prefix / Range","Numbers","Price","Term","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {numbers.numbers.length===0&&numbers.ranges.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers yet</td></tr>:<>
-                {numbers.numbers.map((n,i)=>(
-                  <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{n.prefix||"—"}</td>
-                    <td style={{padding:"8px 10px",textAlign:"center"}}>
-                      <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                        cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
-                  </tr>
-                ))}
-                {numbers.ranges.map((r,i)=>(
+                {filteredNumberGroups.length===0&&filteredRangesForSearch.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>:<>
+                {filteredNumberGroups.map((g,gi)=>{
+                  const isExp=numSearchLower?true:!!expandedNumGroups[g.key];
+                  const first=g.items[0]||{};
+                  return(
+                    <React.Fragment key={g.key}>
+                      <tr onClick={()=>toggleNumGroup(g.key)} style={{borderBottom:"1px solid #F5F5F5",
+                        background:isExp?"#F0FAFA":(gi%2?"#FAFAFA":"#FFF"),cursor:"pointer"}}>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{g.country_name||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{g.prefix||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#333"}}>{g.items.length} number{g.items.length===1?"":"s"}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(first.tariff)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{first.payment_terms||"—"}</td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={e=>{e.stopPropagation();toggleNumGroup(g.key);}} style={{background:"none",border:"1px solid #2CADA6",borderRadius:4,
+                            cursor:"pointer",fontSize:10,color:"#2CADA6",padding:"2px 8px",fontWeight:700}}>{isExp?"Collapse":"Expand"}</button>
+                        </td>
+                      </tr>
+                      {isExp&&g.items.map((n,i)=>(
+                        <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#EFFFFE":"#F5FFFE"}}>
+                          <td style={{padding:"6px 10px 6px 26px",fontSize:11,color:"#AAA"}}>└</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
+                          <td colSpan={2} style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{fmtUSDT(n.tariff)}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
+                          <td style={{padding:"6px 10px",textAlign:"center"}}>
+                            <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+                {filteredRangesForSearch.map((r,i)=>(
                   <tr key={"r"+r.id} style={{borderBottom:"1px solid #F5F5F5",background:"#FFFBEA"}}>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>{r.range_start} – {r.range_end}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.country_name||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>{r.prefix||(r.range_start+" – "+r.range_end)}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#333"}}>{r.total_count} numbers</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(r.rate)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{r.prefix} ({r.total_count})</td>
                     <td style={{padding:"8px 10px",textAlign:"center"}}>
                       <button onClick={()=>delRange(r.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
                         cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
