@@ -169,7 +169,7 @@ class AsteriskConfigGenerator
         foreach ($ivrs as $ivr) {
             $ivr = (object) $ivr;
             if (!empty($ivr->is_active)) {
-                $activeIvrNames[$ivr->name] = true;
+                $activeIvrNames["custom/{$ivr->name}"] = true;
             }
         }
         foreach ($validation['active'] as $row) {
@@ -207,10 +207,10 @@ class AsteriskConfigGenerator
             if (empty($ivr->is_active)) {
                 continue;
             }
-            $out[] = "[{$ivr->name}]";
+            $out[] = "[custom/{$ivr->name}]";
             $out[] = '';
             $out[] = 'exten => s,1,Answer()';
-            $out[] = " same => n,Playback({$ivr->audio_file})";
+            $out[] = " same => n,Playback(custom/{$ivr->name})";
             $out[] = ' same => n,WaitExten(10)';
             $out[] = '';
         }

@@ -46,26 +46,27 @@ class AsteriskConfigGeneratorTest extends TestCase
     public function test_dialplan_generates_pattern_per_active_prefix_and_catch_all_hangup(): void
     {
         $prefixes = [
-            (object) ['id' => 1, 'prefix' => '947579', 'country_code' => 'LK', 'country_name' => 'Sri Lanka', 'ivr_context' => 'srilanka-ivr', 'priority' => 1, 'is_active' => 1],
-            (object) ['id' => 2, 'prefix' => '88335095', 'country_code' => 'AF', 'country_name' => 'Afghanistan', 'ivr_context' => 'afghanistan-ivr', 'priority' => 2, 'is_active' => 1],
-            (object) ['id' => 3, 'prefix' => '99999', 'country_code' => 'ZZ', 'country_name' => 'Disabled', 'ivr_context' => 'disabled-ivr', 'priority' => 3, 'is_active' => 0],
+            (object) ['id' => 1, 'prefix' => '947579', 'country_code' => 'LK', 'country_name' => 'Sri Lanka', 'ivr_context' => 'custom/srilanka-ivr', 'priority' => 1, 'is_active' => 1],
+            (object) ['id' => 2, 'prefix' => '88335095', 'country_code' => 'AF', 'country_name' => 'Afghanistan', 'ivr_context' => 'custom/afghanistan-ivr', 'priority' => 2, 'is_active' => 1],
+            (object) ['id' => 3, 'prefix' => '99999', 'country_code' => 'ZZ', 'country_name' => 'Disabled', 'ivr_context' => 'custom/disabled-ivr', 'priority' => 3, 'is_active' => 0],
         ];
         $ivrs = [
-            (object) ['name' => 'srilanka-ivr', 'title' => 'Sri Lanka IVR', 'audio_file' => 'custom/sri-lanka-welcome', 'is_active' => 1],
-            (object) ['name' => 'afghanistan-ivr', 'title' => 'Afghanistan IVR', 'audio_file' => 'custom/afghanistan-welcome', 'is_active' => 1],
+            (object) ['name' => 'srilanka-ivr', 'title' => 'Sri Lanka IVR', 'audio_file' => 'sri-lanka-welcome.wav', 'is_active' => 1],
+            (object) ['name' => 'afghanistan-ivr', 'title' => 'Afghanistan IVR', 'audio_file' => 'afghanistan-welcome.wav', 'is_active' => 1],
         ];
 
         $result = $this->generator()->dialplanManagedBlock($prefixes, $ivrs, 'from-suppliers');
 
         $this->assertStringContainsString('exten => _947579.,1,', $result['text']);
-        $this->assertStringContainsString('Goto(srilanka-ivr,s,1)', $result['text']);
+        $this->assertStringContainsString('Goto(custom/srilanka-ivr,s,1)', $result['text']);
         $this->assertStringContainsString('exten => _88335095.,1,', $result['text']);
         $this->assertStringNotContainsString('99999', $result['text']);
         $this->assertStringContainsString('exten => _X.,1,NoOp(UNKNOWN DID', $result['text']);
-        $this->assertStringContainsString('[srilanka-ivr]', $result['text']);
-        $this->assertStringContainsString('Playback(custom/sri-lanka-welcome)', $result['text']);
+        $this->assertStringContainsString('[custom/srilanka-ivr]', $result['text']);
+        $this->assertStringContainsString('Playback(custom/srilanka-ivr)', $result['text']);
         $this->assertCount(2, $result['routes']);
         $this->assertEmpty($result['errors']);
+        $this->assertEmpty($result['warnings']);
     }
 
     public function test_validate_prefixes_flags_exact_duplicate_as_error_and_overlap_as_warning(): void
