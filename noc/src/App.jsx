@@ -1618,6 +1618,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [showApi,setShowApi]=useState(false);
   const [apiForm,setApiForm]=useState({api_enabled:!!supplier.api_enabled,api_type:supplier.api_type||"",
     api_endpoint:supplier.api_endpoint||"",api_auth_method:supplier.api_auth_method||"",api_secret:""});
+  // Mirrors apiForm.api_enabled once saved - the `supplier` prop itself is
+  // never refreshed after a save, so gating UI on it directly would keep
+  // showing/hiding API-sourced sections based on stale data.
+  const [apiEnabled,setApiEnabled]=useState(!!supplier.api_enabled);
   const [revealedSecret,setRevealedSecret]=useState(null);
   const [apiTestResult,setApiTestResult]=useState(null);
   const [syncingNumbers,setSyncingNumbers]=useState(false);
@@ -1901,7 +1905,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     if(!body.api_secret) delete body.api_secret;
     const d=await apiFetch(`/supplier-accounts/${supplier.id}`,token,{method:"PUT",body:JSON.stringify(body)});
     setSaving(false);
-    if(d.success){flash("API settings saved");setApiForm({...apiForm,api_secret:""});} else alert(d.error||"Failed to save");
+    if(d.success){flash("API settings saved");setApiForm({...apiForm,api_secret:""});setApiEnabled(apiForm.api_enabled);} else alert(d.error||"Failed to save");
   };
 
   const revealSecret=async()=>{
@@ -2130,7 +2134,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         </div>
 
         {/* SUPPLIER CDR (API) */}
-        {!!supplier.api_enabled&&(
+        {apiEnabled&&(
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>SUPPLIER CDR (API)</div>
           <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>Normalized from the supplier's own /cdr feed via API → Sync CDR — separate from Asterisk call records.</div>
