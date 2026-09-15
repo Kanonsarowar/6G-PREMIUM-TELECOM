@@ -49,6 +49,13 @@ const getNavGroups=(role)=>{
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"customers",label:"Customers",icon:"◷"},
   ]},
+  ...(isSuperAdmin?[{key:"asterisk",label:"Asterisk Configuration",items:[
+    {id:"ast-trunks",label:"Trunks",icon:"📞"},
+    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
+    {id:"ast-sipsettings",label:"SIP Settings",icon:"⚙"},
+    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
+  ]}]:[]),
   {key:"testlab",label:"Test Lab",items:[
     {id:"testnumbers",label:"Test Numbers",icon:"📋"},
     {id:"addtestnumber",label:"Add Test Number",icon:"➕"},
@@ -67,13 +74,6 @@ const getNavGroups=(role)=>{
     ...(isSuperAdmin?[{id:"sysops",label:"System Operations",icon:"🛠"}]:[]),
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
-  ...(isSuperAdmin?[{key:"asterisk",label:"Asterisk Configuration",items:[
-    {id:"ast-trunks",label:"Trunks",icon:"📞"},
-    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
-    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
-    {id:"ast-sipsettings",label:"SIP Settings",icon:"⚙"},
-    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
-  ]}]:[]),
 ]};
 
 const apiFetch=async(path,token,opts={})=>{
