@@ -1589,7 +1589,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   const [showAddPrefix,setShowAddPrefix]=useState(false);
   const [editingPrefix,setEditingPrefix]=useState(null);
-  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});
+  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});
   const [showAddNum,setShowAddNum]=useState(false);
   const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
   const [showAddTest,setShowAddTest]=useState(false);
@@ -1720,8 +1720,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   useEffect(()=>{ loadLiveCalls(); },[supplier.id,prefixes.length,numbers.numbers.length,testNumbers.length]);
 
-  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});setShowAddPrefix(true);};
-  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",status:p.status});setShowAddPrefix(true);};
+  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});setShowAddPrefix(true);};
+  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",country_code:p.country_code||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",status:p.status});setShowAddPrefix(true);};
 
   const savePrefix=async()=>{
     if(!prefixForm.prefix||!prefixForm.country||!prefixForm.price||!prefixForm.payment_term||(!editingPrefix&&!prefixForm.test_number)){
@@ -2013,13 +2013,14 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-              <thead><tr>{["Prefix","Country","Price","Payment Term","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Prefix","Country","Code","Price","Payment Term","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {prefixes.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                {prefixes.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
                 prefixes.map((p,i)=>(
                   <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
                     <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
@@ -2208,9 +2209,18 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <div style={{marginBottom:10}}><div style={lblS}>Prefix *</div>
               <input style={inpS} value={prefixForm.prefix} onChange={e=>setPrefixForm({...prefixForm,prefix:e.target.value})} placeholder="919876XXXX"/></div>
             <div style={{marginBottom:10}}><div style={lblS}>Country *</div>
-              <select style={inpS} value={prefixForm.country} onChange={e=>setPrefixForm({...prefixForm,country:e.target.value})}>
+              <select style={inpS} value={prefixForm.country} onChange={e=>{
+                const name=e.target.value;
+                const c=COUNTRIES.find(c=>c.name===name);
+                setPrefixForm({...prefixForm,country:name,country_code:c?c.prefix:prefixForm.country_code});
+              }}>
                 <option value="">— Select —</option>
                 {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
+              </select></div>
+            <div style={{marginBottom:10}}><div style={lblS}>Country Code</div>
+              <select style={inpS} value={prefixForm.country_code} onChange={e=>setPrefixForm({...prefixForm,country_code:e.target.value})}>
+                <option value="">— Select —</option>
+                {COUNTRIES.map(c=><option key={c.code} value={c.prefix}>{c.prefix} — {c.name}</option>)}
               </select></div>
             <div style={{marginBottom:10}}><div style={lblS}>Price / Min (USDT) *</div>
               <input type="number" step="0.001" style={inpS} value={prefixForm.price} onChange={e=>setPrefixForm({...prefixForm,price:e.target.value})} placeholder="0.040"/></div>

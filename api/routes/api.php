@@ -1069,6 +1069,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'supplier_id'   => $id,
             'prefix'        => $r->prefix,
             'country'       => $r->country,
+            'country_code'  => $r->country_code,
             'price'         => $r->price,
             'payment_term'  => $r->payment_term,
             'test_number'   => $r->test_number,
@@ -1105,6 +1106,7 @@ Route::middleware('auth:sanctum')->group(function() {
         DB::table('supplier_prefixes')->where('id',$prefixId)->update([
             'prefix'       => $r->prefix ?? $prefix->prefix,
             'country'      => $r->country ?? $prefix->country,
+            'country_code' => $r->country_code ?? $prefix->country_code,
             'price'        => $r->price ?? $prefix->price,
             'payment_term' => $r->payment_term ?? $prefix->payment_term,
             'test_number'  => $r->test_number ?? $prefix->test_number,
