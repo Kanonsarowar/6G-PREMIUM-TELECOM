@@ -62,7 +62,7 @@ class AsteriskConfigManager
             'rtp_end' => $settings->rtp_end,
             'codecs' => $settings->codecs,
             'inbound_context' => $settings->inbound_context,
-            'active_suppliers' => DB::table('trunks')->where('is_active', 1)->count(),
+            'active_suppliers' => DB::table('suppliers')->where('status', 'active')->count(),
             'active_did_ranges' => DB::table('route_prefixes')->where('is_active', 1)->count(),
             'active_ivrs' => DB::table('ivrs')->where('is_active', 1)->count(),
             'last_apply_at' => $lastApply?->created_at,
