@@ -1631,6 +1631,17 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [showAddTest,setShowAddTest]=useState(false);
   const [addTest,setAddTest]=useState({prefix_id:"",number:""});
 
+  // Upload and Paste share this exact same state/flow and the same
+  // backend engine (/import/preview, /import/confirm) - the only
+  // difference between them is how importText gets populated.
+  const [showImport,setShowImport]=useState(false);
+  const [importMode,setImportMode]=useState("upload");
+  const [importText,setImportText]=useState("");
+  const [importFileName,setImportFileName]=useState("");
+  const [importStep,setImportStep]=useState("input");
+  const [importPreviewData,setImportPreviewData]=useState(null);
+  const [importing,setImporting]=useState(false);
+
   const [showPayment,setShowPayment]=useState(false);
   const [payLoading,setPayLoading]=useState(false);
   const [currentPeriod,setCurrentPeriod]=useState(null);
@@ -1789,6 +1800,47 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   };
   const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); loadPrefixes(); };
 
+  // ── Number Import: Upload + Paste share this one flow ───────────
+  const openImport=(mode)=>{
+    setImportMode(mode); setImportText(""); setImportFileName("");
+    setImportStep("input"); setImportPreviewData(null); setShowImport(true);
+  };
+
+  const handleImportFile=(e)=>{
+    const file=e.target.files?.[0];
+    if(!file) return;
+    if(!/\.(csv|txt)$/i.test(file.name)){ alert("Please choose a .csv or .txt file"); return; }
+    setImportFileName(file.name);
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const text=ev.target.result;
+      setImportText(text);
+      runImportPreview(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const runImportPreview=async(text)=>{
+    const raw=text!==undefined?text:importText;
+    if(!raw||!raw.trim()){alert("Nothing to preview yet");return;}
+    setImporting(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/import/preview`,token,{method:"POST",body:JSON.stringify({raw_text:raw})});
+    setImporting(false);
+    if(d.data){ setImportPreviewData(d.data); setImportStep("preview"); }
+    else alert(d.error||"Failed to parse import");
+  };
+
+  const runImportConfirm=async()=>{
+    setImporting(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/import/confirm`,token,{method:"POST",
+      body:JSON.stringify({records:importPreviewData.records})});
+    setImporting(false);
+    if(d.success){
+      flash(`Imported: ${d.created_numbers} number(s), ${d.created_ranges} range(s), ${d.created_prefixes} new prefix(es) — ${d.skipped} skipped`);
+      setShowImport(false); loadPrefixes(); loadNumbers(); loadTest();
+    } else alert(d.error||"Failed to import");
+  };
+
   // ── Payment: closed-period gating computed client-side from the
   // existing /supplier-payments/pending + /history endpoints (no backend
   // change) - a period is never shown as payable while still open.
@@ -1886,6 +1938,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
           <button onClick={()=>setShowAddNum(true)} style={actionBtn("#2CADA6")}>+ ADD NUMBER / RANGE</button>
           <button onClick={()=>setShowAddTest(true)} style={actionBtn("#2CADA6")}>+ ADD TEST NUMBER</button>
+          <button onClick={()=>openImport("upload")} style={actionBtn("#F5A623")}>+ UPLOAD NUMBER</button>
+          <button onClick={()=>openImport("paste")} style={actionBtn("#F5A623")}>+ PASTE</button>
           <button onClick={openPaymentModal} style={actionBtn("#F5F5F5","#555")}>PAYMENT</button>
           <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
         </div>
@@ -2176,6 +2230,101 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               <button onClick={()=>setShowAddTest(false)}
                 style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showImport&&(
+        <div onClick={()=>setShowImport(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:820,maxWidth:"100%",padding:20,maxHeight:"92vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontSize:15,fontWeight:800}}>{importMode==="upload"?"Upload Number":"Paste Numbers"} — {supplier.name}</div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>{setImportMode("upload");setImportStep("input");}}
+                  style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="upload"?"#F5A623":"#E0E0E0"),
+                    background:importMode==="upload"?"rgba(245,166,35,0.1)":"#FFF",color:importMode==="upload"?"#F5A623":"#888",
+                    fontSize:10,fontWeight:700,cursor:"pointer"}}>Upload</button>
+                <button onClick={()=>{setImportMode("paste");setImportStep("input");}}
+                  style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="paste"?"#F5A623":"#E0E0E0"),
+                    background:importMode==="paste"?"rgba(245,166,35,0.1)":"#FFF",color:importMode==="paste"?"#F5A623":"#888",
+                    fontSize:10,fontWeight:700,cursor:"pointer"}}>Paste</button>
+              </div>
+            </div>
+            <div style={{fontSize:11,color:"#999",marginBottom:14}}>
+              Same intelligent parser either way — no fixed template required. Prices are always USDT/min; nothing is written until you confirm.
+            </div>
+
+            {importStep==="input"&&(<>
+              {importMode==="upload"?(
+                <div style={{...cardS,padding:20,textAlign:"center",border:"2px dashed #E0E0E0",marginBottom:14}}>
+                  <input type="file" accept=".csv,.txt" onChange={handleImportFile} id="import-file-input" style={{display:"none"}}/>
+                  <label htmlFor="import-file-input" style={{cursor:"pointer"}}>
+                    <div style={{fontSize:30,marginBottom:8}}>📄</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#5B4FCF"}}>Click to choose a .csv or .txt file</div>
+                    {importFileName&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Selected: {importFileName}</div>}
+                  </label>
+                </div>
+              ):(
+                <textarea value={importText} onChange={e=>setImportText(e.target.value)}
+                  placeholder={"Paste numbers/ranges here, any format, e.g.:\n+919876543210, India, 0.040, Net 30, STC\n9779767851000  9779767851099  Nepal  0.06  Weekly  Ncell"}
+                  style={{...inpS,minHeight:220,resize:"vertical",fontFamily:"monospace",fontSize:12,marginBottom:12}}/>
+              )}
+              <div style={{display:"flex",gap:8}}>
+                {importMode==="paste"&&<button onClick={()=>runImportPreview()} disabled={importing}
+                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                  {importing?"Parsing...":"Preview"}</button>}
+                <button onClick={()=>setShowImport(false)}
+                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+              </div>
+            </>)}
+
+            {importStep==="preview"&&importPreviewData&&(<>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+                {[["Total",importPreviewData.summary.total,"#555"],["New",importPreviewData.summary.new,"#10B981"],
+                  ["Duplicate",importPreviewData.summary.duplicate,"#F5A623"],["Error",importPreviewData.summary.error,"#EF4444"],
+                  ["New Prefixes",importPreviewData.summary.new_prefixes,"#5B4FCF"]].map(([k,v,c])=>(
+                  <div key={k} style={{...cardS,padding:"8px 14px",background:"#F9F9F9"}}>
+                    <div style={{fontSize:9,color:"#999",textTransform:"uppercase",fontWeight:700}}>{k}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{overflowX:"auto",maxHeight:340,overflowY:"auto",marginBottom:14,border:"1px solid #F0F0F0",borderRadius:8}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+                  <thead><tr>{["Status","Number/Range","Country","Prefix","Price","Term","Operator","Note"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {importPreviewData.records.map((rec,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"6px 10px"}}>
+                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,
+                            background:rec.status==="new"?"rgba(16,185,129,0.1)":rec.status==="duplicate"?"rgba(245,166,35,0.12)":"rgba(239,68,68,0.1)",
+                            color:rec.status==="new"?"#10B981":rec.status==="duplicate"?"#F5A623":"#EF4444"}}>{rec.status.toUpperCase()}</span></td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>
+                          {rec.mode==="range"?`${rec.range_start||"?"} – ${rec.range_end||"?"}`:(rec.number||"—")}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.country||"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>
+                          {rec.prefix||"—"}{rec.will_create_prefix?" (new)":""}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?parseFloat(rec.price).toFixed(4)+" USDT":"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.payment_term||"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.operator||"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:10,color:"#999"}}>{rec.reason||""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={runImportConfirm} disabled={importing||importPreviewData.summary.new===0}
+                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",
+                    background:importPreviewData.summary.new===0?"#DDD":"#10B981",color:"#FFF",fontSize:13,fontWeight:800,
+                    cursor:importPreviewData.summary.new===0?"not-allowed":"pointer"}}>
+                  {importing?"Importing...":`✅ CONFIRM IMPORT (${importPreviewData.summary.new})`}</button>
+                <button onClick={()=>setImportStep("input")}
+                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>← Back</button>
+                <button onClick={()=>setShowImport(false)}
+                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+              </div>
+            </>)}
           </div>
         </div>
       )}

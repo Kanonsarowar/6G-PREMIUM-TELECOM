@@ -115,6 +115,180 @@ function parsePaymentTermDays($term) {
     return 30;
 }
 
+// ── Supplier number import: ONE shared parser for Upload and Paste ──
+// Both features send their raw text (a file's contents, or a pasted
+// textarea) to the same /import/preview and /import/confirm routes below,
+// which call these exact same functions - there is no separate code path
+// per input method. No fixed template is required: header-based CSV is
+// detected when recognizable column names are present, otherwise each
+// line is parsed heuristically token-by-token.
+function importCountryNames() {
+    static $names = null;
+    if ($names === null) {
+        // Small curated list covering the common cases; heuristic parsing
+        // degrades gracefully (leaves country blank) for anything else -
+        // it never blocks import of numbers/ranges/prices.
+        $names = ['Afghanistan','Albania','Algeria','Argentina','Australia','Bahrain','Bangladesh','Belgium',
+            'Brazil','Canada','China','Egypt','France','Germany','Ghana','India','Indonesia','Iran','Iraq',
+            'Ireland','Israel','Italy','Japan','Jordan','Kenya','Kuwait','Lebanon','Libya','Malaysia',
+            'Mexico','Morocco','Myanmar','Nepal','Netherlands','Nigeria','Oman','Pakistan','Philippines',
+            'Poland','Qatar','Russia','Satellite','Saudi Arabia','Singapore','Somalia','South Africa',
+            'Spain','Sri Lanka','Sudan','Syria','Tanzania','Thailand','Tunisia','Turkey','UAE',
+            'United Arab Emirates','Uganda','Ukraine','United Kingdom','United States','USA','Vietnam','Yemen'];
+    }
+    return $names;
+}
+
+// Delimiter is detected per LINE, not once for the whole file - a "no
+// fixed template" import can freely mix comma-delimited rows with
+// whitespace-delimited rows in the same paste/file, and a single global
+// delimiter would silently mangle whichever lines don't use it.
+function importSplitLine($line) {
+    foreach ([",", "\t", ";", "|"] as $d) {
+        if (substr_count($line, $d) >= 1) {
+            return array_map(fn($p) => trim($p, " \t\"'"), explode($d, $line));
+        }
+    }
+    return array_map(fn($p) => trim($p, " \t\"'"), preg_split('/\s+/', trim($line)));
+}
+
+function importDetectHeaderMap($tokens) {
+    $synonyms = [
+        'number'       => ['number','msisdn','did','phone','telephone'],
+        'range_start'  => ['range_start','rangestart','from','start'],
+        'range_end'    => ['range_end','rangeend','to','end'],
+        'country'      => ['country'],
+        'prefix'       => ['prefix','code'],
+        'price'        => ['price','rate','cost','tariff'],
+        'payment_term' => ['payment_term','paymentterm','term','terms'],
+        'operator'     => ['operator','carrier','network'],
+    ];
+    $map = [];
+    $matches = 0;
+    foreach ($tokens as $i => $tok) {
+        $norm = strtolower(str_replace([' ','-'], '_', trim($tok)));
+        foreach ($synonyms as $field => $words) {
+            if (in_array($norm, $words, true)) { $map[$i] = $field; $matches++; break; }
+        }
+    }
+    return $matches >= 2 ? $map : null;
+}
+
+function importNormalizeDigits($v) { return preg_replace('/[^0-9]/', '', (string)$v); }
+
+function importDerivePrefix($digits) {
+    $digits = ltrim($digits, '+');
+    return strlen($digits) > 4 ? substr($digits, 0, -4) : $digits;
+}
+
+function importParseRecordFromHeader($tokens, $headerMap) {
+    $rec = ['number'=>null,'range_start'=>null,'range_end'=>null,'country'=>null,'prefix'=>null,
+        'price'=>null,'payment_term'=>null,'operator'=>null];
+    foreach ($headerMap as $i => $field) {
+        if (isset($tokens[$i]) && $tokens[$i] !== '') $rec[$field] = $tokens[$i];
+    }
+    if ($rec['number']) $rec['number'] = importNormalizeDigits($rec['number']);
+    if ($rec['range_start']) $rec['range_start'] = importNormalizeDigits($rec['range_start']);
+    if ($rec['range_end']) $rec['range_end'] = importNormalizeDigits($rec['range_end']);
+    if ($rec['price'] !== null) $rec['price'] = is_numeric($rec['price']) ? (float)$rec['price'] : null;
+    if (!$rec['prefix']) {
+        $base = $rec['range_start'] ?: $rec['number'];
+        if ($base) $rec['prefix'] = importDerivePrefix($base);
+    }
+    return $rec;
+}
+
+function importMergeSplitPaymentTerms($tokens) {
+    // Whitespace-split input turns "Net 30" into two tokens ("Net","30");
+    // merge them back before classification so the digit half doesn't get
+    // mistaken for a prefix and the payment term isn't lost entirely.
+    $merged = [];
+    for ($i = 0; $i < count($tokens); $i++) {
+        if (preg_match('/^net$/i', $tokens[$i]) && isset($tokens[$i+1]) && preg_match('/^\d+$/', $tokens[$i+1])) {
+            $merged[] = 'Net '.$tokens[$i+1];
+            $i++;
+        } else {
+            $merged[] = $tokens[$i];
+        }
+    }
+    return $merged;
+}
+
+function importParseRecordHeuristic($tokens) {
+    $rec = ['number'=>null,'range_start'=>null,'range_end'=>null,'country'=>null,'prefix'=>null,
+        'price'=>null,'payment_term'=>null,'operator'=>null];
+    $numberLike = [];
+    $countries = importCountryNames();
+    $leftover = [];
+    $tokens = importMergeSplitPaymentTerms($tokens);
+
+    foreach ($tokens as $tok) {
+        if ($tok === '') continue;
+        $digits = preg_replace('/[^0-9]/', '', $tok);
+        if (preg_match('/^\d+\.\d+$/', $tok) && $rec['price'] === null) {
+            $rec['price'] = (float)$tok;
+        } elseif (preg_match('/^(net\s*\d+|daily|weekly|monthly|custom)$/i', $tok) && $rec['payment_term'] === null) {
+            $rec['payment_term'] = ucwords(strtolower($tok));
+        } elseif (in_array($tok, $countries, true) && $rec['country'] === null) {
+            $rec['country'] = $tok;
+        } elseif (strlen($digits) >= 6 && strlen($digits) <= 15 && $digits === preg_replace('/[\s\-\(\)\+]/','',$tok)) {
+            $numberLike[] = $digits;
+        } else {
+            $lower = strtolower($tok);
+            foreach ($countries as $c) {
+                if (strtolower($c) === $lower) { $rec['country'] = $c; continue 2; }
+            }
+            $leftover[] = $tok;
+        }
+    }
+
+    if (count($numberLike) >= 2) {
+        $rec['range_start'] = $numberLike[0];
+        $rec['range_end']   = $numberLike[1];
+    } elseif (count($numberLike) === 1) {
+        $rec['number'] = $numberLike[0];
+    }
+
+    // A short leftover alnum token with no digits is most likely the
+    // operator/carrier name; a 3-6 digit leftover with no letters is most
+    // likely an explicit prefix override.
+    foreach ($leftover as $tok) {
+        if (preg_match('/^[A-Za-z][A-Za-z\-\s]{1,30}$/', $tok) && $rec['operator'] === null) {
+            $rec['operator'] = $tok;
+        } elseif (preg_match('/^\d{2,6}$/', $tok) && $rec['prefix'] === null) {
+            $rec['prefix'] = $tok;
+        }
+    }
+
+    if (!$rec['prefix']) {
+        $base = $rec['range_start'] ?: $rec['number'];
+        if ($base) $rec['prefix'] = importDerivePrefix($base);
+    }
+    return $rec;
+}
+
+function parseSupplierImportRecords($text) {
+    $lines = preg_split('/\r\n|\r|\n/', trim((string)$text));
+    $lines = array_values(array_filter($lines, fn($l) => trim($l) !== ''));
+    if (empty($lines)) return [];
+
+    $firstTokens = importSplitLine($lines[0]);
+    $headerMap = importDetectHeaderMap($firstTokens);
+    $startIdx = $headerMap ? 1 : 0;
+
+    $records = [];
+    for ($i = $startIdx; $i < count($lines); $i++) {
+        $line = trim($lines[$i]);
+        if ($line === '') continue;
+        $tokens = importSplitLine($line);
+        $rec = $headerMap ? importParseRecordFromHeader($tokens, $headerMap) : importParseRecordHeuristic($tokens);
+        $rec['raw_line'] = $line;
+        $rec['mode'] = $rec['range_start'] && $rec['range_end'] ? 'range' : 'single';
+        $records[] = $rec;
+    }
+    return $records;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────
 Route::post('/v1/auth/login', function(Request $request) {
     $user = User::where('email', $request->email)
@@ -786,6 +960,189 @@ Route::middleware('auth:sanctum')->group(function() {
         ]);
         if ($r->notes) DB::table('dids')->where('id',$id2)->update(['route'=>$r->notes]);
         return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id2)],201);
+    });
+
+    // ── Number Import (Upload + Paste share this exact same engine) ──
+    // Both the file-upload and paste-textarea frontend flows send their
+    // raw text here first for a dry-run preview, then to /confirm to
+    // actually write. Neither writes to the database on preview, and
+    // Asterisk configuration is never touched by import - only
+    // suppliers/supplier_prefixes/dids/did_ranges rows are affected,
+    // exactly the same tables the manual Add Prefix/Number forms use.
+    Route::post('/v1/supplier-accounts/{id}/import/preview', function(Request $r, $id) {
+        $supplier = DB::table('suppliers')->find($id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$r->filled('raw_text')) return response()->json(['error'=>'raw_text is required'],422);
+
+        $parsed = parseSupplierImportRecords($r->raw_text);
+        $existingPrefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('prefix');
+        $existingNumbers = DB::table('dids')->pluck('number')
+            ->map(fn($n)=>ltrim($n,'+'))->flip();
+        $existingRanges = DB::table('did_ranges')->get(['range_start','range_end']);
+
+        $seenInBatch = [];
+        $out = [];
+        foreach ($parsed as $rec) {
+            $status = 'new';
+            $reason = null;
+            $matchedPrefix = $rec['prefix'] ? ($existingPrefixes[$rec['prefix']] ?? null) : null;
+
+            if ($rec['mode'] === 'single') {
+                if (!$rec['number']) { $status='error'; $reason='Could not detect a number'; }
+                elseif (isset($existingNumbers[$rec['number']])) { $status='duplicate'; $reason='Number already exists'; }
+                elseif (isset($seenInBatch['n:'.$rec['number']])) { $status='duplicate'; $reason='Duplicate within this import'; }
+            } else {
+                if (!$rec['range_start'] || !$rec['range_end']) { $status='error'; $reason='Could not detect a full range'; }
+                elseif ((int)$rec['range_end'] < (int)$rec['range_start']) { $status='error'; $reason='Range end is before range start'; }
+                else {
+                    foreach ($existingRanges as $er) {
+                        if ($rec['range_start'] <= $er->range_end && $rec['range_end'] >= $er->range_start) {
+                            $status='duplicate'; $reason='Overlaps an existing range'; break;
+                        }
+                    }
+                    $batchKey = 'r:'.$rec['range_start'].'-'.$rec['range_end'];
+                    if ($status==='new' && isset($seenInBatch[$batchKey])) { $status='duplicate'; $reason='Duplicate within this import'; }
+                }
+            }
+
+            if ($status==='new' && !$matchedPrefix && !$rec['price']) {
+                $status='error'; $reason='No matching prefix and no price detected - cannot create a new prefix';
+            }
+
+            if ($status==='new') {
+                $key = $rec['mode']==='single' ? 'n:'.$rec['number'] : 'r:'.$rec['range_start'].'-'.$rec['range_end'];
+                $seenInBatch[$key] = true;
+            }
+
+            $out[] = array_merge($rec, [
+                'status' => $status,
+                'reason' => $reason,
+                'matched_prefix_id' => $matchedPrefix->id ?? null,
+                'will_create_prefix' => $status==='new' && !$matchedPrefix,
+            ]);
+        }
+
+        $newRows = array_filter($out, fn($x)=>$x['status']==='new');
+        $summary = [
+            'total'        => count($out),
+            'new'          => count($newRows),
+            'duplicate'    => count(array_filter($out, fn($x)=>$x['status']==='duplicate')),
+            'error'        => count(array_filter($out, fn($x)=>$x['status']==='error')),
+            'new_prefixes' => count(array_unique(array_map(fn($x)=>$x['prefix'],
+                array_filter($newRows, fn($x)=>$x['will_create_prefix'])))),
+        ];
+
+        return response()->json(['data'=>['records'=>$out,'summary'=>$summary]]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/import/confirm', function(Request $r, $id) {
+        $supplier = DB::table('suppliers')->find($id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        $records = $r->records ?? [];
+        if (!is_array($records) || empty($records)) return response()->json(['error'=>'No records to import'],422);
+
+        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
+        $prefixCache = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('prefix');
+        $newPrefixCache = [];
+        $createdPrefixes = 0; $createdNumbers = 0; $createdRanges = 0; $skipped = 0;
+
+        foreach ($records as $rec) {
+            if (($rec['status'] ?? null) !== 'new') { $skipped++; continue; }
+            $mode = $rec['mode'] ?? 'single';
+            $prefixStr = $rec['prefix'] ?? null;
+            if (!$prefixStr) { $skipped++; continue; }
+
+            // Re-checked here (not just at preview time) so a race between
+            // preview and confirm can never create a duplicate.
+            if ($mode === 'single') {
+                $num = '+'.ltrim($rec['number'] ?? '', '+');
+                if (!$rec['number'] || DB::table('dids')->where('number',$num)->exists()) { $skipped++; continue; }
+            } else {
+                if (!$rec['range_start'] || !$rec['range_end']) { $skipped++; continue; }
+                $overlap = DB::table('did_ranges')
+                    ->where('range_start','<=',$rec['range_end'])->where('range_end','>=',$rec['range_start'])
+                    ->exists();
+                if ($overlap) { $skipped++; continue; }
+            }
+
+            $prefixRow = $prefixCache[$prefixStr] ?? ($newPrefixCache[$prefixStr] ?? null);
+            if (!$prefixRow) {
+                $price = $rec['price'] ?? null;
+                if (!$price) { $skipped++; continue; }
+                $newId = DB::table('supplier_prefixes')->insertGetId([
+                    'supplier_id'   => $id,
+                    'prefix'        => $prefixStr,
+                    'country'       => $rec['country'] ?? null,
+                    'price'         => $price,
+                    'payment_term'  => $rec['payment_term'] ?? null,
+                    'operator'      => $rec['operator'] ?? null,
+                    'status'        => 'active',
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
+                ]);
+                $prefixRow = DB::table('supplier_prefixes')->find($newId);
+                $newPrefixCache[$prefixStr] = $prefixRow;
+                $createdPrefixes++;
+            }
+
+            if ($mode === 'single') {
+                DB::table('dids')->insert([
+                    'number'        => $num,
+                    'trunk_id'      => $trunk->id ?? null,
+                    'supplier_id'   => $id,
+                    'prefix_id'     => $prefixRow->id,
+                    'is_test'       => 0,
+                    'prefix'        => $prefixRow->prefix,
+                    'country_name'  => $rec['country'] ?? $prefixRow->country,
+                    'country_code'  => 'XX',
+                    'tariff'        => $rec['price'] ?? $prefixRow->price,
+                    'selling_price' => $rec['price'] ?? $prefixRow->price,
+                    'currency'      => 'USDT',
+                    'payment_terms' => $rec['payment_term'] ?? $prefixRow->payment_term,
+                    'status'        => 'active',
+                    'ivr_context'   => 'custom/6g-premium-telecom',
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
+                ]);
+                $createdNumbers++;
+            } else {
+                $count = (int)$rec['range_end'] - (int)$rec['range_start'] + 1;
+                DB::table('did_ranges')->insert([
+                    'batch_name'    => ($rec['country'] ?? $prefixRow->country).' '.$prefixRow->prefix,
+                    'country_code'  => 'XX',
+                    'country_name'  => $rec['country'] ?? $prefixRow->country,
+                    'prefix'        => $prefixRow->prefix,
+                    'prefix_id'     => $prefixRow->id,
+                    'range_start'   => $rec['range_start'],
+                    'range_end'     => $rec['range_end'],
+                    'rate'          => $rec['price'] ?? $prefixRow->price,
+                    'selling_price' => $rec['price'] ?? $prefixRow->price,
+                    'currency'      => 'USDT',
+                    'payment_terms' => $rec['payment_term'] ?? $prefixRow->payment_term,
+                    'supplier_name' => $supplier->name,
+                    'supplier_id'   => $id,
+                    'default_ivr'   => 'custom/6g-premium-telecom',
+                    'total_count'   => $count,
+                    'is_active'     => 1,
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
+                ]);
+                $createdRanges++;
+            }
+        }
+
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'IMPORT_NUMBERS',
+            'module'=>'Suppliers',
+            'details'=>"Imported for supplier #{$id} ({$supplier->name}): {$createdNumbers} numbers, {$createdRanges} ranges, {$createdPrefixes} new prefixes, {$skipped} skipped",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>"/api/v1/supplier-accounts/{$id}/import/confirm",
+            'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+
+        return response()->json([
+            'success'=>true,'created_prefixes'=>$createdPrefixes,'created_numbers'=>$createdNumbers,
+            'created_ranges'=>$createdRanges,'skipped'=>$skipped,
+        ]);
     });
 
     // Access History uses real CDRs against this supplier's test numbers.
