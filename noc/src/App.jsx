@@ -1618,27 +1618,33 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [numbers,setNumbers]=useState({numbers:[],ranges:[]});
   const [testNumbers,setTestNumbers]=useState([]);
   const [accessHistory,setAccessHistory]=useState([]);
+  const [liveCalls,setLiveCalls]=useState([]);
+  const [loadingLive,setLoadingLive]=useState(false);
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
-  const [payForm,setPayForm]=useState({
-    payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
-    payment_status:supplier.payment_status||"",notes:supplier.notes||""});
-  const [apiForm,setApiForm]=useState({api_enabled:!!supplier.api_enabled,api_type:supplier.api_type||"",
-    api_endpoint:supplier.api_endpoint||"",api_auth_method:supplier.api_auth_method||"",api_secret:""});
-  const [revealedSecret,setRevealedSecret]=useState(null);
-  const [apiTestResult,setApiTestResult]=useState(null);
 
   const [showAddPrefix,setShowAddPrefix]=useState(false);
   const [editingPrefix,setEditingPrefix]=useState(null);
   const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});
   const [showAddNum,setShowAddNum]=useState(false);
   const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
-  const [showAddTest,setShowAddTest]=useState(false);
-  const [addTest,setAddTest]=useState({prefix_id:"",number:""});
 
-  const paymentRef=useRef(null);
-  const apiRef=useRef(null);
+  const [showPayment,setShowPayment]=useState(false);
+  const [payLoading,setPayLoading]=useState(false);
+  const [currentPeriod,setCurrentPeriod]=useState(null);
+  const [payHistory,setPayHistory]=useState([]);
+  const [payForm,setPayForm]=useState({payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
+    payment_status:supplier.payment_status||"",notes:supplier.notes||""});
+  const [payDialog,setPayDialog]=useState(null);
+  const [payDialogForm,setPayDialogForm]=useState({paid_at:"",reference:"",notes:""});
 
+  const [showApi,setShowApi]=useState(false);
+  const [apiForm,setApiForm]=useState({api_enabled:!!supplier.api_enabled,api_type:supplier.api_type||"",
+    api_endpoint:supplier.api_endpoint||"",api_auth_method:supplier.api_auth_method||"",api_secret:""});
+  const [revealedSecret,setRevealedSecret]=useState(null);
+  const [apiTestResult,setApiTestResult]=useState(null);
+
+  const liveCallRef=useRef(null);
   const PAYMENT_TERMS=["Net 0","Net 7","Net 15","Net 30","Net 45","Net 60","Custom"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
@@ -1650,6 +1656,79 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
+  const fmtUSDT=(v)=>parseFloat(v||0).toFixed(4)+" USDT";
+
+  // ── Live Calls: unified table (Asterisk + supplier's own API, deduped) ──
+  // Reuses the existing global /live-calls (Asterisk) and, when this
+  // supplier has a linked trunk with its own external API configured, the
+  // existing /suppliers/{trunkId}/live-calls endpoint - no new backend
+  // endpoints are added. Calls are matched to this supplier by number/
+  // prefix, never by re-asking the user to enter anything.
+  const loadLiveCalls=async()=>{
+    setLoadingLive(true);
+    const supplierNumbers=new Set([
+      ...numbers.numbers.map(n=>(n.number||"").replace("+","")),
+      ...testNumbers.map(n=>(n.number||"").replace("+","")),
+    ]);
+    const supplierPrefixes=prefixes.map(p=>p.prefix).filter(Boolean);
+    const matches=(rawNum)=>{
+      const num=(rawNum||"").replace("+","");
+      if(!num) return false;
+      if(supplierNumbers.has(num)) return true;
+      return supplierPrefixes.some(p=>num.startsWith(p));
+    };
+    const findPrefix=(rawNum)=>{
+      const num=(rawNum||"").replace("+","");
+      return prefixes.find(p=>num.startsWith(p.prefix))?.prefix || "—";
+    };
+
+    const [asteriskRes,apiRes]=await Promise.all([
+      apiFetch("/live-calls",token).catch(()=>({data:[]})),
+      supplier.linked_trunk
+        ? apiFetch(`/suppliers/${supplier.linked_trunk.id}/live-calls`,token).catch(()=>({data:[]}))
+        : Promise.resolve({data:[]}),
+    ]);
+
+    const asteriskCalls=(asteriskRes.data||[]).filter(c=>matches(c.did||c.dst)).map(c=>({
+      key:(c.did||c.dst||"").replace("+","")+":"+(c.src||"").replace("+",""),
+      status:c.state||"Active",
+      number:c.did||c.dst||"—",
+      caller:c.src||"—",
+      start_time:c.start_time||"—",
+      duration:c.seconds??c.billsec??0,
+      prefix:c.prefix||findPrefix(c.did||c.dst),
+      route:c.ivr_context||"—",
+      source:"Asterisk",
+    }));
+
+    const rawApiList=Array.isArray(apiRes.data)?apiRes.data:(apiRes.data?.calls||apiRes.data?.data||[]);
+    const apiCalls=(rawApiList||[]).map(c=>{
+      const number=c.did||c.number||c.dst||c.destination||"";
+      const caller=c.caller||c.src||c.from||c.cli||"";
+      return {
+        key:(number||"").replace("+","")+":"+(caller||"").replace("+",""),
+        status:c.status||c.state||"Active",
+        number:number||"—",
+        caller:caller||"—",
+        start_time:c.start_time||c.started_at||c.start||"—",
+        duration:c.duration??c.seconds??c.billsec??0,
+        prefix:findPrefix(number),
+        route:c.route||c.ivr||"—",
+        source:"API",
+      };
+    }).filter(c=>matches(c.number));
+
+    // Dedup by number+caller composite key (no shared call-ID across the
+    // two heterogeneous sources) - Asterisk record wins when both exist.
+    const seen=new Set(asteriskCalls.map(c=>c.key));
+    const merged=[...asteriskCalls];
+    apiCalls.forEach(c=>{ if(!seen.has(c.key)){ merged.push(c); seen.add(c.key); } });
+
+    setLiveCalls(merged);
+    setLoadingLive(false);
+  };
+
+  useEffect(()=>{ loadLiveCalls(); },[supplier.id,prefixes.length,numbers.numbers.length,testNumbers.length]);
 
   const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});setShowAddPrefix(true);};
   const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",status:p.status});setShowAddPrefix(true);};
@@ -1691,28 +1770,60 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     } else alert(d.error||"Failed to add");
   };
 
-  const addTestNumber=async()=>{
-    if(!addTest.prefix_id){alert("Select a Prefix first");return;}
-    if(!addTest.number){alert("Test number is required");return;}
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token,{method:"POST",body:JSON.stringify(addTest)});
-    setSaving(false);
-    if(d.success){
-      flash("Test number added");
-      setAddTest({prefix_id:"",number:""});
-      setShowAddTest(false); loadTest(); loadPrefixes();
-    } else alert(d.error||"Failed to add");
-  };
-
   const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
   const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
-  const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); loadPrefixes(); };
+
+  // ── Payment: closed-period gating computed client-side from the
+  // existing /supplier-payments/pending + /history endpoints (no backend
+  // change) - a period is never shown as payable while still open.
+  const isPeriodClosed=(term,periodStart)=>{
+    const start=new Date(periodStart);
+    const now=new Date();
+    if(term==="Daily") return start.toDateString()!==now.toDateString();
+    if(term==="Weekly"){ const end=new Date(start); end.setDate(end.getDate()+7); return now>=end; }
+    if(term==="Monthly"){ const end=new Date(start); end.setMonth(end.getMonth()+1); return now>=end; }
+    return true;
+  };
+
+  const openPaymentModal=async()=>{
+    setShowPayment(true);
+    setPayLoading(true);
+    const [pendingRes,historyRes]=await Promise.all([
+      apiFetch("/supplier-payments/pending",token),
+      apiFetch("/supplier-payments/history?supplier_id="+supplier.id,token),
+    ]);
+    const bucket=Object.values(pendingRes.data||{}).flat().filter(r=>r.supplier_id===supplier.id);
+    const term=supplier.payment_terms||"Other";
+    const withStatus=bucket.map(r=>({...r,closed:isPeriodClosed(term,r.period_start)}));
+    setCurrentPeriod(withStatus[0]||null);
+    setPayHistory(historyRes.data||[]);
+    setPayLoading(false);
+  };
 
   const savePayment=async()=>{
     setSaving(true);
     const d=await apiFetch(`/supplier-accounts/${supplier.id}`,token,{method:"PUT",body:JSON.stringify(payForm)});
     setSaving(false);
     if(d.success) flash("Payment details saved"); else alert(d.error||"Failed to save");
+  };
+
+  const openPayDialog=()=>{
+    setPayDialog(currentPeriod);
+    setPayDialogForm({paid_at:new Date().toISOString().slice(0,10),reference:"",notes:""});
+  };
+
+  const markPaid=async()=>{
+    setSaving(true);
+    const d=await apiFetch("/supplier-payments/mark-paid",token,{method:"POST",body:JSON.stringify({
+      supplier_id:supplier.id,period_start:payDialog.period_start,period_end:payDialog.period_end,
+      payment_term:payDialog.payment_term,...payDialogForm,
+    })});
+    setSaving(false);
+    if(d.success){
+      flash("Marked paid");
+      setPayDialog(null);
+      openPaymentModal();
+    } else alert(d.error||"Failed to mark paid");
   };
 
   const saveApi=async()=>{
@@ -1735,29 +1846,31 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     setApiTestResult(d);
   };
 
-  const fmtUSDT=(v)=>parseFloat(v||0).toFixed(4)+" USDT";
+  const actionBtn=(bg,border)=>({padding:"10px 18px",borderRadius:8,border:border?`1px solid ${border}`:"none",
+    background:bg,color:border?border:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"});
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"14px 16px 18px"}}>
         <button onClick={onBack} style={{padding:"6px 12px",borderRadius:6,border:"1px solid #E0E0E0",
-          background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:10}}>← Suppliers</button>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
-          <div>
-            <div style={{fontSize:18,fontWeight:800,textTransform:"uppercase"}}>{supplier.name}</div>
-            <div style={{fontSize:11,color:"#999",marginTop:2}}>
-              Code: {supplier.code||"—"} · Country: {supplier.country||"—"} ·{" "}
-              <span style={{color:supplier.status==="active"?"#10B981":"#888",fontWeight:700}}>
-                ● {supplier.status==="active"?"Active":"Inactive"}</span>
-            </div>
+          background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>← Suppliers</button>
+        <div style={{textAlign:"center",marginTop:6}}>
+          <h1 style={{fontSize:24,fontWeight:800,margin:0,color:"#1A1A1A"}}>{supplier.name}</h1>
+          <div style={{fontSize:12,color:"#999",marginTop:4}}>
+            Code: {supplier.code||"—"} · Country: {supplier.country||"—"} ·{" "}
+            <span style={{color:supplier.status==="active"?"#10B981":"#888",fontWeight:700}}>
+              ● {supplier.status==="active"?"Active":"Inactive"}</span>
           </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button onClick={openAddPrefix} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ ADD PREFIX</button>
-            <button onClick={()=>setShowAddNum(true)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ ADD NUMBER / RANGE</button>
-            <button onClick={()=>setShowAddTest(true)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ TEST NUMBER</button>
-            <button onClick={()=>scrollTo(paymentRef)} style={{padding:"8px 14px",borderRadius:8,border:"1px solid #E0E0E0",background:"#F5F5F5",color:"#555",fontSize:11,fontWeight:700,cursor:"pointer"}}>PAYMENT</button>
-            <button onClick={()=>scrollTo(apiRef)} style={{padding:"8px 14px",borderRadius:8,border:"1px solid #E0E0E0",background:"#F5F5F5",color:"#555",fontSize:11,fontWeight:700,cursor:"pointer"}}>API</button>
-          </div>
+        </div>
+      </div>
+
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"14px 16px"}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:10,justifyContent:"center"}}>
+          <button onClick={()=>scrollTo(liveCallRef)} style={actionBtn("#2CADA6")}>+ LIVE CALL</button>
+          <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
+          <button onClick={()=>setShowAddNum(true)} style={actionBtn("#2CADA6")}>+ ADD NUMBER / RANGE</button>
+          <button onClick={openPaymentModal} style={actionBtn("#F5F5F5","#555")}>PAYMENT</button>
+          <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
         </div>
       </div>
 
@@ -1765,26 +1878,21 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
           background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
 
-        {/* 1. ACTIVE PREFIX */}
+        {/* ACTIVE PREFIX */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-              <thead><tr>{["Country","Prefix","Price","Term","Test Number","Access","Operator","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+              <thead><tr>{["Prefix","Country","Price","Payment Term","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                {prefixes.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
                 prefixes.map((p,i)=>(
                   <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
-                    <td style={{padding:"8px 10px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:p.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
-                        color:p.status==="active"?"#10B981":"#888"}}>{p.status==="active"?"Available":"Unavailable"}</span></td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.operator||"—"}</td>
                     <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
                       <button onClick={()=>openEditPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
                         background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Edit</button>
@@ -1798,12 +1906,12 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* 2. NUMBER / RANGES */}
+        {/* NUMBER / RANGES */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>NUMBER / RANGES</div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-              <thead><tr>{["Number","Country","Price","Term","Prefix","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Number / Range","Country","Price","Term","Prefix","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
                 {numbers.numbers.length===0&&numbers.ranges.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers yet</td></tr>:<>
                 {numbers.numbers.map((n,i)=>(
@@ -1836,28 +1944,39 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* 3. TEST NUMBERS */}
-        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+        {/* LIVE CALL */}
+        <div ref={liveCallRef} style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>TEST NUMBERS</span>
-            <button onClick={()=>setPage&&setPage("testlivecall")}
-              style={{padding:"5px 12px",borderRadius:14,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-                color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>📞 Live Test Call</button>
+            <span>LIVE CALL</span>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={loadLiveCalls} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+                background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
+              <button onClick={()=>setPage&&setPage("testlivecall")}
+                style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                  color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>📞 Live Test Call</button>
+            </div>
           </div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
-              <thead><tr>{["Country","Prefix","Price","Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+              <thead><tr>{["Status","Number","Caller","Start Time","Duration","Prefix","Route/IVR","Source"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {testNumbers.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet</td></tr>:
-                testNumbers.map((n,i)=>(
-                  <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{n.prefix||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
-                    <td style={{padding:"8px 10px",textAlign:"center"}}>
-                      <button onClick={()=>delTest(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                        cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                {loadingLive?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
+                liveCalls.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No live calls right now</td></tr>:
+                liveCalls.map((c,i)=>(
+                  <tr key={c.key+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                    <td style={{padding:"8px 10px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                        background:"rgba(16,185,129,0.1)",color:"#10B981"}}>{c.status}</span></td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{c.number}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.caller}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.start_time}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.duration}s</td>
+                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{c.prefix}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.route}</td>
+                    <td style={{padding:"8px 10px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                        background:c.source==="API"?"rgba(91,79,207,0.1)":"rgba(44,173,166,0.1)",
+                        color:c.source==="API"?"#5B4FCF":"#2CADA6"}}>{c.source}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -1865,87 +1984,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* 4. PAYMENT */}
-        <div ref={paymentRef} style={{...cardS,padding:16,marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>PAYMENT</div>
-          <div style={{fontSize:11,color:"#999",marginBottom:4}}>Supplier-specific terms only — does not affect customer/reseller billing or historical revenue.</div>
-          <div style={{fontSize:11,color:"#F5A623",marginBottom:14,fontWeight:600}}>
-            ⚠ The payable rate and payment term are configured per Prefix, not here. All supplier pricing is USDT only.</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,maxWidth:520}}>
-            <div><div style={lblS}>Settlement Frequency</div>
-              <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
-                <option value="">— Select —</option>
-                <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
-                <option value="Monthly">Monthly</option><option value="Other">Other</option></select></div>
-            <div><div style={lblS}>Payment Status</div>
-              <select style={inpS} value={payForm.payment_status} onChange={e=>setPayForm({...payForm,payment_status:e.target.value})}>
-                <option value="">— Select —</option>
-                <option value="current">Current</option><option value="overdue">Overdue</option>
-                <option value="on_hold">On Hold</option></select></div>
-          </div>
-          <div style={{marginBottom:14,maxWidth:520}}>
-            <div style={lblS}>Notes</div>
-            <textarea style={{...inpS,minHeight:60,resize:"vertical"}} value={payForm.notes} onChange={e=>setPayForm({...payForm,notes:e.target.value})}/>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={savePayment} disabled={saving}
-              style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              {saving?"Saving...":"✅ Save Payment Details"}</button>
-            <button onClick={()=>setPage&&setPage("supplierpayments")}
-              style={{padding:"10px 16px",borderRadius:8,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-                color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>View Pending / History →</button>
-          </div>
-        </div>
-
-        {/* 5. API */}
-        <div ref={apiRef} style={{...cardS,padding:16,marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>API (optional)</div>
-          <div style={{fontSize:11,color:"#999",marginBottom:14}}>For CDR/number interrogation, balance/status and sync only — never required for normal SIP traffic.</div>
-          <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,cursor:"pointer"}}>
-            <input type="checkbox" checked={apiForm.api_enabled} onChange={e=>setApiForm({...apiForm,api_enabled:e.target.checked})}/>
-            <span style={{fontSize:12,fontWeight:600}}>API Enabled</span>
-          </label>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,maxWidth:520}}>
-            <div><div style={lblS}>API Type</div>
-              <input style={inpS} value={apiForm.api_type} onChange={e=>setApiForm({...apiForm,api_type:e.target.value})} placeholder="REST"/></div>
-            <div><div style={lblS}>Auth Method</div>
-              <select style={inpS} value={apiForm.api_auth_method} onChange={e=>setApiForm({...apiForm,api_auth_method:e.target.value})}>
-                <option value="">— Select —</option>
-                <option value="bearer">Bearer Token</option><option value="basic">Basic Auth</option>
-                <option value="api_key">API Key</option></select></div>
-            <div style={{gridColumn:"1 / -1"}}><div style={lblS}>Endpoint</div>
-              <input style={inpS} value={apiForm.api_endpoint} onChange={e=>setApiForm({...apiForm,api_endpoint:e.target.value})} placeholder="https://supplier.example/api"/></div>
-            <div style={{gridColumn:"1 / -1"}}>
-              <div style={lblS}>Secret / Token {supplier.has_api_secret?"(configured — leave blank to keep)":""}</div>
-              <input type="password" style={inpS} value={apiForm.api_secret} onChange={e=>setApiForm({...apiForm,api_secret:e.target.value})}
-                placeholder={supplier.has_api_secret?"••••••••":"Not set"}/>
-              {supplier.has_api_secret&&user?.role==='superadmin'&&(
-                <button onClick={revealSecret} style={{marginTop:6,padding:"4px 10px",borderRadius:6,border:"1px solid #E0E0E0",
-                  background:"#F5F5F5",color:"#555",fontSize:10,fontWeight:700,cursor:"pointer"}}>Reveal current value</button>
-              )}
-              {revealedSecret!==null&&<div style={{marginTop:6,padding:"6px 10px",borderRadius:6,background:"#FFF8E1",
-                border:"1px solid #F5A623",fontSize:11,fontFamily:"monospace",wordBreak:"break-all"}}>{revealedSecret}</div>}
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <button onClick={saveApi} disabled={saving}
-              style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              {saving?"Saving...":"✅ Save API Settings"}</button>
-            <button onClick={testConnection} disabled={!supplier.api_endpoint&&!apiForm.api_endpoint}
-              style={{padding:"10px 16px",borderRadius:8,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-                color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>Test Connection</button>
-            {apiTestResult&&!apiTestResult.loading&&(
-              <span style={{fontSize:11,fontWeight:700,color:apiTestResult.success?"#10B981":"#EF4444"}}>
-                {apiTestResult.success?"✅ Connected":"❌ "+(apiTestResult.error||"Connection failed")}</span>
-            )}
-            {apiTestResult?.loading&&<span style={{fontSize:11,color:"#999"}}>Testing...</span>}
-          </div>
-          <div style={{marginTop:12,fontSize:10,color:"#AAA"}}>
-            Last sync: {supplier.api_last_sync||"never"} · Last status: {supplier.api_last_status||"—"}
-          </div>
-        </div>
-
-        {/* 6. ACCESS HISTORY */}
+        {/* ACCESS HISTORY */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
           <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>"Access From" is the caller/operator origin — never the supplier's SIP IP.</div>
@@ -1968,10 +2007,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* 7. SUPPLIER INFORMATION */}
+        {/* SUPPLIER INFORMATION */}
         <div style={{...cardS,padding:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontSize:14,fontWeight:800,textTransform:"uppercase"}}>{supplier.name}</div>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>SUPPLIER INFORMATION</span>
             <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:700,
               background:supplier.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
               color:supplier.status==="active"?"#10B981":"#888"}}>● {supplier.status==="active"?"Active":"Inactive"}</span>
@@ -2012,7 +2051,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <div style={{marginBottom:10}}>
               <div style={lblS}>Test Number {editingPrefix?"":"*"}</div>
               <input style={inpS} value={prefixForm.test_number} onChange={e=>setPrefixForm({...prefixForm,test_number:e.target.value})} placeholder="+919876543210" disabled={!!editingPrefix}/>
-              {editingPrefix&&<div style={{fontSize:10,color:"#999",marginTop:4}}>Manage additional test numbers using "+ TEST NUMBER" above.</div>}
             </div>
             <div style={{marginBottom:10}}><div style={lblS}>Operator (optional)</div>
               <input style={inpS} value={prefixForm.operator} onChange={e=>setPrefixForm({...prefixForm,operator:e.target.value})} placeholder="STC"/></div>
@@ -2075,32 +2113,155 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         </div>
       )}
 
-      {showAddTest&&(
-        <div onClick={()=>setShowAddTest(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Add Test Number</div>
-            <div style={{marginBottom:10}}>
-              <div style={lblS}>Prefix *</div>
-              <select style={inpS} value={addTest.prefix_id} onChange={e=>setAddTest({...addTest,prefix_id:e.target.value})}>
-                <option value="">— Select Prefix —</option>
-                {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
-              </select>
-            </div>
-            {addTest.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addTest.prefix_id));return p&&(
-              <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555"}}>
-                <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span>
+      {showPayment&&(
+        <div onClick={()=>setShowPayment(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:560,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Payment — {supplier.name}</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:14}}>All amounts USDT only. Revenue becomes payable only after the payment-term period closes.</div>
+            {payLoading?<div style={{padding:30,textAlign:"center",color:"#999"}}>Loading...</div>:(<>
+              <div style={{...cardS,padding:14,marginBottom:14,background:"#F9F9F9"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:8}}>Current Period</div>
+                {!currentPeriod?<div style={{fontSize:12,color:"#999"}}>No activity in the current period yet.</div>:(<>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontSize:12,color:"#555"}}>{currentPeriod.period_start} → {currentPeriod.period_end}</span>
+                    <span style={{padding:"3px 10px",borderRadius:10,fontSize:10,fontWeight:700,
+                      background:currentPeriod.closed?"rgba(245,166,35,0.12)":"rgba(153,153,153,0.15)",
+                      color:currentPeriod.closed?"#F5A623":"#888"}}>{currentPeriod.closed?"PENDING PAYMENT":"OPEN"}</span>
+                  </div>
+                  <div style={{fontSize:18,fontWeight:800,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(currentPeriod.amount)}</div>
+                  <div style={{fontSize:11,color:"#999",marginTop:2}}>{currentPeriod.calls} calls · {currentPeriod.minutes} min · {currentPeriod.payment_term}</div>
+                  {currentPeriod.closed&&<button onClick={openPayDialog}
+                    style={{marginTop:10,padding:"8px 16px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>PAY</button>}
+                  {!currentPeriod.closed&&<div style={{fontSize:10,color:"#AAA",marginTop:8}}>This period is still open and not yet payable.</div>}
+                </>)}
               </div>
-            );})()}
+
+              <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Payment History</div>
+              <div style={{overflowX:"auto",marginBottom:16}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:480}}>
+                  <thead><tr>{["Paid Date","Period","Rate","Amount","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {payHistory.length===0?<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
+                    payHistory.map(h=>(
+                      <tr key={h.id} style={{borderBottom:"1px solid #F5F5F5"}}>
+                        <td style={{padding:"6px 10px",fontSize:11}}>{(h.paid_at||"").slice(0,10)}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(h.rate)}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.total_amount)}</td>
+                        <td style={{padding:"6px 10px"}}><span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,background:"rgba(16,185,129,0.1)",color:"#10B981"}}>PAID</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Payment Terms</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div><div style={lblS}>Settlement Frequency</div>
+                  <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
+                    <option value="">— Select —</option>
+                    <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option><option value="Other">Other</option></select></div>
+                <div><div style={lblS}>Payment Status</div>
+                  <select style={inpS} value={payForm.payment_status} onChange={e=>setPayForm({...payForm,payment_status:e.target.value})}>
+                    <option value="">— Select —</option>
+                    <option value="current">Current</option><option value="overdue">Overdue</option>
+                    <option value="on_hold">On Hold</option></select></div>
+              </div>
+              <button onClick={savePayment} disabled={saving}
+                style={{padding:"9px 18px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                {saving?"Saving...":"Save Payment Terms"}</button>
+            </>)}
+            <div style={{marginTop:16,textAlign:"right"}}>
+              <button onClick={()=>setShowPayment(false)}
+                style={{padding:"9px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:12,cursor:"pointer"}}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {payDialog&&(
+        <div onClick={()=>setPayDialog(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:310,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:380,padding:20}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Mark as Paid</div>
+            {[["Period",payDialog.period_start+" → "+payDialog.period_end],["Amount",fmtUSDT(payDialog.amount)],["Method","USDT"]].map(([k,v])=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
+                <span style={{color:"#888",fontWeight:600}}>{k}</span><span style={{fontWeight:700}}>{v}</span>
+              </div>
+            ))}
+            <div style={{marginTop:14,marginBottom:10}}>
+              <div style={lblS}>Payment Date</div>
+              <input type="date" style={inpS} value={payDialogForm.paid_at} onChange={e=>setPayDialogForm({...payDialogForm,paid_at:e.target.value})}/>
+            </div>
+            <div style={{marginBottom:10}}>
+              <div style={lblS}>Reference / Transaction ID (optional)</div>
+              <input style={inpS} value={payDialogForm.reference} onChange={e=>setPayDialogForm({...payDialogForm,reference:e.target.value})} placeholder="TX123"/>
+            </div>
             <div style={{marginBottom:16}}>
-              <div style={lblS}>Number *</div>
-              <input style={inpS} value={addTest.number} onChange={e=>setAddTest({...addTest,number:e.target.value})} placeholder="+919876543210"/>
+              <div style={lblS}>Notes (optional)</div>
+              <textarea style={{...inpS,minHeight:50,resize:"vertical"}} value={payDialogForm.notes} onChange={e=>setPayDialogForm({...payDialogForm,notes:e.target.value})}/>
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={addTestNumber} disabled={saving}
-                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                {saving?"Saving...":"✅ Add Test Number"}</button>
-              <button onClick={()=>setShowAddTest(false)}
+              <button onClick={markPaid} disabled={saving}
+                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#10B981",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ MARK AS PAID"}</button>
+              <button onClick={()=>setPayDialog(null)}
                 style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showApi&&(
+        <div onClick={()=>setShowApi(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:480,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>API — {supplier.name}</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:14}}>For CDR/number interrogation, balance/status and sync only — never required for normal SIP traffic.</div>
+            <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,cursor:"pointer"}}>
+              <input type="checkbox" checked={apiForm.api_enabled} onChange={e=>setApiForm({...apiForm,api_enabled:e.target.checked})}/>
+              <span style={{fontSize:12,fontWeight:600}}>API Enabled</span>
+            </label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div><div style={lblS}>API Type</div>
+                <input style={inpS} value={apiForm.api_type} onChange={e=>setApiForm({...apiForm,api_type:e.target.value})} placeholder="REST"/></div>
+              <div><div style={lblS}>Auth Method</div>
+                <select style={inpS} value={apiForm.api_auth_method} onChange={e=>setApiForm({...apiForm,api_auth_method:e.target.value})}>
+                  <option value="">— Select —</option>
+                  <option value="bearer">Bearer Token</option><option value="basic">Basic Auth</option>
+                  <option value="api_key">API Key</option></select></div>
+              <div style={{gridColumn:"1 / -1"}}><div style={lblS}>Endpoint</div>
+                <input style={inpS} value={apiForm.api_endpoint} onChange={e=>setApiForm({...apiForm,api_endpoint:e.target.value})} placeholder="https://supplier.example/api"/></div>
+              <div style={{gridColumn:"1 / -1"}}>
+                <div style={lblS}>Secret / Token {supplier.has_api_secret?"(configured — leave blank to keep)":""}</div>
+                <input type="password" style={inpS} value={apiForm.api_secret} onChange={e=>setApiForm({...apiForm,api_secret:e.target.value})}
+                  placeholder={supplier.has_api_secret?"••••••••":"Not set"}/>
+                {supplier.has_api_secret&&user?.role==='superadmin'&&(
+                  <button onClick={revealSecret} style={{marginTop:6,padding:"4px 10px",borderRadius:6,border:"1px solid #E0E0E0",
+                    background:"#F5F5F5",color:"#555",fontSize:10,fontWeight:700,cursor:"pointer"}}>Reveal current value</button>
+                )}
+                {revealedSecret!==null&&<div style={{marginTop:6,padding:"6px 10px",borderRadius:6,background:"#FFF8E1",
+                  border:"1px solid #F5A623",fontSize:11,fontFamily:"monospace",wordBreak:"break-all"}}>{revealedSecret}</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+              <button onClick={saveApi} disabled={saving}
+                style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Save API Settings"}</button>
+              <button onClick={testConnection} disabled={!supplier.api_endpoint&&!apiForm.api_endpoint}
+                style={{padding:"10px 16px",borderRadius:8,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                  color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>Test Connection</button>
+              {apiTestResult&&!apiTestResult.loading&&(
+                <span style={{fontSize:11,fontWeight:700,color:apiTestResult.success?"#10B981":"#EF4444"}}>
+                  {apiTestResult.success?"✅ Connected":"❌ "+(apiTestResult.error||"Connection failed")}</span>
+              )}
+              {apiTestResult?.loading&&<span style={{fontSize:11,color:"#999"}}>Testing...</span>}
+            </div>
+            <div style={{fontSize:10,color:"#AAA",marginBottom:16}}>
+              Last sync: {supplier.api_last_sync||"never"} · Last status: {supplier.api_last_status||"—"}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <button onClick={()=>setShowApi(false)}
+                style={{padding:"9px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:12,cursor:"pointer"}}>Close</button>
             </div>
           </div>
         </div>
@@ -2108,6 +2269,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     </div>
   );
 }
+
 
 
 
