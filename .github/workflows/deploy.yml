@@ -1,0 +1,73 @@
+name: Deploy 6G Premium Telecom
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'noc/**'
+      - 'api/**'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: 195.200.14.165
+      SSH_USER: deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build NOC dashboard
+        run: |
+          cd noc
+          npm ci
+          npm run build
+
+      - name: Set up deploy SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Trust server host key
+        run: ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      # NOC dashboard: replace the served dist/ wholesale - it's a pure build artifact.
+      - name: Deploy NOC dashboard
+        run: |
+          rsync -az --delete \
+            noc/dist/ "$SSH_USER@$SSH_HOST:/var/www/telecom-dashboard/dist/"
+
+      # Laravel API: sync source only. vendor/, storage/, bootstrap/cache/ and .env
+      # are runtime/managed state on the server and must never be touched by a
+      # deploy - vendor/ is rebuilt by composer install below, the rest holds
+      # logs, cache and secrets that don't live in git.
+      - name: Deploy API source
+        run: |
+          rsync -az \
+            --exclude=vendor \
+            --exclude=node_modules \
+            --exclude=.env \
+            --exclude=storage \
+            --exclude=bootstrap/cache \
+            --exclude=.git \
+            api/ "$SSH_USER@$SSH_HOST:/var/www/6g-api/"
+
+      # Asterisk/PJSIP configuration is deliberately NOT deployed here. Applying it
+      # is a controlled, audited action (preview -> validate -> apply -> reload)
+      # done from the NOC's own Asterisk Configuration -> SIP Settings page, which
+      # drives /usr/local/bin/pjsip_generate.php - it must never be a side effect
+      # of a routine code push.
+
+      - name: Install PHP dependencies and reload services
+        run: |
+          ssh "$SSH_USER@$SSH_HOST" '
+            set -e
+            cd /var/www/6g-api
+            composer install --no-dev --optimize-autoloader --no-interaction
+            sudo systemctl reload php8.3-fpm
+            sudo systemctl reload nginx
+          '
