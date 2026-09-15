@@ -30,7 +30,6 @@ const fmtDual  = v => `$${eurToUsd(v)} / ${usdToSar(eurToUsd(v))}`;
 const getNavGroups=(role)=>{
   const isSuperAdmin=role==='superadmin';
   return [
-  {key:"dashboard",label:"Dashboard",items:[{id:"dashboard",label:"Dashboard",icon:"▦"}]},
   {key:"calls",label:"Calls & Revenue",items:[
     {id:"livecalls",label:"Live Calls",icon:"◉"},
     {id:"cdr",label:"CDR",icon:"≡"},
@@ -54,16 +53,12 @@ const getNavGroups=(role)=>{
   ]}]:[]),
   {key:"testlab",label:"Test Lab",items:[
     {id:"testnumbers",label:"Test Numbers",icon:"📋"},
-    {id:"addtestnumber",label:"Add Test Number",icon:"➕"},
     {id:"testlivecall",label:"Live Test Call",icon:"📞"},
-    {id:"testaccesslist",label:"Access List",icon:"🔐"},
-  ]},
-  {key:"security",label:"Security",items:[
-    {id:"auditlog",label:"Audit Log",icon:"📜"},
   ]},
   {key:"system",label:"System",items:[
     {id:"systemhealth",label:"System Health",icon:"♥"},
     ...(isSuperAdmin?[{id:"sysops",label:"System Operations",icon:"🛠"}]:[]),
+    {id:"auditlog",label:"Audit Log",icon:"📜"},
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
 ]};
@@ -5238,171 +5233,6 @@ function TestLiveCallPage({token}){
   );
 }
 
-// ── Test Access List Page ──────────────────────────────────────
-function TestAccessListPage({token}){
-  const [groups,setGroups]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [saving,setSaving]=useState(false);
-  const [msg,setMsg]=useState(null);
-  const [open,setOpen]=useState({});
-  const [f,setF]=useState({operator:"",country:"",prefix:"",supplier:"",price:"",currency:"EUR",test_number:""});
-  const [suppliers,setSuppliers]=useState([]);
-
-  const load=()=>{
-    setLoading(true);
-    apiFetch("/access-list",token).then(d=>{setGroups(d.data||[]);setLoading(false);})
-      .catch(()=>setLoading(false));
-    apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));
-  };
-  useEffect(()=>{load();},[token]);
-
-  const OPS=["Mobily","STC","Zain","Redbull","Salam","Lebara","Virgin"];
-  const inp={width:"100%",padding:"9px 10px",border:"1px solid #E0E0E0",borderRadius:6,
-    fontSize:12,outline:"none",boxSizing:"border-box"};
-  const thS={fontSize:9,color:"#888",fontWeight:700,padding:"6px 10px",textAlign:"left",
-    textTransform:"uppercase",whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5"};
-
-  const save=async()=>{
-    if(!f.operator||!f.country||!f.prefix){alert("Operator, Country and Prefix are required");return;}
-    setSaving(true);
-    const d=await apiFetch("/access-list",token,{method:"POST",body:JSON.stringify(f)});
-    setSaving(false);
-    if(d.success){
-      setMsg({ok:true,t:"Added "+f.prefix+" for "+f.operator});
-      setF({operator:"",country:"",prefix:"",supplier:"",price:"",currency:"EUR",test_number:""});
-      setShowAdd(false); load();
-    } else setMsg({ok:false,t:d.error||"Failed"});
-    setTimeout(()=>setMsg(null),4000);
-  };
-
-  const del=async(id)=>{
-    if(!window.confirm("Remove this entry?")) return;
-    await apiFetch("/access-list/"+id,token,{method:"DELETE"});
-    load();
-  };
-
-  return(<div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-    <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
-      <div style={{fontSize:18,fontWeight:700}}>🔐 Access List</div>
-      <div style={{fontSize:11,color:"#999",marginTop:2}}>
-        {groups.length} operator{groups.length!==1?"s":""} · {groups.reduce((a,g)=>a+g.total,0)} entries
-      </div>
-    </div>
-
-    <div style={{padding:"12px 16px"}}>
-      {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
-        background:msg.ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-        border:"1px solid "+(msg.ok?"#10B981":"#EF4444"),
-        fontSize:12,color:msg.ok?"#10B981":"#EF4444",fontWeight:600}}>
-        {msg.ok?"✅ ":"❌ "}{msg.t}</div>}
-
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-        <button onClick={()=>setShowAdd(!showAdd)}
-          style={{padding:"9px 18px",borderRadius:20,border:"none",background:"#2CADA6",
-            color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-          {showAdd?"✕ Close":"+ Add Access"}</button>
-      </div>
-
-      {showAdd&&(
-        <div style={{background:"#FFF",borderRadius:10,padding:16,marginBottom:14,
-          boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Add Access Entry</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Access From *</div>
-              <input list="oplist" style={inp} value={f.operator}
-                onChange={e=>setF({...f,operator:e.target.value})} placeholder="Mobily"/>
-              <datalist id="oplist">{OPS.map(o=><option key={o} value={o}/>)}</datalist></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Country *</div>
-              <input style={inp} value={f.country}
-                onChange={e=>setF({...f,country:e.target.value})} placeholder="Tanzania"/></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Prefix *</div>
-              <input style={inp} value={f.prefix}
-                onChange={e=>setF({...f,prefix:e.target.value})} placeholder="255901135"/></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Supplier</div>
-              <select style={inp} value={f.supplier} onChange={e=>setF({...f,supplier:e.target.value})}>
-                <option value="">— Select —</option>
-                {suppliers.map(s=><option key={s.id} value={s.nickname}>{s.nickname}</option>)}
-              </select></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Price /min</div>
-              <input type="number" step="0.001" style={inp} value={f.price}
-                onChange={e=>setF({...f,price:e.target.value})} placeholder="0.095"/></div>
-            <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Currency</div>
-              <select style={inp} value={f.currency} onChange={e=>setF({...f,currency:e.target.value})}>
-                <option value="EUR">EUR</option><option value="USD">USD</option></select></div>
-          </div>
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:5}}>Test Number</div>
-            <input style={inp} value={f.test_number}
-              onChange={e=>setF({...f,test_number:e.target.value})} placeholder="+255901135280"/></div>
-          <button onClick={save} disabled={saving}
-            style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"#2CADA6",
-              color:"#FFF",fontSize:14,fontWeight:700,cursor:"pointer"}}>
-            {saving?"Saving...":"✅ Add Access"}</button>
-        </div>
-      )}
-
-      {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
-      :groups.length===0?<div style={{background:"#FFF",borderRadius:10,padding:40,
-        textAlign:"center",color:"#999",fontSize:12}}>
-        No access entries yet. Use “Add Access” to create one.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {groups.map(g=>(
-          <div key={g.operator} style={{background:"#FFF",borderRadius:10,overflow:"hidden",
-            boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            <div onClick={()=>setOpen(o=>({...o,[g.operator]:o[g.operator]===false}))}
-              style={{background:"linear-gradient(135deg,#2CADA6,#1a8f8a)",padding:"12px 16px",
-                display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
-              <div>
-                <div style={{fontSize:14,fontWeight:800,color:"#FFF"}}>ACCESS FROM {g.operator.toUpperCase()}</div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.75)",marginTop:2}}>
-                  {g.countries.length} countr{g.countries.length!==1?"ies":"y"} · {g.total} prefixes</div>
-              </div>
-              <span style={{fontSize:14,color:"#FFF"}}>{open[g.operator]===false?"▶":"▼"}</span>
-            </div>
-            {open[g.operator]!==false&&g.countries.map(co=>(
-              <div key={co.country}>
-                <div style={{padding:"8px 16px",background:"#F5F5F5",fontSize:12,
-                  fontWeight:700,color:"#333",borderBottom:"1px solid #E8E8E8"}}>
-                  {co.country} <span style={{fontSize:10,color:"#999",fontWeight:400}}>
-                    ({co.entries.length})</span></div>
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:440}}>
-                    <thead><tr>{["PREFIX","SUPPLIER","PRICE","TEST NUMBER",""].map((h,i)=>
-                      <th key={i} style={thS}>{h}</th>)}</tr></thead>
-                    <tbody>{co.entries.map((e,i)=>(
-                      <tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",
-                        background:i%2?"#FAFAFA":"#FFF"}}>
-                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{e.prefix}</td>
-                        <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{e.supplier||"—"}</td>
-                        <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
-                          {parseFloat(e.price||0).toFixed(3)} {e.currency==="USD"?"$":"€"}</td>
-                        <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
-                          {e.test_number?<>
-                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,marginRight:6}}>{e.test_number}</span>
-                            <button onClick={()=>{navigator.clipboard?.writeText(e.test_number);
-                              setMsg({ok:true,t:"Copied "+e.test_number});setTimeout(()=>setMsg(null),2000);}}
-                              style={{padding:"2px 6px",borderRadius:4,border:"1px solid #2CADA6",
-                                background:"rgba(44,173,166,0.1)",color:"#2CADA6",
-                                fontSize:9,fontWeight:700,cursor:"pointer"}}>Copy</button></>
-                            :<span style={{fontSize:11,color:"#BBB"}}>—</span>}
-                        </td>
-                        <td style={{padding:"8px 10px",textAlign:"center"}}>
-                          <button onClick={()=>del(e.id)}
-                            style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
-                      </tr>))}</tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>}
-    </div>
-  </div>);
-}
-
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("noc_token")||"");
   const [user,setUser]=useState(null);
@@ -5418,9 +5248,9 @@ export default function App(){
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers",
-      "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
+      "test-numbers":"testnumbers","test-live-call":"testlivecall",
       "sip-monitor":"sipmonitor",
-      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","system-health":"systemhealth","audit":"auditlog",
+      "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","system-health":"systemhealth","audit":"auditlog",
       "asterisk-config":"ast-sipsettings","asterisk":"ast-sipsettings",
       "asterisk-general":"ast-sipsettings","asterisk-suppliers":"ast-trunks","asterisk-did":"routeprefix",
       "asterisk-ivr":"routeprefix","asterisk-rtp":"ast-sipsettings","asterisk-firewall":"ast-sipsettings",
@@ -5438,8 +5268,8 @@ export default function App(){
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
       "revenue":"revenue","numbers":"numbers","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
-      "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
-      "sipmonitor":"sip-monitor","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","systemhealth":"system-health","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","system-health":"systemhealth","audit":"auditlog",
+      "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call",
+      "sipmonitor":"sip-monitor","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","systemhealth":"system-health","testnumbers":"test-numbers","testlivecall":"test-live-call","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","system-health":"systemhealth","audit":"auditlog",
       "ast-trunks":"asterisk-trunks","ast-sipsettings":"sip-settings",
     };
     const url="/"+( urlMap[p]||p);
@@ -5620,11 +5450,9 @@ export default function App(){
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "testnumbers":   return <TestNumbersPage token={token}/>;
       case "testlivecall":  return <TestLiveCallPage token={token}/>;
-      case "testaccesslist":return <TestAccessListPage token={token}/>;
       case "sipmonitor":   return <SIPMonitorPage token={token}/>;
       case "ipwhitelist":  return <IPWhitelistPage token={token}/>;
       case "auditlog":      return <AuditLogPage token={token}/>;
-      case "addtestnumber": return <AddTestNumberPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       case "ast-trunks":     return <AsteriskConfigPage key="ast-trunks" token={token} user={user} initialTab="suppliers" visibleTabIds={["suppliers"]}/>;
