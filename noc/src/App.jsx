@@ -1680,9 +1680,16 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   // ── Live Calls: unified table (Asterisk + supplier's own API, deduped) ──
   // Reuses the existing global /live-calls (Asterisk) and, when this
   // supplier has a linked trunk with its own external API configured, the
-  // existing /suppliers/{trunkId}/live-calls endpoint - no new backend
-  // endpoints are added. Calls are matched to this supplier by number/
-  // prefix, never by re-asking the user to enter anything.
+  // existing global /live-calls (Asterisk) and, when this supplier has its
+  // own API configured, /supplier-accounts/{id}/api-live-calls (a thin
+  // passthrough to the supplier's real GET /active-calls). Calls are
+  // matched to this supplier by number/prefix, never by re-asking the
+  // user to enter anything.
+  const formatCallBegan=(v)=>{
+    if(v==null||v==="") return null;
+    if(typeof v==="number") return new Date(v*1000).toLocaleString();
+    return v;
+  };
   const loadLiveCalls=async()=>{
     setLoadingLive(true);
     const supplierNumbers=new Set([
@@ -1703,9 +1710,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
     const [asteriskRes,apiRes]=await Promise.all([
       apiFetch("/live-calls",token).catch(()=>({data:[]})),
-      supplier.linked_trunk
-        ? apiFetch(`/suppliers/${supplier.linked_trunk.id}/live-calls`,token).catch(()=>({data:[]}))
-        : Promise.resolve({data:[]}),
+      apiFetch(`/supplier-accounts/${supplier.id}/api-live-calls`,token).catch(()=>({data:[]})),
     ]);
 
     const asteriskCalls=(asteriskRes.data||[]).filter(c=>matches(c.did||c.dst)).map(c=>({
@@ -1722,17 +1727,17 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
     const rawApiList=Array.isArray(apiRes.data)?apiRes.data:(apiRes.data?.calls||apiRes.data?.data||[]);
     const apiCalls=(rawApiList||[]).map(c=>{
-      const number=c.did||c.number||c.dst||c.destination||"";
+      const number=c.did||c.number||c.dst||c.destination||c.prn||"";
       const caller=c.caller||c.src||c.from||c.cli||"";
       return {
         key:(number||"").replace("+","")+":"+(caller||"").replace("+",""),
         status:c.status||c.state||"Active",
         number:number||"—",
         caller:caller||"—",
-        start_time:c.start_time||c.started_at||c.start||"—",
-        duration:c.duration??c.seconds??c.billsec??0,
+        start_time:c.start_time||c.started_at||c.start||formatCallBegan(c.callBegan)||"—",
+        duration:c.duration??c.seconds??c.billsec??c.callDuration??0,
         prefix:findPrefix(number),
-        route:c.route||c.ivr||"—",
+        route:c.route||c.ivr||c.operator||"—",
         source:"API",
       };
     }).filter(c=>matches(c.number));

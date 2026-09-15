@@ -998,6 +998,31 @@ Route::middleware('auth:sanctum')->group(function() {
         ]);
     });
 
+    // Real-time active calls from the supplier's own API (GET /active-calls
+    // - no pagination needed, WTP returns the current snapshot directly).
+    // Read-only passthrough normalized for the frontend's Live Call merge;
+    // nothing is written to the database here.
+    Route::get('/v1/supplier-accounts/{id}/api-live-calls', function($id) use ($supplierApiCall) {
+        $s = DB::table('suppliers')->find($id);
+        if (!$s || !$s->api_enabled || !$s->api_endpoint) return response()->json(['data'=>[]]);
+        [$response,$httpCode] = $supplierApiCall($s,'active-calls',1);
+        if ($httpCode !== 200) return response()->json(['data'=>[]]);
+        $body = json_decode($response,true);
+        $calls = array_map(function($c){
+            return [
+                'cli'          => $c['cli'] ?? null,
+                'prn'          => $c['prn'] ?? null,
+                'callDuration' => $c['callDuration'] ?? 0,
+                'callBegan'    => $c['callBegan'] ?? null,
+                'operator'     => $c['operator'] ?? null,
+                'country'      => $c['country'] ?? null,
+                'account'      => $c['account'] ?? null,
+                'subAccount'   => $c['subAccount'] ?? null,
+            ];
+        }, $body['data'] ?? []);
+        return response()->json(['data'=>$calls]);
+    });
+
     Route::get('/v1/supplier-accounts/{id}/cdr', function(Request $r, $id) {
         $q = DB::table('supplier_cdrs')->where('supplier_id',$id)->orderByDesc('call_date');
         $total = $q->count();
