@@ -1611,8 +1611,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [currentPeriod,setCurrentPeriod]=useState(null);
   const [payHistory,setPayHistory]=useState([]);
   const [payHistFilter,setPayHistFilter]=useState({payment_term:"",date_from:"",date_to:""});
-  const [payForm,setPayForm]=useState({payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
-    notes:supplier.notes||""});
   const [payDialog,setPayDialog]=useState(null);
   const [payDialogForm,setPayDialogForm]=useState({paid_at:"",reference:"",notes:""});
 
@@ -1877,17 +1875,9 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       loadPayHistory({payment_term:"",date_from:"",date_to:""}),
     ]);
     const bucket=Object.values(pendingRes.data||{}).flat().filter(r=>r.supplier_id===supplier.id);
-    const term=supplier.payment_terms||"Other";
-    const withStatus=bucket.map(r=>({...r,closed:isPeriodClosed(term,r.period_start)}));
+    const withStatus=bucket.map(r=>({...r,closed:isPeriodClosed(r.payment_term,r.period_start)}));
     setCurrentPeriod(withStatus[0]||null);
     setPayLoading(false);
-  };
-
-  const savePayment=async()=>{
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}`,token,{method:"PUT",body:JSON.stringify(payForm)});
-    setSaving(false);
-    if(d.success) flash("Payment details saved"); else alert(d.error||"Failed to save");
   };
 
   const openPayDialog=()=>{
@@ -2502,17 +2492,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   </tbody>
                 </table>
               </div>
-
-              <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Payment Terms</div>
-              <div style={{marginBottom:12,maxWidth:260}}>
-                <div style={lblS}>Settlement Frequency</div>
-                  <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
-                    <option value="">— Select —</option>
-                    <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
-                    <option value="Monthly">Monthly</option></select></div>
-              <button onClick={savePayment} disabled={saving}
-                style={{padding:"9px 18px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-                {saving?"Saving...":"Save Payment Terms"}</button>
             </>)}
             <div style={{marginTop:16,textAlign:"right"}}>
               <button onClick={()=>setShowPayment(false)}

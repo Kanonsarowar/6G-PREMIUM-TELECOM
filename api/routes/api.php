@@ -1468,7 +1468,7 @@ Route::middleware('auth:sanctum')->group(function() {
             $defaultTerm = $s->settlement_period ?: 'Net 30';
             foreach (computeSupplierPayable($s->id, $from, $to, $defaultTerm) as $row) {
                 if ($row['calls'] <= 0) continue;
-                $bucket = in_array($s->payment_terms, ['Daily','Weekly','Monthly']) ? $s->payment_terms : 'Other';
+                $bucket = in_array($row['payment_term'], ['Daily','Weekly','Monthly']) ? $row['payment_term'] : 'Other';
                 $buckets[$bucket][] = [
                     'supplier_id'   => $s->id,
                     'supplier_name' => $s->name,
