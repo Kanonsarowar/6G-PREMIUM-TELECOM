@@ -1168,6 +1168,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 'payment_terms' => $prefix->payment_term,
                 'supplier_name' => $supplier->name,
                 'supplier_id'   => $id,
+                'trunk_id'      => $trunk->id ?? null,
                 'default_ivr'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
                 'total_count'   => $count,
                 'is_active'     => 1,
