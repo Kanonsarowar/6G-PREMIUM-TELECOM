@@ -834,6 +834,164 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['success'=>$ok,'status'=>$ok?'connected':'failed','http_code'=>$code]);
     });
 
+    // ── Supplier's own API sync (World Premium Telecom-style REST API:
+    // GET {endpoint}/numbers and GET {endpoint}/cdr, paginated via
+    // page/pageSize, auth via Bearer token in api_secret). Numbers sync
+    // upserts into the existing dids table (never creates a parallel
+    // number store); CDR sync writes into supplier_cdrs, a dedicated
+    // table for this supplier's own billing/CDR feed - kept separate
+    // from the Asterisk-driven cdrs table so Asterisk CDR/revenue/IVR
+    // logic is never touched by this sync.
+    $supplierApiCall = function($s, $path, $page) {
+        $url = rtrim($s->api_endpoint,'/').'/'.ltrim($path,'/').'?page='.$page.'&pageSize=200';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 20,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer '.($s->api_secret??''),
+                'Accept: application/json',
+            ],
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        return [$response, $httpCode];
+    };
+
+    Route::post('/v1/supplier-accounts/{id}/api-sync-numbers', function($id) use ($supplierApiCall) {
+        $s = DB::table('suppliers')->find($id);
+        if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$s->api_enabled || !$s->api_endpoint) return response()->json(['error'=>'API not configured'],400);
+
+        $imported=0; $updated=0; $errors=0; $page=1; $pages=1; $total=0;
+        do {
+            [$response,$httpCode] = $supplierApiCall($s,'numbers',$page);
+            if ($httpCode === 403) return response()->json(['error'=>'The API token is not valid'],403);
+            $body = json_decode($response,true);
+            if (!$body || !isset($body['data']) || !is_array($body['data'])) {
+                DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'failed','updated_at'=>now()]);
+                return response()->json(['error'=>'Invalid response from supplier API','http_code'=>$httpCode],502);
+            }
+            $pages = $body['pages'] ?? 1;
+            $total = $body['total'] ?? count($body['data']);
+
+            foreach ($body['data'] as $item) {
+                $num = preg_replace('/[^0-9]/','', $item['number'] ?? '');
+                if (!$num) { $errors++; continue; }
+                $e164 = '+'.$num;
+
+                // Match the longest known prefix for this supplier to inherit
+                // country/prefix_id (the /numbers feed has no country field).
+                $prefix = DB::table('supplier_prefixes')->where('supplier_id',$id)
+                    ->get()->filter(fn($p)=>str_starts_with($num, preg_replace('/\s+/','',$p->prefix)))
+                    ->sortByDesc(fn($p)=>strlen($p->prefix))->first();
+
+                $rate = $item['offpeakPrice'] ?? $item['peakPrice'] ?? $prefix->price ?? 0;
+                $data = [
+                    'currency'       => $item['currency'] ?? 'EUR',
+                    'tariff'         => $rate,
+                    'selling_price'  => $rate,
+                    'payment_terms'  => ucfirst(strtolower($item['billingPeriod'] ?? 'Weekly')),
+                    'country_name'   => $prefix->country ?? 'Unknown',
+                    'country_code'   => 'XX',
+                    'prefix'         => $prefix->prefix ?? null,
+                    'prefix_id'      => $prefix->id ?? null,
+                    'ivr_context'    => 'custom/6g-premium-telecom',
+                    'status'         => 'active',
+                    'updated_at'     => now(),
+                ];
+
+                $existing = DB::table('dids')->where('supplier_id',$id)
+                    ->where(function($q) use ($num,$e164){ $q->where('number',$e164)->orWhere('number',$num); })
+                    ->first();
+                if ($existing) {
+                    DB::table('dids')->where('id',$existing->id)->update($data);
+                    $updated++;
+                } else {
+                    DB::table('dids')->insert(array_merge($data, [
+                        'number'=>$e164,'supplier_id'=>$id,'is_test'=>0,'created_at'=>now(),
+                    ]));
+                    $imported++;
+                }
+            }
+            $page++;
+        } while ($page <= $pages);
+
+        DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'connected','updated_at'=>now()]);
+        return response()->json([
+            'success'  => true,
+            'imported' => $imported,
+            'updated'  => $updated,
+            'errors'   => $errors,
+            'total'    => $total,
+            'message'  => "Numbers sync: {$imported} new, {$updated} updated, {$errors} skipped",
+        ]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/api-sync-cdr', function($id) use ($supplierApiCall) {
+        $s = DB::table('suppliers')->find($id);
+        if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$s->api_enabled || !$s->api_endpoint) return response()->json(['error'=>'API not configured'],400);
+
+        $imported=0; $skipped=0; $page=1; $pages=1; $total=0;
+        do {
+            [$response,$httpCode] = $supplierApiCall($s,'cdr',$page);
+            if ($httpCode === 403) return response()->json(['error'=>'The API token is not valid'],403);
+            $body = json_decode($response,true);
+            if (!$body || !isset($body['data']) || !is_array($body['data'])) {
+                DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'failed','updated_at'=>now()]);
+                return response()->json(['error'=>'Invalid response from supplier API','http_code'=>$httpCode],502);
+            }
+            $pages = $body['pages'] ?? 1;
+            $total = $body['total'] ?? count($body['data']);
+
+            foreach ($body['data'] as $item) {
+                $callDate = isset($item['date']) ? date('Y-m-d H:i:s', strtotime($item['date'])) : null;
+                $exists = DB::table('supplier_cdrs')->where('supplier_id',$id)
+                    ->where('cli',$item['cli']??'')->where('prn',$item['prn']??'')
+                    ->where('call_date',$callDate)->exists();
+                if ($exists) { $skipped++; continue; }
+                DB::table('supplier_cdrs')->insert([
+                    'supplier_id'    => $id,
+                    'cli'            => $item['cli'] ?? null,
+                    'prn'            => $item['prn'] ?? null,
+                    'operator'       => $item['operator'] ?? null,
+                    'country'        => $item['country'] ?? null,
+                    'billsec'        => $item['billsec'] ?? 0,
+                    'call_date'      => $callDate,
+                    'payout'         => $item['payout'] ?? 0,
+                    'payout_per_min' => $item['payoutPerMin'] ?? 0,
+                    'currency_code'  => $item['currencyCode'] ?? 'EUR',
+                    'account'        => $item['account'] ?? null,
+                    'sub_account'    => $item['subAccount'] ?? null,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
+                ]);
+                $imported++;
+            }
+            $page++;
+        } while ($page <= $pages);
+
+        DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'connected','updated_at'=>now()]);
+        return response()->json([
+            'success'  => true,
+            'imported' => $imported,
+            'skipped'  => $skipped,
+            'total'    => $total,
+            'message'  => "CDR sync: {$imported} new, {$skipped} already recorded",
+        ]);
+    });
+
+    Route::get('/v1/supplier-accounts/{id}/cdr', function(Request $r, $id) {
+        $q = DB::table('supplier_cdrs')->where('supplier_id',$id)->orderByDesc('call_date');
+        $total = $q->count();
+        $perPage = (int)($r->query('pageSize', 50));
+        $page = max(1,(int)($r->query('page',1)));
+        $rows = $q->forPage($page,$perPage)->get();
+        return response()->json(['data'=>$rows,'page'=>$page,'pageSize'=>$perPage,'total'=>$total]);
+    });
+
     // ── Supplier Prefixes (master inventory record) ─────────────
     // Prefix is the master record: Numbers/Ranges and Test Numbers both
     // belong to a Prefix (prefix_id) and inherit country/price/payment_term

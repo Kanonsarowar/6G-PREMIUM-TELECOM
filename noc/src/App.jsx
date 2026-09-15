@@ -1656,16 +1656,22 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     api_endpoint:supplier.api_endpoint||"",api_auth_method:supplier.api_auth_method||"",api_secret:""});
   const [revealedSecret,setRevealedSecret]=useState(null);
   const [apiTestResult,setApiTestResult]=useState(null);
+  const [syncingNumbers,setSyncingNumbers]=useState(false);
+  const [syncNumbersResult,setSyncNumbersResult]=useState(null);
+  const [syncingCdr,setSyncingCdr]=useState(false);
+  const [syncCdrResult,setSyncCdrResult]=useState(null);
+  const [supplierCdr,setSupplierCdr]=useState([]);
 
   const liveCallRef=useRef(null);
   const PAYMENT_TERMS=["Net 0","Net 7","Net 15","Net 30","Net 45","Net 60","Custom"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
+  const loadSupplierCdr=()=>apiFetch(`/supplier-accounts/${supplier.id}/cdr?pageSize=50`,token).then(d=>setSupplierCdr(d.data||[]));
   const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
   const loadAccessHistory=()=>apiFetch(`/supplier-accounts/${supplier.id}/access-history`,token).then(d=>setAccessHistory(d.data||[]));
 
-  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); },[supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadSupplierCdr(); },[supplier.id]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -1938,6 +1944,20 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     setApiTestResult(d);
   };
 
+  const syncApiNumbers=async()=>{
+    setSyncingNumbers(true);setSyncNumbersResult(null);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-sync-numbers`,token,{method:"POST"});
+    setSyncNumbersResult(d);setSyncingNumbers(false);
+    if(d.success){loadNumbers();loadPrefixes();}
+  };
+
+  const syncApiCdr=async()=>{
+    setSyncingCdr(true);setSyncCdrResult(null);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-sync-cdr`,token,{method:"POST"});
+    setSyncCdrResult(d);setSyncingCdr(false);
+    if(d.success){loadSupplierCdr();}
+  };
+
   const actionBtn=(bg,border)=>({padding:"10px 18px",borderRadius:8,border:border?`1px solid ${border}`:"none",
     background:bg,color:border?border:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"});
 
@@ -2127,6 +2147,33 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             </table>
           </div>
         </div>
+
+        {/* SUPPLIER CDR (API) */}
+        {!!supplier.api_enabled&&(
+        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>SUPPLIER CDR (API)</div>
+          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>Normalized from the supplier's own /cdr feed via API → Sync CDR — separate from Asterisk call records.</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+              <thead><tr>{["Date","CLI","PRN","Country","Duration","Payout","Account"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <tbody>
+                {supplierCdr.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No synced CDR yet — use "Sync CDR" in the API settings</td></tr>:
+                supplierCdr.map((c,i)=>(
+                  <tr key={c.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(c.call_date||"").replace("T"," ").slice(0,19)||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.cli||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.prn||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.country||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.billsec||0}s</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{parseFloat(c.payout||0).toFixed(4)} {c.currency_code||"EUR"}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.sub_account||c.account||"—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )}
 
         {/* ACCESS HISTORY */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
@@ -2526,6 +2573,24 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               )}
               {apiTestResult?.loading&&<span style={{fontSize:11,color:"#999"}}>Testing...</span>}
             </div>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+              <button onClick={syncApiNumbers} disabled={syncingNumbers||(!supplier.api_endpoint&&!apiForm.api_endpoint)}
+                style={{padding:"9px 14px",borderRadius:8,border:"1px solid #2CADA6",background:"#FFF",
+                  color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                {syncingNumbers?"Syncing...":"⇅ Sync Numbers"}</button>
+              <button onClick={syncApiCdr} disabled={syncingCdr||(!supplier.api_endpoint&&!apiForm.api_endpoint)}
+                style={{padding:"9px 14px",borderRadius:8,border:"1px solid #2CADA6",background:"#FFF",
+                  color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                {syncingCdr?"Syncing...":"⇅ Sync CDR"}</button>
+            </div>
+            {syncNumbersResult&&(
+              <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:syncNumbersResult.success?"#10B981":"#EF4444"}}>
+                {syncNumbersResult.success?"✅ "+syncNumbersResult.message:"❌ "+(syncNumbersResult.error||"Sync failed")}</div>
+            )}
+            {syncCdrResult&&(
+              <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:syncCdrResult.success?"#10B981":"#EF4444"}}>
+                {syncCdrResult.success?"✅ "+syncCdrResult.message:"❌ "+(syncCdrResult.error||"Sync failed")}</div>
+            )}
             <div style={{fontSize:10,color:"#AAA",marginBottom:16}}>
               Last sync: {supplier.api_last_sync||"never"} · Last status: {supplier.api_last_status||"—"}
             </div>
