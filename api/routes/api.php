@@ -842,8 +842,9 @@ Route::middleware('auth:sanctum')->group(function() {
     // table for this supplier's own billing/CDR feed - kept separate
     // from the Asterisk-driven cdrs table so Asterisk CDR/revenue/IVR
     // logic is never touched by this sync.
-    $supplierApiCall = function($s, $path, $page) {
-        $url = rtrim($s->api_endpoint,'/').'/'.ltrim($path,'/').'?page='.$page.'&pageSize=200';
+    $supplierApiCall = function($s, $path, $page, $extraQuery=[]) {
+        $query = array_merge(['page'=>$page,'pageSize'=>200], $extraQuery);
+        $url = rtrim($s->api_endpoint,'/').'/'.ltrim($path,'/').'?'.http_build_query($query);
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -869,6 +870,11 @@ Route::middleware('auth:sanctum')->group(function() {
             [$response,$httpCode] = $supplierApiCall($s,'numbers',$page);
             if ($httpCode === 403) return response()->json(['error'=>'The API token is not valid'],403);
             $body = json_decode($response,true);
+            if ($httpCode >= 400) {
+                $apiError = $body['errors'][0]['error'] ?? $body['message'] ?? 'Request rejected by supplier API';
+                DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'failed','updated_at'=>now()]);
+                return response()->json(['error'=>$apiError,'http_code'=>$httpCode],502);
+            }
             if (!$body || !isset($body['data']) || !is_array($body['data'])) {
                 DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'failed','updated_at'=>now()]);
                 return response()->json(['error'=>'Invalid response from supplier API','http_code'=>$httpCode],502);
@@ -929,16 +935,25 @@ Route::middleware('auth:sanctum')->group(function() {
         ]);
     });
 
-    Route::post('/v1/supplier-accounts/{id}/api-sync-cdr', function($id) use ($supplierApiCall) {
+    Route::post('/v1/supplier-accounts/{id}/api-sync-cdr', function(Request $r, $id) use ($supplierApiCall) {
         $s = DB::table('suppliers')->find($id);
         if (!$s) return response()->json(['error'=>'Supplier not found'],404);
         if (!$s->api_enabled || !$s->api_endpoint) return response()->json(['error'=>'API not configured'],400);
 
+        // The supplier's /cdr endpoint requires dateFrom; default to the
+        // last 30 days (or a custom range the caller passes in).
+        $dateFrom = $r->query('date_from') ? date('Y-m-d\TH:i:s', strtotime($r->query('date_from'))) : date('Y-m-d\TH:i:s', strtotime('-30 days'));
+
         $imported=0; $skipped=0; $page=1; $pages=1; $total=0;
         do {
-            [$response,$httpCode] = $supplierApiCall($s,'cdr',$page);
+            [$response,$httpCode] = $supplierApiCall($s,'cdr',$page,['dateFrom'=>$dateFrom]);
             if ($httpCode === 403) return response()->json(['error'=>'The API token is not valid'],403);
             $body = json_decode($response,true);
+            if ($httpCode >= 400) {
+                $apiError = $body['errors'][0]['error'] ?? $body['message'] ?? 'Request rejected by supplier API';
+                DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'failed','updated_at'=>now()]);
+                return response()->json(['error'=>$apiError,'http_code'=>$httpCode],502);
+            }
             if (!$body || !isset($body['data']) || !is_array($body['data'])) {
                 DB::table('suppliers')->where('id',$id)->update(['api_last_sync'=>now(),'api_last_status'=>'failed','updated_at'=>now()]);
                 return response()->json(['error'=>'Invalid response from supplier API','http_code'=>$httpCode],502);
