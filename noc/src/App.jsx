@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 const API = "https://6g-premium-telecom.com/api/v1";
+// Single operational currency across the entire app - USDT only (see
+// rule 12: one central formatter, never per-component EUR/USD logic).
+// Historical `currency` fields on dids/cdrs/etc. may still hold values
+// like "EUR" from imports (kept for audit traceability), but every
+// operational UI display always renders the numeric amount as USDT.
+const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals)+" USDT";
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={hasError:false,error:""}; }
   static getDerivedStateFromError(e){ return {hasError:true,error:e.message}; }
@@ -295,7 +301,7 @@ function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
         <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",
           borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
           <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Rev</span>
-          <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>€{revenue}</span>
+          <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>${revenue}</span>
         </div>
       </div>
       {/* Right side */}
@@ -405,20 +411,20 @@ function StatsCharts({token}){
     <div style={{background:"#FFF",borderRadius:8,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
       <span style={{fontSize:11,fontWeight:600,color:"#555"}}>📅 Daily Chart Month:</span>
       <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{padding:"5px 8px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:11,outline:"none"}}/>
-      <span style={{fontSize:10,color:"#999"}}>{dailyData().reduce((a,d)=>a+d.calls,0)} calls · €{dailyData().reduce((a,d)=>a+d.revenue,0).toFixed(2)}</span>
+      <span style={{fontSize:10,color:"#999"}}>{dailyData().reduce((a,d)=>a+d.calls,0)} calls · {fmtUSDT(dailyData().reduce((a,d)=>a+d.revenue,0),2)}</span>
     </div>
 
     {/* Daily Charts */}
-    <Section title="📅 Daily Revenue €" color="#10B981"><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📅 Daily Revenue USDT" color="#10B981"><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📅 Daily Calls" color="#3B82F6"><SVGBar data={dailyData()} vk="calls" color="#3B82F6"/></Section>
     <Section title="📅 Daily Minutes" color="#2CADA6"><SVGBar data={dailyData()} vk="minutes" color="#2CADA6"/></Section>
 
     {/* Weekly Charts */}
-    <Section title="📊 Weekly Revenue €" color="#10B981"><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📊 Weekly Revenue USDT" color="#10B981"><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📊 Weekly Calls" color="#3B82F6"><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></Section>
 
     {/* Monthly Charts */}
-    <Section title="📆 Monthly Revenue €" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📆 Monthly Revenue USDT" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📆 Monthly Calls" color="#3B82F6"><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></Section>
 
     {/* Countries - Revenue Donut */}
@@ -451,7 +457,7 @@ function StatsCharts({token}){
                 ))}
                 <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
                 <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Total</text>
-                <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#10B981" fontWeight="bold">€{total.toFixed(0)}</text>
+                <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#10B981" fontWeight="bold">${total.toFixed(0)}</text>
               </svg>
               {/* Legend */}
               <div style={{flex:1}}>
@@ -472,7 +478,7 @@ function StatsCharts({token}){
               return(<div key={i} style={{marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:16}}>{flag}</span><div><div style={{fontSize:11,fontWeight:700}}>{s.name}</div><div style={{fontSize:9,color:"#999"}}>{s.calls} calls · {Math.round(s.minutes)}m</div></div></div>
-                  <div style={{textAlign:"right"}}><div style={{fontSize:11,fontWeight:700,color:"#10B981"}}>€{s.revenue.toFixed(2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:11,fontWeight:700,color:"#10B981"}}>{fmtUSDT(s.revenue,2)}</div><div style={{fontSize:9,color:"#999"}}>{pct}%</div></div>
                 </div>
                 <div style={{background:"#F0F0F0",borderRadius:4,height:4,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:COLORS[i%COLORS.length],borderRadius:4}}/></div>
               </div>);
@@ -539,12 +545,12 @@ function StatsCharts({token}){
             {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
             <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
             <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Revenue</text>
-            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#10B981" fontWeight="bold">€{tot.toFixed(0)}</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#10B981" fontWeight="bold">${tot.toFixed(0)}</text>
           </svg>
           <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
             <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
             <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.name}</span>
-            <span style={{fontSize:10,color:"#10B981",fontWeight:700}}>€{s.revenue.toFixed(2)}</span>
+            <span style={{fontSize:10,color:"#10B981",fontWeight:700}}>{fmtUSDT(s.revenue,2)}</span>
             <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
           </div>))}</div>
         </div>);
@@ -587,12 +593,12 @@ function StatsCharts({token}){
             {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
             <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
             <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Weekly</text>
-            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#F59E0B" fontWeight="bold">€{tot.toFixed(0)}</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#F59E0B" fontWeight="bold">${tot.toFixed(0)}</text>
           </svg>
           <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
             <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
             <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.date}</span>
-            <span style={{fontSize:10,color:"#F59E0B",fontWeight:700}}>€{s.revenue.toFixed(2)}</span>
+            <span style={{fontSize:10,color:"#F59E0B",fontWeight:700}}>{fmtUSDT(s.revenue,2)}</span>
             <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
           </div>))}</div>
         </div>);
@@ -611,12 +617,12 @@ function StatsCharts({token}){
             {slices.map((s,i)=>(<path key={i} d={s.path} fill={s.color} opacity={0.9} stroke="#FFF" strokeWidth={1}/>))}
             <circle cx={cx} cy={cy} r={36} fill="#FFF"/>
             <text x={cx} y={cy-6} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#333">Monthly</text>
-            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#EF4444" fontWeight="bold">€{tot.toFixed(0)}</text>
+            <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#EF4444" fontWeight="bold">${tot.toFixed(0)}</text>
           </svg>
           <div style={{flex:1}}>{slices.map((s,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
             <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
             <span style={{fontSize:10,fontWeight:600,flex:1}}>{s.date}</span>
-            <span style={{fontSize:10,color:"#EF4444",fontWeight:700}}>€{s.revenue.toFixed(2)}</span>
+            <span style={{fontSize:10,color:"#EF4444",fontWeight:700}}>{fmtUSDT(s.revenue,2)}</span>
             <span style={{fontSize:9,color:"#999"}}>{s.pct}%</span>
           </div>))}</div>
         </div>);
@@ -644,15 +650,9 @@ function DashboardPage({token}){
       const todayCalls=parseInt(s.today_calls||0);
       const todayMinutes=parseFloat(s.today_minutes||0);
       const todayRevenue=parseFloat(s.today_revenue||0);
-      const todayEur=parseFloat(s.today_eur||0);
-      const todayUsd=parseFloat(s.today_usd||0);
-      const allEur=parseFloat(s.revenue_eur||0);
-      const allUsd=parseFloat(s.revenue_usd||0);
       setStats({
         calls,
         revenue:revenue.toFixed(4),
-        revenue_eur:allEur.toFixed(4),
-        revenue_usd:allUsd.toFixed(4),
         minutes:minutes.toFixed(2),
         dids:(dids.data||[]).length,
         live:(live.data||live||[]).length,
@@ -660,8 +660,6 @@ function DashboardPage({token}){
         today_countries:[...new Set((dids.data||[]).map(d=>d.country_name).filter(Boolean))].length,
         today_calls:todayCalls,
         today_revenue:todayRevenue.toFixed(4),
-        today_eur:todayEur.toFixed(4),
-        today_usd:todayUsd.toFixed(4),
         today_minutes:todayMinutes.toFixed(2),
         week_calls:parseInt(s.week_calls||0),
         week_revenue:parseFloat(s.week_revenue||0).toFixed(4),
@@ -679,21 +677,6 @@ function DashboardPage({token}){
     return()=>clearInterval(t);
   },[token]);
   const now=new Date();
-  const todayCards=[
-    {label:"TODAY CALLS",value:stats.today_calls,color:"#3B82F6",icon:"📞"},
-    {label:"TODAY MINUTES",value:stats.today_minutes,color:"#06B6D4",icon:"⏱"},
-    {label:"TODAY EUR",value:"€"+parseFloat(stats.today_eur||0).toFixed(4),color:"#10B981",icon:"💶"},
-    {label:"TODAY USD",value:"$"+parseFloat(stats.today_usd||0).toFixed(4),color:"#F5A623",icon:"💵"},
-    {label:"ACTIVE DIDS",value:stats.dids,color:"#8B5CF6",icon:"📱"},
-    {label:"COUNTRIES",value:stats.today_countries,color:"#06B6D4",icon:"🌍"},
-  ];
-  const allTimeCards=[
-    {label:"TOTAL CALLS",value:stats.calls,color:"#3B82F6"},
-    {label:"TOTAL MINUTES",value:stats.minutes,color:"#06B6D4"},
-    {label:"TOTAL EUR",value:"€"+parseFloat(stats.revenue_eur||0).toFixed(4),color:"#10B981"},
-    {label:"TOTAL USD",value:"$"+parseFloat(stats.revenue_usd||0).toFixed(4),color:"#F5A623"},
-    {label:"TOTAL DIDS",value:stats.dids,color:"#8B5CF6"},
-  ];
   const barMax=Math.max(parseFloat(stats.today_calls||1),parseFloat(stats.calls||1));
   return(
     <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
@@ -735,7 +718,7 @@ function DashboardPage({token}){
           {[
             {label:"Calls",value:loading?"...":stats.today_calls,color:"#60A5FA"},
             {label:"Minutes",value:loading?"...":Math.round(stats.today_minutes||0),color:"#34D399"},
-            {label:"Revenue",value:loading?"...":"€"+parseFloat(stats.today_revenue||0).toFixed(2),color:"#FBBF24"},
+            {label:"Revenue",value:loading?"...":fmtUSDT(stats.today_revenue,2),color:"#FBBF24"},
           ].map((c,i)=>(
             <div key={i} style={{textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:800,color:c.color,fontFamily:"monospace",lineHeight:1}}>{c.value}</div>
@@ -754,7 +737,7 @@ function DashboardPage({token}){
           {[
             {label:"Calls",value:loading?"...":stats.week_calls,color:"#A78BFA"},
             {label:"Minutes",value:loading?"...":Math.round(stats.week_minutes||0),color:"#34D399"},
-            {label:"Revenue",value:loading?"...":"\u20AC"+parseFloat(stats.week_revenue||0).toFixed(2),color:"#FBBF24"},
+            {label:"Revenue",value:loading?"...":fmtUSDT(stats.week_revenue,2),color:"#FBBF24"},
           ].map((c,i)=>(
             <div key={i} style={{textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:800,color:c.color,fontFamily:"monospace",lineHeight:1}}>{c.value}</div>
@@ -771,7 +754,7 @@ function DashboardPage({token}){
           {[
             {label:"Total Calls",value:loading?"...":stats.calls,color:"#60A5FA"},
             {label:"Total Min",value:loading?"...":Math.round(stats.minutes||0),color:"#34D399"},
-            {label:"EUR Rev",value:loading?"...":"€"+parseFloat(stats.revenue_eur||0).toFixed(2),color:"#FBBF24"},
+            {label:"Revenue",value:loading?"...":fmtUSDT(stats.revenue,2),color:"#FBBF24"},
             {label:"Active DIDs",value:loading?"...":stats.dids||0,color:"#A78BFA"},
           ].map((c,i)=>(
             <div key={i} style={{background:"rgba(255,255,255,0.08)",borderRadius:8,padding:"10px 12px"}}>
@@ -964,7 +947,7 @@ function CDRPage({token}){
       (c.call_start||c.created_at||"").slice(0,19),
       c.src||"",c.did||"",c.billsec||0,
       parseFloat(c.revenue||0).toFixed(4),
-      c.currency||"EUR",c.trunk_name||"",c.disposition||""
+      "USDT",c.trunk_name||"",c.disposition||""
     ]));
     const csv=rows.map(r=>r.join(",")).join("\n");
     const a=document.createElement("a");
@@ -983,7 +966,7 @@ function CDRPage({token}){
         display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>CDR</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>{filtered.length} records · {totalSec}s · €{totalRev.toFixed(4)}</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{filtered.length} records · {totalSec}s · {fmtUSDT(totalRev)}</div>
         </div>
         <button onClick={downloadCSV}
           style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
@@ -1023,7 +1006,7 @@ function CDRPage({token}){
           {[
             {label:"Calls",value:filtered.length,color:"#2CADA6"},
             {label:"Minutes",value:(totalSec/60).toFixed(2),color:"#3B82F6"},
-            {label:"Revenue",value:"€"+totalRev.toFixed(3),color:"#10B981"},
+            {label:"Revenue",value:fmtUSDT(totalRev,3),color:"#10B981"},
           ].map((s,i)=>(
             <div key={i} style={{background:"#FFF",borderRadius:8,padding:"10px 12px",
               boxShadow:"0 1px 4px rgba(0,0,0,0.06)",textAlign:"center"}}>
@@ -1041,7 +1024,7 @@ function CDRPage({token}){
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
               <thead>
                 <tr>
-                  {["DATE","CLI","PRN","DURATION","REVENUE","CURRENCY","SUPPLIER","STATUS"].map((h,i)=>(
+                  {["DATE","CLI","PRN","DURATION","REVENUE","SUPPLIER","STATUS"].map((h,i)=>(
                     <th key={i} style={thS}>{h}</th>
                   ))}
                 </tr>
@@ -1063,11 +1046,8 @@ function CDRPage({token}){
                         {c.billsec||0}
                       </td>
                       <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",
-                        color:"#10B981",fontWeight:600}}>
-                        {parseFloat(c.revenue||0).toFixed(4)}
-                      </td>
-                      <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>
-                        {c.currency||"EUR"}
+                        color:"#10B981",fontWeight:600,whiteSpace:"nowrap"}}>
+                        {fmtUSDT(c.revenue)}
                       </td>
                       <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
                         {c.trunk_name||"—"}
@@ -1188,8 +1168,11 @@ function RevenuePage({token}){
   const countries=countryData();
   const maxRev=Math.max(...daily.map(d=>d.revenue),0.01);
   const maxCountryRev=Math.max(...countries.map(c=>c.revenue),0.01);
-  const totalRevEur=parseFloat(data.eur.revenue||0);
-  const totalRevUsd=parseFloat(data.usd.revenue||0);
+  // Single operational currency (USDT) - combine whatever the backend
+  // still splits by historical currency into one wallet figure.
+  const totalRevUsdt=parseFloat(data.eur.revenue||0)+parseFloat(data.usd.revenue||0);
+  const totalCallsUsdt=(parseInt(data.eur.calls||0))+(parseInt(data.usd.calls||0));
+  const totalMinUsdt=parseFloat(data.eur.minutes||0)+parseFloat(data.usd.minutes||0);
 
   const tabs=[
     {id:"overview",label:"Overview"},
@@ -1209,28 +1192,17 @@ function RevenuePage({token}){
         </span>
       </div>
 
-      {/* Wallet Cards */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        <div style={{background:"linear-gradient(135deg,#F5A623,#F59E0B)",borderRadius:14,padding:16,
-          boxShadow:"0 4px 16px rgba(245,166,35,0.3)"}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💵 USD WALLET</div>
+      {/* Wallet Card */}
+      <div style={{marginBottom:16}}>
+        <div style={{background:"linear-gradient(135deg,#10B981,#059669)",borderRadius:14,padding:16,
+          boxShadow:"0 4px 16px rgba(16,185,129,0.3)"}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💰 USDT WALLET</div>
           <div style={{fontSize:28,fontWeight:800,color:"#FFFFFF",fontFamily:"monospace",marginBottom:4}}>
-            ${loading?"...":data.usd.revenue}
+            {loading?"...":fmtUSDT(totalRevUsdt)}
           </div>
           <div style={{display:"flex",gap:12,fontSize:10,color:"rgba(255,255,255,0.8)"}}>
-            <span>{data.usd.calls} calls</span>
-            <span>{data.usd.minutes} min</span>
-          </div>
-        </div>
-        <div style={{background:"linear-gradient(135deg,#3B82F6,#2563EB)",borderRadius:14,padding:16,
-          boxShadow:"0 4px 16px rgba(59,130,246,0.3)"}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💶 EUR WALLET</div>
-          <div style={{fontSize:28,fontWeight:800,color:"#FFFFFF",fontFamily:"monospace",marginBottom:4}}>
-            €{loading?"...":data.eur.revenue}
-          </div>
-          <div style={{display:"flex",gap:12,fontSize:10,color:"rgba(255,255,255,0.8)"}}>
-            <span>{data.eur.calls} calls</span>
-            <span>{data.eur.minutes} min</span>
+            <span>{totalCallsUsdt} calls</span>
+            <span>{totalMinUsdt.toFixed(2)} min</span>
           </div>
         </div>
       </div>
@@ -1240,7 +1212,7 @@ function RevenuePage({token}){
         {[
           {label:"Total Calls",value:data.total_calls,color:"#2CADA6"},
           {label:"Total Minutes",value:data.total_minutes,color:"#8B5CF6"},
-          {label:"Total Revenue",value:"€"+totalRevEur.toFixed(4),color:"#10B981"},
+          {label:"Revenue",value:fmtUSDT(totalRevUsdt),color:"#10B981"},
         ].map((s,i)=>(
           <div key={i} style={{background:"#FFFFFF",borderRadius:12,padding:"12px 14px",
             boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
@@ -1270,9 +1242,8 @@ function RevenuePage({token}){
           {[
             ["Total Calls",data.total_calls,"#2CADA6"],
             ["Total Minutes",data.total_minutes,"#8B5CF6"],
-            ["EUR Revenue","€"+totalRevEur.toFixed(4),"#10B981"],
-            ["USD Revenue","$"+totalRevUsd.toFixed(4),"#F5A623"],
-            ["Avg Revenue/Call",cdrs.length>0?"€"+(totalRevEur/cdrs.length).toFixed(4):"€0","#3B82F6"],
+            ["Revenue",fmtUSDT(totalRevUsdt),"#10B981"],
+            ["Avg Revenue/Call",cdrs.length>0?fmtUSDT(totalRevUsdt/cdrs.length):fmtUSDT(0),"#3B82F6"],
             ["Answered Calls",cdrs.filter(c=>c.disposition==="ANSWERED").length,"#10B981"],
             ["Failed Calls",cdrs.filter(c=>c.disposition!=="ANSWERED").length,"#EF4444"],
             ["ASR",cdrs.length>0?Math.round(cdrs.filter(c=>c.disposition==="ANSWERED").length/cdrs.length*100)+"%":"0%","#F5A623"],
@@ -1300,7 +1271,7 @@ function RevenuePage({token}){
                     <div style={{height:"100%",background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
                       borderRadius:6,width:(d.revenue/maxRev*100)+"%",
                       display:"flex",alignItems:"center",paddingLeft:8,minWidth:40}}>
-                      <span style={{fontSize:10,color:"#FFF",fontWeight:700,whiteSpace:"nowrap"}}>€{d.revenue.toFixed(4)}</span>
+                      <span style={{fontSize:10,color:"#FFF",fontWeight:700,whiteSpace:"nowrap"}}>{fmtUSDT(d.revenue)}</span>
                     </div>
                   </div>
                   <div style={{width:50,fontSize:11,color:"#999",textAlign:"right",flexShrink:0}}>{d.calls} calls</div>
@@ -1326,7 +1297,7 @@ function RevenuePage({token}){
                       background:["#2CADA6","#8B5CF6","#F5A623","#3B82F6","#10B981","#EF4444","#F97316","#06B6D4"][i%8],
                       width:(c.revenue/maxCountryRev*100)+"%",
                       display:"flex",alignItems:"center",paddingLeft:8,minWidth:50}}>
-                      <span style={{fontSize:10,color:"#FFF",fontWeight:700}}>€{c.revenue.toFixed(4)}</span>
+                      <span style={{fontSize:10,color:"#FFF",fontWeight:700}}>{fmtUSDT(c.revenue)}</span>
                     </div>
                   </div>
                   <div style={{width:50,fontSize:11,color:"#999",textAlign:"right",flexShrink:0}}>{c.calls}</div>
@@ -1347,7 +1318,7 @@ function RevenuePage({token}){
             <table style={{width:"100%",borderCollapse:"collapse"}}>
               <thead>
                 <tr style={{background:"#F8F9FA"}}>
-                  {["Supplier","DIDs","Calls","Minutes","Revenue","Currency"].map((h,i)=>(
+                  {["Supplier","DIDs","Calls","Minutes","Revenue"].map((h,i)=>(
                     <th key={i} style={{padding:"10px 14px",fontSize:11,color:"#9A9A9A",
                       fontWeight:600,textAlign:"left",letterSpacing:"0.5px",
                       borderBottom:"1px solid #EEEEEE"}}>{h}</th>
@@ -1356,7 +1327,7 @@ function RevenuePage({token}){
               </thead>
               <tbody>
                 {supRevenue.length===0
-                  ?<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999"}}>No supplier revenue data</td></tr>
+                  ?<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999"}}>No supplier revenue data</td></tr>
                   :supRevenue.map((s,i)=>(
                     <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
                       <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{s.nickname||s.supplier||"—"}</td>
@@ -1364,15 +1335,8 @@ function RevenuePage({token}){
                       <td style={{padding:"10px 14px",fontSize:12,color:"#3B82F6",fontFamily:"monospace"}}>{s.calls||0}</td>
                       <td style={{padding:"10px 14px",fontSize:12,color:"#555",fontFamily:"monospace"}}>{parseFloat(s.minutes||0).toFixed(2)}</td>
                       <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,
-                        color:s.currency==="USD"?"#F5A623":"#10B981",fontFamily:"monospace"}}>
-                        {s.currency==="USD"?"$":"€"}{parseFloat(s.revenue||0).toFixed(4)}
-                      </td>
-                      <td style={{padding:"10px 14px"}}>
-                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
-                          background:s.currency==="USD"?"rgba(245,166,35,0.1)":"rgba(16,185,129,0.1)",
-                          color:s.currency==="USD"?"#F5A623":"#10B981"}}>
-                          {s.currency||"USD"}
-                        </span>
+                        color:"#10B981",fontFamily:"monospace"}}>
+                        {fmtUSDT(s.revenue)}
                       </td>
                     </tr>
                   ))
@@ -1421,8 +1385,8 @@ function RevenuePage({token}){
                         <td style={{padding:"10px 14px",fontSize:12,color:"#3B82F6",fontFamily:"monospace",fontWeight:600}}>{inv.invoice_number}</td>
                         <td style={{padding:"10px 14px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{inv.total_calls}</td>
                         <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,
-                          color:inv.currency==="USD"?"#F5A623":"#10B981",fontFamily:"monospace"}}>
-                          {inv.currency==="USD"?"$":"€"}{parseFloat(inv.total_amount||0).toFixed(4)}
+                          color:"#10B981",fontFamily:"monospace"}}>
+                          {fmtUSDT(inv.total_amount)}
                         </td>
                         <td style={{padding:"10px 14px"}}>
                           <a href={"https://6g-premium-telecom.com/api/v1/invoices/"+inv.id+"/pdf"}
@@ -1593,7 +1557,7 @@ function SupplierAccountsPage({token,user,setPage}){
                     <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.calls}</td>
                     <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.minutes}</td>
                     <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
-                      {parseFloat(s.revenue||0).toFixed(4)} {s.currency==="USD"?"$":"€"}</td>
+                      {fmtUSDT(s.revenue)}</td>
                     <td style={{padding:"10px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                       <button onClick={()=>setSelectedId(s.id)}
                         style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
@@ -1677,7 +1641,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
-  const fmtUSDT=(v)=>parseFloat(v||0).toFixed(4)+" USDT";
 
   // ── Live Calls: unified table (Asterisk + supplier's own API, deduped) ──
   // Reuses the existing global /live-calls (Asterisk) and, when this
@@ -2181,7 +2144,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.prn||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.billsec||0}s</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{parseFloat(c.payout||0).toFixed(4)} {c.currency_code||"EUR"}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(c.payout)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.sub_account||c.account||"—"}</td>
                   </tr>
                 ))}
@@ -2682,7 +2645,6 @@ function SupplierPaymentsPage({token,user}){
 
   const TABS=[["pending","Pending"],["history","History"]];
   const BUCKET_ORDER=["Daily","Weekly","Monthly","Other"];
-  const fmtUSDT=(v)=>parseFloat(v||0).toFixed(4)+" USDT";
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
@@ -2985,9 +2947,9 @@ function NumberInventoryPage({token}){
   const [uploadFile,setUploadFile]=useState(null);
   const [uploadTrunk,setUploadTrunk]=useState("");
   const [uploadRate,setUploadRate]=useState("0.07");
-  const [uploadCurrency,setUploadCurrency]=useState("EUR");
+  const [uploadCurrency,setUploadCurrency]=useState("USDT");
   // Add number form
-  const [addForm,setAddForm]=useState({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"EUR",trunk_id:""});
+  const [addForm,setAddForm]=useState({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"USDT",trunk_id:""});
   // Test number
   const [testNum,setTestNum]=useState("");
   const [testResult,setTestResult]=useState(null);
@@ -3012,7 +2974,7 @@ function NumberInventoryPage({token}){
   const toggleSelect=(id)=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
   const clearSel=()=>setSelected(new Set());
-  const currSym=(c)=>c==="EUR"?"€":"$";
+
 
   const getNumbers=(r)=>dids.filter(d=>{
     const n=(d.number||"").replace("+","");
@@ -3051,7 +3013,7 @@ function NumberInventoryPage({token}){
       ivr_context:"custom/6g-premium-telecom"
     })});
     setResult(d);setSaving(false);
-    if(d.success||d.data){setAddForm({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"EUR",trunk_id:""});load();}
+    if(d.success||d.data){setAddForm({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"USDT",trunk_id:""});load();}
   };
 ;
 
@@ -3172,7 +3134,7 @@ function NumberInventoryPage({token}){
                               </div>
                             </td>
                             <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(r.currency||"EUR")}{parseFloat(r.rate||0).toFixed(3)}</td>
+                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(r.rate,3)}</td>
                             <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
                             <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
                             <td style={{padding:"6px 10px",fontSize:10,color:"#888",whiteSpace:"nowrap"}}>
@@ -3215,7 +3177,7 @@ function NumberInventoryPage({token}){
                           <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
                             <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff,3)}</td>
                             <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
                             <td style={{padding:"5px 10px",textAlign:"center"}}>
@@ -3284,10 +3246,7 @@ function NumberInventoryPage({token}){
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                  <select style={inp} value={addForm.currency} onChange={e=>setAddForm({...addForm,currency:e.target.value})}>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="USD">USD ($)</option>
-                  </select>
+                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>USDT</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
@@ -3489,7 +3448,7 @@ function NumberInventoryPage({token}){
                         </td>
                         <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                         <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{currSym(d.currency||"EUR")}{parseFloat(d.tariff||0).toFixed(3)}</td>
+                        <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff,3)}</td>
                         <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
                       </tr>
                     ))}
@@ -3924,6 +3883,7 @@ function ConnectIVRPage({token}){
 
 // ── Reseller Portal ───────────────────────────────────────────────
 function ResellerPortalPage({token}){
+  const [resellers,setResellers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [selected,setSelected]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -3998,7 +3958,7 @@ function ResellerPortalPage({token}){
         {[
           {label:"Total Resellers",value:resellers.length,color:"#2CADA6"},
           {label:"Active",value:resellers.filter(r=>r.status==="active").length,color:"#10B981"},
-          {label:"Total Revenue",value:"€"+resellers.reduce((a,r)=>a+parseFloat(r.revenue||0),0).toFixed(4),color:"#F5A623"},
+          {label:"Total Revenue",value:fmtUSDT(resellers.reduce((a,r)=>a+parseFloat(r.revenue||0),0)),color:"#F5A623"},
         ].map((s,i)=>(
           <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
             boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
@@ -4034,7 +3994,7 @@ function ResellerPortalPage({token}){
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <Field label="Credit Limit (€)" k="credit_limit" ph="1000"/>
+            <Field label="Credit Limit (USDT)" k="credit_limit" ph="1000"/>
             <Field label="Markup (%)" k="markup" ph="10"/>
           </div>
           <Field label="Notes" k="notes" ph="Additional notes..."/>
@@ -4066,9 +4026,9 @@ function ResellerPortalPage({token}){
             {[
               {label:"DIDs",value:selected.dids_count,color:"#8B5CF6"},
               {label:"Calls",value:selected.calls_count,color:"#3B82F6"},
-              {label:"Revenue",value:"€"+selected.revenue,color:"#10B981"},
-              {label:"Balance",value:"€"+parseFloat(selected.balance||0).toFixed(4),color:"#F5A623"},
-              {label:"Credit Limit",value:"€"+selected.credit_limit,color:"#2CADA6"},
+              {label:"Revenue",value:fmtUSDT(selected.revenue),color:"#10B981"},
+              {label:"Balance",value:fmtUSDT(selected.balance),color:"#F5A623"},
+              {label:"Credit Limit",value:fmtUSDT(selected.credit_limit),color:"#2CADA6"},
               {label:"Markup",value:selected.markup+"%",color:"#EF4444"},
             ].map((s,i)=>(
               <div key={i} style={{background:"#F8F9FA",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
@@ -4080,7 +4040,7 @@ function ResellerPortalPage({token}){
           {/* Top Up */}
           <div style={{display:"flex",gap:8,marginBottom:14}}>
             <input value={topupAmount} onChange={e=>setTopupAmount(e.target.value)}
-              placeholder="Top up amount (€)" style={{...inp,flex:1}}/>
+              placeholder="Top up amount (USDT)" style={{...inp,flex:1}}/>
             <button onClick={topup}
               style={{padding:"9px 18px",borderRadius:10,border:"none",background:"#10B981",
                 color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>Top Up</button>
@@ -4108,7 +4068,7 @@ function ResellerPortalPage({token}){
                       <td style={{padding:"8px 12px",fontSize:12,fontFamily:"monospace"}}>{c.src||c.caller||"—"}</td>
                       <td style={{padding:"8px 12px",fontSize:12,color:"#2CADA6",fontFamily:"monospace"}}>{c.did||"—"}</td>
                       <td style={{padding:"8px 12px",fontSize:12,color:"#555"}}>{c.billsec||0}s</td>
-                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>€{parseFloat(c.revenue||0).toFixed(4)}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>{fmtUSDT(c.revenue)}</td>
                     </tr>
                   ))
                 }
@@ -4152,7 +4112,7 @@ function ResellerPortalPage({token}){
                   <div style={{fontSize:9,color:"#999",textTransform:"uppercase"}}>DIDs</div>
                 </div>
                 <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:14,fontWeight:700,color:"#10B981"}}>€{r.revenue}</div>
+                  <div style={{fontSize:14,fontWeight:700,color:"#10B981"}}>{fmtUSDT(r.revenue)}</div>
                   <div style={{fontSize:9,color:"#999",textTransform:"uppercase"}}>Revenue</div>
                 </div>
                 <span style={{padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,alignSelf:"center",
@@ -4818,7 +4778,6 @@ function TestLabsPage({token}){
                 </thead>
                 <tbody>
                   {ranges.map((r,i)=>{
-                    const sym=r.currency==="USD"?"$":"€";
                     const ivr=(r.ivr_context||r.default_ivr||"—").replace("custom/","");
                     const testNum=getTestNumber(r);
                     return(
@@ -4832,7 +4791,7 @@ function TestLabsPage({token}){
                         <td style={{padding:"10px 10px",fontSize:11,color:"#333"}}>{r.country_name||"—"}</td>
                         <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,
                           color:"#10B981",fontFamily:"monospace"}}>
-                          {sym}{parseFloat(r.rate||0).toFixed(3)}/min
+                          {fmtUSDT(r.rate,3)}/min
                         </td>
                         <td style={{padding:"10px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>
                           {r.supplier_name||"—"}
@@ -6314,7 +6273,7 @@ function TestNumbersPage({token}){
   const [selectedCountry,setSelectedCountry]=useState("");
   const [msg,setMsg]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
-  const [newTest,setNewTest]=useState({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier:""});
+  const [newTest,setNewTest]=useState({number:"",country:"",prefix:"",rate:"",currency:"USDT",supplier:""});
   const [saving,setSaving]=useState(false);
 
   useEffect(()=>{
@@ -6410,11 +6369,8 @@ function TestNumbersPage({token}){
                 <input type="number" step="0.001" style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
                   value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
-                <select style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none"}}
-                  value={newTest.currency} onChange={e=>setNewTest({...newTest,currency:e.target.value})}>
-                  <option value="EUR">EUR €</option>
-                  <option value="USD">USD $</option>
-                </select></div>
+                <div style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,
+                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>USDT</div></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier</div>
                 <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
                   value={newTest.supplier} onChange={e=>setNewTest({...newTest,supplier:e.target.value})} placeholder="e.g. WTP"/></div>
@@ -6438,7 +6394,7 @@ function TestNumbersPage({token}){
                 if(d.success){
                   setMsg("Added: "+newTest.number);
                   setShowAdd(false);
-                  setNewTest({number:"",country:"",prefix:"",rate:"",currency:"EUR",supplier:""});
+                  setNewTest({number:"",country:"",prefix:"",rate:"",currency:"USDT",supplier:""});
                   setTimeout(()=>setMsg(null),3000);
                 }
               }} disabled={saving}
@@ -6498,13 +6454,12 @@ function TestNumbersPage({token}){
                   </thead>
                   <tbody>
                     {filtered.map((r,i)=>{
-                      const sym=r.currency==="USD"?"$":"€";
                       const testNum=getTestNumber(r);
                       return(
                         <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
                           <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>{i+1}</td>
                           <td style={{padding:"6px 8px",fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",whiteSpace:"nowrap"}}>{r.prefix}</td>
-                          <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{parseFloat(r.rate||0).toFixed(3)} {sym}</td>
+                          <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtUSDT(r.rate,3)}</td>
                           <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",fontWeight:600,whiteSpace:"nowrap"}}>{r.supplier_name||"—"}</td>
                           <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
                             <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginRight:6}}>{testNum}</span>

@@ -434,7 +434,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'country_code'  => $r->country_code??'XX',
             'tariff'        => $r->tariff??0.07,
             'selling_price' => $r->selling_price??$r->tariff??0.07,
-            'currency'      => $r->currency??'EUR',
+            'currency'      => $r->currency??'USDT',
             'payment_terms' => $r->payment_terms??'Weekly',
             'status'        => 'active',
             'ivr_context'   => 'custom/6g-premium-telecom',
@@ -466,7 +466,7 @@ Route::middleware('auth:sanctum')->group(function() {
                     'country_name'  => $r->country_name??'Unknown',
                     'rate'          => $r->tariff??0.07,
                     'selling_price' => $r->tariff??0.07,
-                    'currency'      => $r->currency??'EUR',
+                    'currency'      => $r->currency??'USDT',
                     'payment_terms' => 'Weekly',
                     'total_count'   => 1,
                     'supplier_name' => $trunk->nickname??$trunk->name??'',
@@ -506,7 +506,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'range_end'    => $end,
             'rate'         => $r->tariff ?? 0.063,
             'selling_price'=> $r->selling_price ?? 0.07,
-            'currency'     => $r->currency ?? 'EUR',
+            'currency'     => $r->currency ?? 'USDT',
             'payment_terms'=> 'Daily',
             'supplier_name'=> $r->supplier,
             'default_ivr'  => $r->default_ivr ?? 'custom/6g-premium-telecom',
@@ -1644,7 +1644,7 @@ Route::post('/v1/did-ranges/import-range', function(Request $r) {
         'range_end'     => $end,
         'rate'          => $r->tariff ?? 0.063,
         'selling_price' => $r->selling_price ?? 0.07,
-        'currency'      => $r->currency ?? 'EUR',
+        'currency'      => $r->currency ?? 'USDT',
         'payment_terms' => $r->payment_terms ?? 'Weekly',
         'supplier_name' => $r->supplier ?? (DB::table('trunks')->where('id',$r->trunk_id)->value('nickname') ?? ''),
         'trunk_id'      => $r->trunk_id ?? 1,
@@ -1668,7 +1668,7 @@ Route::post('/v1/did-ranges/import-range', function(Request $r) {
             'prefix'           => $prefix,
             'tariff'           => $r->tariff ?? 0.063,
             'selling_price'    => $r->selling_price ?? 0.07,
-            'currency'         => $r->currency ?? 'EUR',
+            'currency'         => $r->currency ?? 'USDT',
             'payment_terms'    => $r->payment_terms ?? 'Weekly',
             'lifecycle_status' => 'available',
             'status'           => 'active',
@@ -1712,7 +1712,7 @@ Route::post('/v1/dids/add', function(Request $r) {
         'prefix'          => $r->prefix,
         'tariff'          => $r->tariff ?? 0.063,
         'selling_price'   => $r->selling_price ?? 0.07,
-        'currency'        => $r->currency ?? 'EUR',
+        'currency'        => $r->currency ?? 'USDT',
         'payment_terms'   => $r->payment_terms ?? 'Weekly',
         'lifecycle_status'=> 'available',
         'status'          => 'active',
@@ -1817,7 +1817,7 @@ Route::post('/v1/invoices/generate-weekly', function() {
             'total_calls'    => $eur->calls??0,
             'total_minutes'  => round($eur->minutes??0,4),
             'total_amount'   => round($eur->revenue??0,6),
-            'currency'       => $r->currency ?? 'EUR',
+            'currency'       => $r->currency ?? 'USDT',
             'status'         => 'unpaid',
             'invoice_type'   => 'weekly',
             'created_at'     => now(),
@@ -2624,7 +2624,7 @@ Route::post('/v1/invoices/generate-weekly-supplier', function() {
             'total_calls'    => $calls,
             'total_minutes'  => round($minutes,2),
             'total_amount'   => round($total,4),
-            'currency'       => $r->currency ?? 'EUR',
+            'currency'       => $r->currency ?? 'USDT',
             'status'         => 'unpaid',
             'invoice_type'   => 'supplier-weekly',
             'due_date'       => now()->addDays(7),
@@ -2674,7 +2674,7 @@ Route::post('/v1/dids/bulk-upload', function(Request $r) {
     $imported=0; $skipped=0; $errors=[];
     $trunkId = $r->trunk_id ?? null;
     $rate = $r->rate ?? 0.07;
-    $currency = $r->currency ?? 'EUR';
+    $currency = $r->currency ?? 'USDT';
 
     foreach($lines as $i=>$line){
         if($i===0 && stripos($line,'number')!==false) continue; // skip header
@@ -3073,7 +3073,7 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
             }
             // Store currency from CSV
             if($currencyCol!==null){
-                $csvCurrencies[$num] = trim(str_replace(['"',"'"],'',$cols[$currencyCol]??'EUR'));
+                $csvCurrencies[$num] = trim(str_replace(['"',"'"],'',$cols[$currencyCol]??'USDT'));
             }
             // Store prefix from CSV
             if($prefixCol!==null){
@@ -3121,7 +3121,7 @@ Route::post('/v1/dids/smart-sync', function(Request $r) {
             'country_code'  => $cc,
             'tariff'        => $csvRates[$num] ?? ($r->rate??0.07),
             'selling_price' => $csvRates[$num] ?? ($r->rate??0.07),
-            'currency'      => $csvCurrencies[$num] ?? ($r->currency??'EUR'),
+            'currency'      => $csvCurrencies[$num] ?? ($r->currency??'USDT'),
             'payment_terms' => 'Weekly',
             'status'        => 'active',
             'ivr_context'   => 'custom/6g-premium-telecom',
