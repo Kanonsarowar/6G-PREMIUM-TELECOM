@@ -113,8 +113,10 @@ function MobileDrawer({page,setPage,user,logout,onClose}){
           <div style={{height:1,background:"#F0F0F0",marginBottom:12}}/>
           {getNavGroups(user?.role).map(g=>(
             <div key={g.key} style={{marginBottom:8}}>
-              <div style={{fontSize:10,letterSpacing:"1.5px",color:"#AAAAAA",
-                textTransform:"uppercase",padding:"6px 8px 4px",fontWeight:700}}>{g.label}</div>
+              <div style={{fontSize:11,letterSpacing:"1.3px",color:"#5B4FCF",
+                background:"rgba(91,79,207,0.08)",textTransform:"uppercase",
+                padding:"10px 18px",margin:"0 -10px 8px",borderRadius:8,
+                fontWeight:800}}>{g.label}</div>
               {g.items.map(n=>{
                 const active=page===n.id;
                 return(
@@ -196,8 +198,10 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
         <div style={{height:1,background:"#F0F0F0",marginBottom:12}}/>
         {getNavGroups(user?.role).map(g=>(
           <div key={g.key} style={{marginBottom:8}}>
-            {open&&<div style={{fontSize:10,letterSpacing:"1.5px",color:"#AAAAAA",
-              textTransform:"uppercase",padding:"6px 8px 4px",fontWeight:700}}>{g.label}</div>}
+            {open&&<div style={{fontSize:11,letterSpacing:"1.3px",color:"#5B4FCF",
+              background:"rgba(91,79,207,0.08)",textTransform:"uppercase",
+              padding:"10px 18px",margin:"0 -10px 8px",borderRadius:8,
+              fontWeight:800}}>{g.label}</div>}
             {g.items.map(n=>{
               const active=page===n.id;
               return(
