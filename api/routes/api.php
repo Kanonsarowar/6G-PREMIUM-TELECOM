@@ -44,6 +44,55 @@ function redactSupplier($supplier) {
     return $arr;
 }
 
+// Supplier payable is calculated from the rate configured on the supplier's
+// own Number/Prefix/Range records (dids.tariff, did_ranges.rate) - never
+// from cdrs.revenue, which is customer-facing selling revenue. Individual
+// DIDs are matched exactly by number; anything only covered by a range
+// (no individual DID row) is matched by prefix. Split by currency since a
+// supplier's numbers can be priced in more than one currency.
+function computeSupplierPayable($supplierId, $from, $to) {
+    $exact = DB::table('cdrs')
+        ->join('dids', 'cdrs.did', '=', 'dids.number')
+        ->where('dids.supplier_id', $supplierId)
+        ->whereBetween('cdrs.call_start', [$from, $to])
+        ->select('cdrs.id', 'cdrs.billsec', 'dids.tariff as rate', 'dids.currency as currency')
+        ->get();
+
+    $matchedIds = $exact->pluck('id')->all();
+    $ranges = DB::table('did_ranges')->where('supplier_id', $supplierId)
+        ->whereNotNull('prefix')->where('prefix', '!=', '')->get();
+
+    $rangeMatches = collect();
+    if ($ranges->isNotEmpty()) {
+        $q = DB::table('cdrs')->whereBetween('call_start', [$from, $to]);
+        if (!empty($matchedIds)) $q->whereNotIn('id', $matchedIds);
+        foreach ($q->get(['id', 'did', 'billsec']) as $c) {
+            $digits = ltrim($c->did ?? '', '+');
+            foreach ($ranges as $rng) {
+                $prefix = preg_replace('/\s+/', '', $rng->prefix);
+                if ($prefix !== '' && str_starts_with($digits, $prefix)) {
+                    $rangeMatches->push((object)['id'=>$c->id,'billsec'=>$c->billsec,'rate'=>$rng->rate,'currency'=>$rng->currency]);
+                    break;
+                }
+            }
+        }
+    }
+
+    $out = [];
+    foreach ($exact->concat($rangeMatches)->groupBy('currency') as $currency => $rows) {
+        $minutes = $rows->sum('billsec') / 60;
+        $amount  = $rows->sum(fn($r) => ($r->billsec / 60) * (float)$r->rate);
+        $out[] = [
+            'currency' => $currency,
+            'calls'    => $rows->count(),
+            'minutes'  => round($minutes, 2),
+            'amount'   => round($amount, 4),
+            'rate'     => $minutes > 0 ? round($amount / $minutes, 6) : 0,
+        ];
+    }
+    return $out;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────
 Route::post('/v1/auth/login', function(Request $request) {
     $user = User::where('email', $request->email)
@@ -613,6 +662,134 @@ Route::middleware('auth:sanctum')->group(function() {
         ]);
         if ($r->notes) DB::table('dids')->where('id',$id2)->update(['route'=>$r->notes]);
         return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id2)],201);
+    });
+
+    // ── Supplier Payments (reuses invoices table, invoice_type='supplier_payment') ──
+    // Rate always comes from the supplier's Number/Prefix/Range records
+    // (see computeSupplierPayable above), never from customer revenue.
+    // Existing 'weekly'/'weekly_supplier' invoice types and their cron jobs
+    // are untouched - this is an additive, distinct invoice_type.
+    Route::get('/v1/supplier-payments/pending', function() {
+        $suppliers = DB::table('suppliers')->where('status','active')->get();
+        $buckets = ['Daily'=>[], 'Weekly'=>[], 'Monthly'=>[], 'Other'=>[]];
+
+        foreach ($suppliers as $s) {
+            // paid_at (full timestamp) is used as the boundary, not period_end
+            // (a DATE column) - using a date-only boundary would round back to
+            // midnight and re-include CDRs from earlier the same day that were
+            // already paid.
+            $lastPaid = DB::table('invoices')
+                ->where('supplier_id', $s->id)->where('invoice_type','supplier_payment')->where('status','paid')
+                ->max('paid_at');
+            $from = $lastPaid ? \Carbon\Carbon::parse($lastPaid)->addSecond() : \Carbon\Carbon::parse($s->created_at);
+            $to = now();
+            if ($from->gte($to)) continue;
+
+            foreach (computeSupplierPayable($s->id, $from, $to) as $row) {
+                if ($row['calls'] <= 0) continue;
+                $bucket = in_array($s->payment_terms, ['Daily','Weekly','Monthly']) ? $s->payment_terms : 'Other';
+                $days = 0;
+                if ($s->settlement_period && preg_match('/(\d+)/', $s->settlement_period, $m)) $days = (int)$m[1];
+                $buckets[$bucket][] = [
+                    'supplier_id'   => $s->id,
+                    'supplier_name' => $s->name,
+                    'period_start'  => $from->toDateString(),
+                    'period_end'    => $to->toDateString(),
+                    'calls'         => $row['calls'],
+                    'minutes'       => $row['minutes'],
+                    'amount'        => $row['amount'],
+                    'currency'      => $row['currency'],
+                    'rate'          => $row['rate'],
+                    'due_date'      => $to->copy()->addDays($days)->toDateString(),
+                    'payment_terms' => $s->payment_terms,
+                ];
+            }
+        }
+        return response()->json(['data'=>$buckets]);
+    });
+
+    Route::post('/v1/supplier-payments/mark-paid', function(Request $r) {
+        $supplier = DB::table('suppliers')->find($r->supplier_id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$r->period_start || !$r->period_end || !$r->currency) return response()->json(['error'=>'period_start, period_end and currency are required'],422);
+        if (!$r->payment_method_id || !DB::table('payment_methods')->where('id',$r->payment_method_id)->exists())
+            return response()->json(['error'=>'A valid payment method is required'],422);
+
+        // Recompute authoritatively server-side rather than trusting client totals.
+        $from = \Carbon\Carbon::parse($r->period_start)->startOfDay();
+        $to   = \Carbon\Carbon::parse($r->period_end)->endOfDay();
+        $rows = collect(computeSupplierPayable($supplier->id, $from, $to))->firstWhere('currency', $r->currency);
+        if (!$rows || $rows['calls'] <= 0) return response()->json(['error'=>'No pending payable amount found for this period/currency'],422);
+
+        $invNum = 'SPAY-'.now()->format('YmdHis').'-'.$supplier->id.'-'.$r->currency;
+        $id = DB::table('invoices')->insertGetId([
+            'invoice_number'    => $invNum,
+            'supplier_id'       => $supplier->id,
+            'supplier_name'     => $supplier->name,
+            'period_start'      => $from->toDateString(),
+            'period_end'        => $to->toDateString(),
+            'total_calls'       => $rows['calls'],
+            'total_minutes'     => $rows['minutes'],
+            'total_amount'      => $rows['amount'],
+            'currency'          => $rows['currency'],
+            'rate'              => $rows['rate'],
+            'status'            => 'paid',
+            'invoice_type'      => 'supplier_payment',
+            'payment_method_id' => $r->payment_method_id,
+            'paid_at'           => $r->paid_at ? \Carbon\Carbon::parse($r->paid_at) : now(),
+            'reference'         => $r->reference,
+            'notes'             => $r->notes,
+            'created_at'        => now(),
+            'updated_at'        => now(),
+        ]);
+
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'MARK_PAID',
+            'module'=>'Supplier Payments','details'=>"Paid {$rows['amount']} {$rows['currency']} to {$supplier->name} for {$from->toDateString()}–{$to->toDateString()}",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>'/api/v1/supplier-payments/mark-paid',
+            'status_code'=>201,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+
+        return response()->json(['success'=>true,'data'=>DB::table('invoices')->find($id)],201);
+    });
+
+    Route::get('/v1/supplier-payments/history', function(Request $r) {
+        $q = DB::table('invoices')
+            ->leftJoin('payment_methods','invoices.payment_method_id','=','payment_methods.id')
+            ->where('invoice_type','supplier_payment')->where('invoices.status','paid')
+            ->select('invoices.*','payment_methods.name as payment_method_name');
+        if ($r->supplier_id) $q->where('invoices.supplier_id', $r->supplier_id);
+        if ($r->payment_method_id) $q->where('invoices.payment_method_id', $r->payment_method_id);
+        if ($r->currency) $q->where('invoices.currency', $r->currency);
+        if ($r->date_from) $q->whereDate('invoices.paid_at', '>=', $r->date_from);
+        if ($r->date_to) $q->whereDate('invoices.paid_at', '<=', $r->date_to);
+        $data = $q->orderByDesc('invoices.paid_at')->get();
+        return response()->json(['data'=>$data]);
+    });
+
+    // ── Payment Methods ──────────────────────────────────────────
+    Route::get('/v1/payment-methods', function() {
+        return response()->json(['data'=>DB::table('payment_methods')->orderBy('name')->get()]);
+    });
+    Route::post('/v1/payment-methods', function(Request $r) {
+        if (!$r->name) return response()->json(['error'=>'Name is required'],422);
+        $id = DB::table('payment_methods')->insertGetId([
+            'name'=>$r->name,'enabled'=>$r->enabled ?? true,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('payment_methods')->find($id)],201);
+    });
+    Route::put('/v1/payment-methods/{id}', function(Request $r, $id) {
+        if (!DB::table('payment_methods')->where('id',$id)->exists()) return response()->json(['error'=>'Not found'],404);
+        DB::table('payment_methods')->where('id',$id)->update([
+            'name'=>$r->name, 'enabled'=>$r->enabled ?? true, 'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('payment_methods')->find($id)]);
+    });
+    Route::delete('/v1/payment-methods/{id}', function($id) {
+        if (DB::table('invoices')->where('payment_method_id',$id)->exists())
+            return response()->json(['error'=>'Method is used by existing payment history and cannot be deleted — disable it instead'],409);
+        DB::table('payment_methods')->where('id',$id)->delete();
+        return response()->json(['success'=>true]);
     });
 
     // ── IVR ───────────────────────────────────────────────────

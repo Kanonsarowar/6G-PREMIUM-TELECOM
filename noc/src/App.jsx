@@ -42,6 +42,7 @@ const getNavGroups=(role)=>{
   ]},
   {key:"partners",label:"Partners",items:[
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
+    ...(isSuperAdmin?[{id:"supplierpayments",label:"Supplier Payments",icon:"💰"}]:[]),
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"customers",label:"Customers",icon:"◷"},
   ]},
@@ -1619,7 +1620,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [ivrs,setIvrs]=useState([]);
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
-  const [payForm,setPayForm]=useState({tariff:supplier.tariff||"",currency:supplier.currency||"EUR",
+  const [payForm,setPayForm]=useState({
     payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
     payment_status:supplier.payment_status||"",notes:supplier.notes||""});
   const [apiForm,setApiForm]=useState({api_enabled:!!supplier.api_enabled,api_type:supplier.api_type||"",
@@ -1936,13 +1937,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         {tab==="payment"&&(
           <div style={{...cardS,padding:16,maxWidth:520}}>
             <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Payment / Commercial Terms</div>
-            <div style={{fontSize:11,color:"#999",marginBottom:14}}>Supplier-specific terms only — does not affect customer/reseller billing or historical revenue.</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:4}}>Supplier-specific terms only — does not affect customer/reseller billing or historical revenue.</div>
+            <div style={{fontSize:11,color:"#F5A623",marginBottom:14,fontWeight:600}}>
+              ⚠ The payable rate is configured per number/prefix/range on the Numbers / Ranges tab, not here.</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div><div style={lblS}>Tariff / min</div>
-                <input type="number" step="0.001" style={inpS} value={payForm.tariff} onChange={e=>setPayForm({...payForm,tariff:e.target.value})} placeholder="0.420"/></div>
-              <div><div style={lblS}>Currency</div>
-                <select style={inpS} value={payForm.currency} onChange={e=>setPayForm({...payForm,currency:e.target.value})}>
-                  <option value="EUR">EUR €</option><option value="USD">USD $</option></select></div>
               <div><div style={lblS}>Payment Terms</div>
                 <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
                   <option value="">— Select —</option>
@@ -1960,9 +1958,14 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               <div style={lblS}>Notes</div>
               <textarea style={{...inpS,minHeight:60,resize:"vertical"}} value={payForm.notes} onChange={e=>setPayForm({...payForm,notes:e.target.value})}/>
             </div>
-            <button onClick={savePayment} disabled={saving}
-              style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-              {saving?"Saving...":"✅ Save Payment Details"}</button>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={savePayment} disabled={saving}
+                style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Save Payment Details"}</button>
+              <button onClick={()=>setPage&&setPage("supplierpayments")}
+                style={{padding:"10px 16px",borderRadius:8,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                  color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>View Pending / History →</button>
+            </div>
           </div>
         )}
 
@@ -2015,6 +2018,256 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Supplier Payments (Pending / History / Payment Methods) ─────────
+// Amounts here are always the supplier PAYABLE, computed server-side from
+// the rate configured on each supplier's Number/Prefix/Range records —
+// never the customer selling rate/revenue. This page never edits that
+// rate; it only manages settlement of what's already been calculated.
+function SupplierPaymentsPage({token,user}){
+  const [tab,setTab]=useState("pending");
+  const [pending,setPending]=useState({Daily:[],Weekly:[],Monthly:[],Other:[]});
+  const [history,setHistory]=useState([]);
+  const [methods,setMethods]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [msg,setMsg]=useState(null);
+  const [payModal,setPayModal]=useState(null);
+  const [payForm,setPayForm]=useState({payment_method_id:"",paid_at:"",reference:"",notes:""});
+  const [saving,setSaving]=useState(false);
+  const [histFilter,setHistFilter]=useState({supplier_id:"",payment_method_id:"",currency:"",date_from:"",date_to:""});
+  const [showAddMethod,setShowAddMethod]=useState(false);
+  const [newMethod,setNewMethod]=useState("");
+
+  const loadPending=()=>apiFetch("/supplier-payments/pending",token).then(d=>setPending(d.data||{Daily:[],Weekly:[],Monthly:[],Other:[]}));
+  const loadHistory=()=>{
+    const params=new URLSearchParams();
+    Object.entries(histFilter).forEach(([k,v])=>{if(v)params.set(k,v);});
+    apiFetch("/supplier-payments/history?"+params.toString(),token).then(d=>setHistory(d.data||[]));
+  };
+  const loadMethods=()=>apiFetch("/payment-methods",token).then(d=>setMethods(d.data||[]));
+  const loadSuppliers=()=>apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));
+
+  useEffect(()=>{setLoading(true);Promise.all([loadPending(),loadMethods(),loadSuppliers()]).then(()=>setLoading(false));},[token]);
+  useEffect(()=>{if(tab==="history")loadHistory();},[tab]);
+
+  const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
+
+  const openPay=(row)=>{
+    setPayModal(row);
+    setPayForm({payment_method_id:"",paid_at:new Date().toISOString().slice(0,10),reference:"",notes:""});
+  };
+
+  const markPaid=async()=>{
+    if(!payForm.payment_method_id){alert("Select a payment method");return;}
+    setSaving(true);
+    const d=await apiFetch("/supplier-payments/mark-paid",token,{method:"POST",body:JSON.stringify({
+      supplier_id:payModal.supplier_id,period_start:payModal.period_start,period_end:payModal.period_end,
+      currency:payModal.currency,...payForm,
+    })});
+    setSaving(false);
+    if(d.success){
+      flash("Marked paid: "+payModal.supplier_name);
+      setPayModal(null); loadPending(); if(tab==="history") loadHistory();
+    } else alert(d.error||"Failed to mark paid");
+  };
+
+  const toggleMethod=async(m)=>{await apiFetch("/payment-methods/"+m.id,token,{method:"PUT",body:JSON.stringify({name:m.name,enabled:!m.enabled})});loadMethods();};
+  const addMethod=async()=>{
+    if(!newMethod.trim())return;
+    const d=await apiFetch("/payment-methods",token,{method:"POST",body:JSON.stringify({name:newMethod.trim()})});
+    if(d.success){setNewMethod("");setShowAddMethod(false);loadMethods();} else alert(d.error||"Failed to add");
+  };
+  const delMethod=async(m)=>{
+    if(!window.confirm(`Delete "${m.name}"?`))return;
+    const d=await apiFetch("/payment-methods/"+m.id,token,{method:"DELETE"});
+    if(d.success) loadMethods(); else alert(d.error||"Failed to delete");
+  };
+
+  const TABS=[["pending","Pending"],["history","History"],["methods","Payment Methods"]];
+  const BUCKET_ORDER=["Daily","Weekly","Monthly","Other"];
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700}}>💰 Supplier Payments</div>
+      </div>
+      <div style={{padding:"0 16px",background:"#FFF",borderBottom:"1px solid #E0E0E0",display:"flex",gap:4}}>
+        {TABS.map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)}
+            style={{padding:"12px 14px",border:"none",background:"transparent",cursor:"pointer",
+              fontSize:12,fontWeight:700,color:tab===id?"#2CADA6":"#888",
+              borderBottom:tab===id?"2px solid #2CADA6":"2px solid transparent"}}>{label}</button>
+        ))}
+      </div>
+      <div style={{padding:"12px 16px"}}>
+        {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
+
+        {tab==="pending"&&(loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>:
+          BUCKET_ORDER.map(bucket=>{
+            const rows=pending[bucket]||[];
+            return(
+              <div key={bucket} style={{...cardS,overflow:"hidden",marginBottom:14}}>
+                <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between"}}>
+                  <span>{bucket}</span><span style={{color:"#999"}}>{rows.length} pending</span>
+                </div>
+                {rows.length===0?<div style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Nothing pending</div>:
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
+                    <thead><tr>{["Supplier","Period","Calls","Minutes","Amount","Currency","Due Date","Status","Action"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {rows.map((r,i)=>{
+                        const overdue=new Date(r.due_date)<new Date(new Date().toDateString());
+                        return(
+                        <tr key={r.supplier_id+r.currency+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{r.supplier_name}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.period_start} → {r.period_end}</td>
+                          <td style={{padding:"8px 10px",fontSize:12}}>{r.calls}</td>
+                          <td style={{padding:"8px 10px",fontSize:12}}>{r.minutes}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{r.amount.toFixed(4)}</td>
+                          <td style={{padding:"8px 10px",fontSize:11}}>{r.currency}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:overdue?"#EF4444":"#555",fontWeight:overdue?700:400}}>{r.due_date}</td>
+                          <td style={{padding:"8px 10px"}}>
+                            <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                              background:overdue?"rgba(239,68,68,0.1)":"rgba(245,166,35,0.12)",
+                              color:overdue?"#EF4444":"#F5A623"}}>{overdue?"OVERDUE":"PENDING"}</span></td>
+                          <td style={{padding:"8px 10px"}}>
+                            <button onClick={()=>openPay(r)}
+                              style={{padding:"5px 14px",borderRadius:6,border:"none",background:"#2CADA6",
+                                color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>PAY</button></td>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                </div>}
+              </div>
+            );
+          })
+        )}
+
+        {tab==="history"&&(
+          <div>
+            <div style={{...cardS,padding:12,marginBottom:12,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+              <div><div style={lblS}>Supplier</div>
+                <select style={{...inpS,width:160}} value={histFilter.supplier_id} onChange={e=>setHistFilter({...histFilter,supplier_id:e.target.value})}>
+                  <option value="">All</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select></div>
+              <div><div style={lblS}>Method</div>
+                <select style={{...inpS,width:140}} value={histFilter.payment_method_id} onChange={e=>setHistFilter({...histFilter,payment_method_id:e.target.value})}>
+                  <option value="">All</option>{methods.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                </select></div>
+              <div><div style={lblS}>Currency</div>
+                <select style={{...inpS,width:100}} value={histFilter.currency} onChange={e=>setHistFilter({...histFilter,currency:e.target.value})}>
+                  <option value="">All</option><option value="EUR">EUR</option><option value="USD">USD</option>
+                </select></div>
+              <div><div style={lblS}>From</div>
+                <input type="date" style={{...inpS,width:140}} value={histFilter.date_from} onChange={e=>setHistFilter({...histFilter,date_from:e.target.value})}/></div>
+              <div><div style={lblS}>To</div>
+                <input type="date" style={{...inpS,width:140}} value={histFilter.date_to} onChange={e=>setHistFilter({...histFilter,date_to:e.target.value})}/></div>
+              <button onClick={loadHistory} style={{padding:"9px 16px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>Filter</button>
+            </div>
+            <div style={{...cardS,overflow:"hidden"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:1000}}>
+                  <thead><tr>{["Paid Date","Supplier","Period","Calls","Minutes","Rate","Amount","Currency","Method","Reference","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {history.length===0?<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
+                    history.map((h,i)=>(
+                      <tr key={h.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:11}}>{(h.paid_at||"").slice(0,10)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{h.supplier_name}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
+                        <td style={{padding:"8px 10px",fontSize:12}}>{h.total_calls}</td>
+                        <td style={{padding:"8px 10px",fontSize:12}}>{h.total_minutes}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{parseFloat(h.rate||0).toFixed(6)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{parseFloat(h.total_amount||0).toFixed(4)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11}}>{h.currency}</td>
+                        <td style={{padding:"8px 10px",fontSize:11}}>{h.payment_method_name||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{h.reference||"—"}</td>
+                        <td style={{padding:"8px 10px"}}>
+                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(16,185,129,0.1)",color:"#10B981"}}>PAID</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="methods"&&(
+          <div style={{...cardS,padding:16,maxWidth:520}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:700}}>Payment Methods</div>
+              <button onClick={()=>setShowAddMethod(!showAddMethod)}
+                style={{padding:"6px 14px",borderRadius:16,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                {showAddMethod?"✕ Close":"+ Add Method"}</button>
+            </div>
+            {showAddMethod&&(
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
+                <input style={inpS} value={newMethod} onChange={e=>setNewMethod(e.target.value)} placeholder="e.g. Payoneer"/>
+                <button onClick={addMethod} style={{padding:"9px 16px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Add</button>
+              </div>
+            )}
+            {methods.map(m=>(
+              <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #F5F5F5"}}>
+                <span style={{fontSize:13,fontWeight:600,color:m.enabled?"#1A1A1A":"#AAA"}}>{m.name}</span>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>toggleMethod(m)}
+                    style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(m.enabled?"#F5A623":"#10B981"),
+                      background:m.enabled?"rgba(245,166,35,0.1)":"rgba(16,185,129,0.1)",
+                      color:m.enabled?"#F5A623":"#10B981",fontSize:10,fontWeight:700,cursor:"pointer"}}>{m.enabled?"Disable":"Enable"}</button>
+                  <button onClick={()=>delMethod(m)}
+                    style={{padding:"4px 10px",borderRadius:6,border:"1px solid #EF4444",background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {payModal&&(
+        <div onClick={()=>setPayModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Mark as Paid</div>
+            {[["Supplier",payModal.supplier_name],["Settlement Period",payModal.period_start+" → "+payModal.period_end],
+              ["Amount",payModal.amount.toFixed(4)+" "+payModal.currency]].map(([k,v])=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
+                <span style={{color:"#888",fontWeight:600}}>{k}</span><span style={{fontWeight:700}}>{v}</span>
+              </div>
+            ))}
+            <div style={{marginTop:14,marginBottom:10}}>
+              <div style={lblS}>Payment Method *</div>
+              <select style={inpS} value={payForm.payment_method_id} onChange={e=>setPayForm({...payForm,payment_method_id:e.target.value})}>
+                <option value="">— Select —</option>
+                {methods.filter(m=>m.enabled).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+            <div style={{marginBottom:10}}>
+              <div style={lblS}>Payment Date</div>
+              <input type="date" style={inpS} value={payForm.paid_at} onChange={e=>setPayForm({...payForm,paid_at:e.target.value})}/>
+            </div>
+            <div style={{marginBottom:10}}>
+              <div style={lblS}>Reference / Transaction ID (optional)</div>
+              <input style={inpS} value={payForm.reference} onChange={e=>setPayForm({...payForm,reference:e.target.value})} placeholder="TX123"/>
+            </div>
+            <div style={{marginBottom:16}}>
+              <div style={lblS}>Notes (optional)</div>
+              <textarea style={{...inpS,minHeight:50,resize:"vertical"}} value={payForm.notes} onChange={e=>setPayForm({...payForm,notes:e.target.value})}/>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={markPaid} disabled={saving}
+                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#10B981",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ MARK AS PAID"}</button>
+              <button onClick={()=>setPayModal(null)}
+                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -6014,6 +6267,7 @@ export default function App(){
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
       case "customers":    return <CustomersPage token={token}/>;
       case "suppliers":    return <SupplierAccountsPage token={token} user={user} setPage={setPage}/>;
+      case "supplierpayments": return <SupplierPaymentsPage token={token} user={user}/>;
       case "resellers":     return <ResellerPortalPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "testnumbers":   return <TestNumbersPage token={token}/>;
