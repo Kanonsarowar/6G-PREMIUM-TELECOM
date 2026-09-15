@@ -2073,9 +2073,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                       </tr>
                       {isExp&&g.items.map((n,i)=>(
                         <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#EFFFFE":"#F5FFFE"}}>
-                          <td style={{padding:"6px 10px 6px 26px",fontSize:11,color:"#AAA"}}>└</td>
-                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
-                          <td colSpan={2} style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{fmtUSDT(n.tariff)}</td>
+                          <td style={{padding:"6px 10px"}}></td>
+                          <td style={{padding:"6px 10px"}}></td>
+                          <td style={{padding:"6px 10px 6px 26px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>└ {n.number}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
                           <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
                           <td style={{padding:"6px 10px",textAlign:"center"}}>
                             <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
