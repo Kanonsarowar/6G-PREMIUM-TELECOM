@@ -32,6 +32,18 @@ function redactTrunk($trunk) {
     return $arr;
 }
 
+// Supplier business accounts are distinct from trunks (SIP/PJSIP technical
+// config). Same secret-redaction pattern as redactTrunk(): the raw
+// api_secret is never returned here, only a has_api_secret flag - the
+// actual value is only obtainable via the superadmin-only /reveal endpoint.
+function redactSupplier($supplier) {
+    if (!$supplier) return $supplier;
+    $arr = (array) $supplier;
+    $arr['has_api_secret'] = !empty($arr['api_secret']);
+    unset($arr['api_secret']);
+    return $arr;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────
 Route::post('/v1/auth/login', function(Request $request) {
     $user = User::where('email', $request->email)
@@ -378,6 +390,229 @@ Route::middleware('auth:sanctum')->group(function() {
         }
 
         return response()->json(['field'=>$field,'value'=>$value]);
+    });
+
+    // ── Supplier Accounts (business entity — NOT SIP trunk config) ──
+    // Supplier is the master business record: name, contact, country,
+    // commercial terms, optional external API. A trunk may reference a
+    // supplier via trunks.supplier_id, but trunk/PJSIP config is managed
+    // exclusively under Asterisk Configuration -> Trunks, never here.
+    Route::get('/v1/supplier-accounts', function() {
+        $suppliers = DB::table('suppliers')->orderBy('name')->get();
+        $numberCounts = DB::table('dids')->where('is_test',0)->whereNotNull('supplier_id')
+            ->select('supplier_id', DB::raw('COUNT(*) as c'))->groupBy('supplier_id')->pluck('c','supplier_id');
+        $rangeCounts = DB::table('did_ranges')->whereNotNull('supplier_id')
+            ->select('supplier_id', DB::raw('COALESCE(SUM(total_count),0) as c'))->groupBy('supplier_id')->pluck('c','supplier_id');
+        $testCounts = DB::table('dids')->where('is_test',1)->whereNotNull('supplier_id')
+            ->select('supplier_id', DB::raw('COUNT(*) as c'))->groupBy('supplier_id')->pluck('c','supplier_id');
+        $trunkLinks = DB::table('trunks')->whereNotNull('supplier_id')->get()->keyBy('supplier_id');
+
+        $out = $suppliers->map(function($s) use ($numberCounts,$rangeCounts,$testCounts,$trunkLinks) {
+            $sid = $s->id;
+            $didNumbers = DB::table('dids')->where('supplier_id',$sid)->where('is_test',0)->pluck('number');
+            $cdr = $didNumbers->isEmpty() ? null : DB::table('cdrs')->whereIn('did',$didNumbers)
+                ->selectRaw('COUNT(*) as calls, COALESCE(SUM(billsec),0)/60 as minutes, COALESCE(SUM(revenue),0) as revenue')
+                ->first();
+            $s = redactSupplier($s);
+            $s['number_count']      = ($numberCounts[$sid] ?? 0) + ($rangeCounts[$sid] ?? 0);
+            $s['test_number_count'] = $testCounts[$sid] ?? 0;
+            $s['calls']             = $cdr->calls ?? 0;
+            $s['minutes']           = round($cdr->minutes ?? 0, 2);
+            $s['revenue']           = round($cdr->revenue ?? 0, 4);
+            $trunk = $trunkLinks[$sid] ?? null;
+            $s['linked_trunk']      = $trunk ? ['id'=>$trunk->id,'nickname'=>$trunk->nickname ?? $trunk->name] : null;
+            return $s;
+        })->values();
+        return response()->json(['data'=>$out]);
+    });
+
+    Route::post('/v1/supplier-accounts', function(Request $r) {
+        if (!$r->name) return response()->json(['error'=>'Supplier name is required'],422);
+        $id = DB::table('suppliers')->insertGetId([
+            'name'         => $r->name,
+            'code'         => $r->code,
+            'country'      => $r->country,
+            'contact_name' => $r->contact_name,
+            'email'        => $r->email,
+            'phone'        => $r->phone,
+            'status'       => $r->status ?? 'active',
+            'notes'        => $r->notes,
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'CREATE',
+            'module'=>'Suppliers','details'=>"Created supplier #{$id} ({$r->name})",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>'/api/v1/supplier-accounts',
+            'status_code'=>201,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>redactSupplier(DB::table('suppliers')->find($id))],201);
+    });
+
+    Route::get('/v1/supplier-accounts/{id}', function($id) {
+        $s = DB::table('suppliers')->find($id);
+        if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
+        $s = redactSupplier($s);
+        $s['linked_trunk'] = $trunk ? ['id'=>$trunk->id,'nickname'=>$trunk->nickname ?? $trunk->name] : null;
+        return response()->json(['data'=>$s]);
+    });
+
+    Route::put('/v1/supplier-accounts/{id}', function(Request $r, $id) {
+        $s = DB::table('suppliers')->find($id);
+        if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        $data = $r->only([
+            'name','code','country','contact_name','email','phone','status','notes',
+            'tariff','currency','payment_terms','settlement_period','payment_status',
+            'api_enabled','api_type','api_endpoint','api_auth_method',
+        ]);
+        if ($r->filled('api_secret')) $data['api_secret'] = $r->api_secret;
+        $data['updated_at'] = now();
+        DB::table('suppliers')->where('id',$id)->update($data);
+        return response()->json(['success'=>true,'data'=>redactSupplier(DB::table('suppliers')->find($id))]);
+    });
+
+    Route::delete('/v1/supplier-accounts/{id}', function(Request $r, $id) {
+        if ($r->user()->role !== 'superadmin') {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
+        DB::table('suppliers')->where('id',$id)->delete();
+        return response()->json(['success'=>true]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/reveal', function(Request $r, $id) {
+        if ($r->user()->role !== 'superadmin') {
+            return response()->json(['error'=>'Unauthorized'],403);
+        }
+        $s = DB::table('suppliers')->find($id);
+        if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'REVEAL_SECRET',
+            'module'=>'Suppliers','details'=>"Revealed api_secret for supplier #{$id} ({$s->name})",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>"/api/v1/supplier-accounts/{$id}/reveal",
+            'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['field'=>'api_secret','value'=>$s->api_secret]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/api-test', function(Request $r, $id) {
+        $s = DB::table('suppliers')->find($id);
+        if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$s->api_enabled || !$s->api_endpoint) return response()->json(['error'=>'API not configured'],400);
+        $ok = false; $code = null;
+        try {
+            $ch = curl_init($s->api_endpoint);
+            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>8, CURLOPT_NOBODY=>true, CURLOPT_SSL_VERIFYPEER=>true]);
+            curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            $ok = $code > 0 && $code < 500;
+        } catch (\Throwable $e) { $ok = false; }
+        DB::table('suppliers')->where('id',$id)->update([
+            'api_last_sync'   => now(),
+            'api_last_status' => $ok ? 'connected' : 'failed',
+            'updated_at'      => now(),
+        ]);
+        return response()->json(['success'=>$ok,'status'=>$ok?'connected':'failed','http_code'=>$code]);
+    });
+
+    // Numbers/ranges are the supplier's production inventory (existing
+    // dids/did_ranges tables, filtered by supplier_id). Test numbers use
+    // the same dids table with is_test=1 so they can never mix with
+    // production numbers.
+    Route::get('/v1/supplier-accounts/{id}/numbers', function($id) {
+        $numbers = DB::table('dids')->where('supplier_id',$id)->where('is_test',0)->orderByDesc('created_at')->get();
+        $ranges  = DB::table('did_ranges')->where('supplier_id',$id)->orderByDesc('created_at')->get();
+        return response()->json(['data'=>['numbers'=>$numbers,'ranges'=>$ranges]]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/numbers', function(Request $r, $id) {
+        $supplier = DB::table('suppliers')->find($id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+
+        if ($r->mode === 'range') {
+            if (!$r->range_start || !$r->range_end) return response()->json(['error'=>'range_start and range_end are required'],422);
+            $start = preg_replace('/[^0-9]/','',$r->range_start);
+            $end   = preg_replace('/[^0-9]/','',$r->range_end);
+            $count = (int)$end - (int)$start + 1;
+            if ($count < 1) return response()->json(['error'=>'range_end must be >= range_start'],422);
+            $rangeId = DB::table('did_ranges')->insertGetId([
+                'batch_name'    => $r->batch_name ?? (($r->country_name??'Unknown').' '.($r->prefix ?? substr($start,0,-4))),
+                'country_code'  => $r->country_code,
+                'country_name'  => $r->country_name,
+                'prefix'        => $r->prefix ?? substr($start,0,-4),
+                'range_start'   => $start,
+                'range_end'     => $end,
+                'rate'          => $r->tariff ?? $supplier->tariff ?? 0,
+                'selling_price' => $r->selling_price ?? $r->tariff ?? 0,
+                'currency'      => $r->currency ?? $supplier->currency ?? 'EUR',
+                'payment_terms' => $r->payment_terms ?? $supplier->payment_terms ?? 'Weekly',
+                'supplier_name' => $supplier->name,
+                'supplier_id'   => $id,
+                'default_ivr'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
+                'total_count'   => $count,
+                'is_active'     => 1,
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ]);
+            return response()->json(['success'=>true,'data'=>DB::table('did_ranges')->find($rangeId)],201);
+        }
+
+        // Single number
+        if (!$r->number) return response()->json(['error'=>'number is required'],422);
+        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
+        if (DB::table('dids')->where('number',$num)->exists())
+            return response()->json(['error'=>'Number already exists'],409);
+        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
+        $didId = DB::table('dids')->insertGetId([
+            'number'        => $num,
+            'trunk_id'      => $trunk->id ?? null,
+            'supplier_id'   => $id,
+            'is_test'       => 0,
+            'prefix'        => $r->prefix ?? '',
+            'country_name'  => $r->country_name ?? 'Unknown',
+            'country_code'  => $r->country_code ?? 'XX',
+            'tariff'        => $r->tariff ?? $supplier->tariff ?? 0.07,
+            'selling_price' => $r->selling_price ?? $r->tariff ?? 0.07,
+            'currency'      => $r->currency ?? $supplier->currency ?? 'EUR',
+            'payment_terms' => $r->payment_terms ?? $supplier->payment_terms ?? 'Weekly',
+            'status'        => 'active',
+            'ivr_context'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($didId)],201);
+    });
+
+    Route::get('/v1/supplier-accounts/{id}/test-numbers', function($id) {
+        $rows = DB::table('dids')->where('supplier_id',$id)->where('is_test',1)->orderByDesc('created_at')->get();
+        return response()->json(['data'=>$rows]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/test-numbers', function(Request $r, $id) {
+        $supplier = DB::table('suppliers')->find($id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$r->number) return response()->json(['error'=>'number is required'],422);
+        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
+        if (DB::table('dids')->where('number',$num)->exists())
+            return response()->json(['error'=>'Number already exists'],409);
+        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
+        $id2 = DB::table('dids')->insertGetId([
+            'number'        => $num,
+            'trunk_id'      => $trunk->id ?? null,
+            'supplier_id'   => $id,
+            'is_test'       => 1,
+            'prefix'        => $r->prefix ?? '',
+            'country_name'  => $r->country_name ?? 'Unknown',
+            'country_code'  => $r->country_code ?? 'XX',
+            'currency'      => $r->currency ?? $supplier->currency ?? 'EUR',
+            'status'        => $r->status ?? 'active',
+            'ivr_context'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+        if ($r->notes) DB::table('dids')->where('id',$id2)->update(['route'=>$r->notes]);
+        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id2)],201);
     });
 
     // ── IVR ───────────────────────────────────────────────────

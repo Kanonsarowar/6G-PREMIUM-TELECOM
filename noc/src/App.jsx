@@ -41,6 +41,7 @@ const getNavGroups=(role)=>{
     {id:"ivr",label:"IVR Library",icon:"♫"},
   ]},
   {key:"partners",label:"Partners",items:[
+    ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"customers",label:"Customers",icon:"◷"},
   ]},
@@ -1452,6 +1453,568 @@ function RevenuePage({token}){
           </div>
         </div>
       )}
+    </div>
+  );
+}
+// ── Suppliers (business entity — NOT SIP trunk config) ──────────────
+// SIP trunk creation/PJSIP/codecs/credentials remain exclusively under
+// Asterisk Configuration -> Trunks. This module only manages the business
+// side (contact, country, commercial terms, numbers/test numbers, optional
+// external API) and references a linked trunk read-only, if one exists.
+const cardS={background:"#FFF",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"};
+const inpS={width:"100%",padding:"9px 10px",border:"1px solid #E0E0E0",borderRadius:6,
+  fontSize:12,outline:"none",boxSizing:"border-box"};
+const lblS={fontSize:11,fontWeight:600,color:"#666",marginBottom:4};
+const thSup={fontSize:9,color:"#888",fontWeight:700,letterSpacing:"0.8px",padding:"7px 10px",
+  textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5"};
+
+function SupplierAccountsPage({token,user,setPage}){
+  const [suppliers,setSuppliers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [showAdd,setShowAdd]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const [addForm,setAddForm]=useState({name:"",code:"",country:"",contact_name:"",email:"",phone:"",status:"active",notes:""});
+  const [selectedId,setSelectedId]=useState(null);
+
+  const load=()=>{
+    setLoading(true);
+    apiFetch("/supplier-accounts",token).then(d=>{setSuppliers(d.data||[]);setLoading(false);});
+  };
+  useEffect(()=>{load();},[token]);
+
+  const addSupplier=async()=>{
+    if(!addForm.name){alert("Supplier name is required");return;}
+    setSaving(true);
+    const d=await apiFetch("/supplier-accounts",token,{method:"POST",body:JSON.stringify(addForm)});
+    setSaving(false);
+    if(d.success){
+      setMsg("Supplier added: "+addForm.name);
+      setAddForm({name:"",code:"",country:"",contact_name:"",email:"",phone:"",status:"active",notes:""});
+      setShowAdd(false); load();
+      setTimeout(()=>setMsg(null),3000);
+    } else alert(d.error||"Failed to add supplier");
+  };
+
+  const delSupplier=async(s)=>{
+    if(!window.confirm(`Delete supplier "${s.name}"? Numbers/ranges are kept but unlinked.`)) return;
+    await apiFetch("/supplier-accounts/"+s.id,token,{method:"DELETE"});
+    load();
+  };
+
+  const selected=suppliers.find(s=>s.id===selectedId);
+  if(selected){
+    return <SupplierWorkspace token={token} user={user} setPage={setPage} supplier={selected}
+      onBack={()=>{setSelectedId(null);load();}}/>;
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
+        <div style={{fontSize:18,fontWeight:700}}>⬡ Suppliers</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>{suppliers.length} supplier{suppliers.length!==1?"s":""}</div>
+      </div>
+      <div style={{padding:"12px 16px"}}>
+        {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+          background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",
+          fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
+
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+          <button onClick={()=>setShowAdd(!showAdd)}
+            style={{padding:"9px 18px",borderRadius:20,border:"none",background:"#2CADA6",
+              color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            {showAdd?"✕ Close":"+ Add Supplier"}
+          </button>
+        </div>
+
+        {showAdd&&(
+          <div style={{...cardS,padding:16,marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Add Supplier</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+              <div><div style={lblS}>Supplier Name *</div>
+                <input style={inpS} value={addForm.name} onChange={e=>setAddForm({...addForm,name:e.target.value})} placeholder="Purple Number"/></div>
+              <div><div style={lblS}>Supplier Code/Reference</div>
+                <input style={inpS} value={addForm.code} onChange={e=>setAddForm({...addForm,code:e.target.value})} placeholder="PURPLE"/></div>
+              <div><div style={lblS}>Country</div>
+                <select style={inpS} value={addForm.country} onChange={e=>setAddForm({...addForm,country:e.target.value})}>
+                  <option value="">— Select —</option>
+                  {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
+                </select></div>
+              <div><div style={lblS}>Status</div>
+                <select style={inpS} value={addForm.status} onChange={e=>setAddForm({...addForm,status:e.target.value})}>
+                  <option value="active">Active</option><option value="inactive">Inactive</option>
+                </select></div>
+              <div><div style={lblS}>Contact Name</div>
+                <input style={inpS} value={addForm.contact_name} onChange={e=>setAddForm({...addForm,contact_name:e.target.value})} placeholder="John Doe"/></div>
+              <div><div style={lblS}>Email</div>
+                <input style={inpS} type="email" value={addForm.email} onChange={e=>setAddForm({...addForm,email:e.target.value})} placeholder="contact@supplier.com"/></div>
+              <div><div style={lblS}>Phone</div>
+                <input style={inpS} value={addForm.phone} onChange={e=>setAddForm({...addForm,phone:e.target.value})} placeholder="+977 1234 5678"/></div>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={lblS}>Notes</div>
+              <textarea style={{...inpS,minHeight:60,resize:"vertical"}} value={addForm.notes}
+                onChange={e=>setAddForm({...addForm,notes:e.target.value})} placeholder="Optional notes"/>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={addSupplier} disabled={saving}
+                style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",
+                  color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Add Supplier"}
+              </button>
+              <button onClick={()=>setShowAdd(false)}
+                style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{...cardS,overflow:"hidden"}}>
+          {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
+          :suppliers.length===0?<div style={{padding:40,textAlign:"center",color:"#999",fontSize:12}}>
+            No suppliers yet. Use "+ Add Supplier" to create one.</div>
+          :<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:760}}>
+              <thead><tr>{["Supplier","Country","Status","Numbers","Test #","Calls","Minutes","Revenue","Actions"].map((h,i)=>
+                <th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <tbody>
+                {suppliers.map((s,i)=>(
+                  <tr key={s.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF",cursor:"pointer"}}
+                    onClick={()=>setSelectedId(s.id)}>
+                    <td style={{padding:"10px 10px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>
+                      {s.name}{s.code?<span style={{color:"#999",fontWeight:500,fontSize:11}}> ({s.code})</span>:null}</td>
+                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.country||"—"}</td>
+                    <td style={{padding:"10px 10px"}}>
+                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                        background:s.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
+                        color:s.status==="active"?"#10B981":"#888"}}>{(s.status||"—").toUpperCase()}</span></td>
+                    <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,color:"#1A1A1A"}}>{s.number_count}</td>
+                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.test_number_count}</td>
+                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.calls}</td>
+                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.minutes}</td>
+                    <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
+                      {parseFloat(s.revenue||0).toFixed(4)} {s.currency==="USD"?"$":"€"}</td>
+                    <td style={{padding:"10px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                      <button onClick={()=>setSelectedId(s.id)}
+                        style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                          color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Open</button>
+                      {user?.role==='superadmin'&&<button onClick={()=>delSupplier(s)}
+                        style={{padding:"4px 10px",borderRadius:6,border:"1px solid #EF4444",background:"rgba(239,68,68,0.08)",
+                          color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SupplierWorkspace({token,user,setPage,supplier,onBack}){
+  const [tab,setTab]=useState("overview");
+  const [numbers,setNumbers]=useState({numbers:[],ranges:[]});
+  const [testNumbers,setTestNumbers]=useState([]);
+  const [ivrs,setIvrs]=useState([]);
+  const [msg,setMsg]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const [payForm,setPayForm]=useState({tariff:supplier.tariff||"",currency:supplier.currency||"EUR",
+    payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
+    payment_status:supplier.payment_status||"",notes:supplier.notes||""});
+  const [apiForm,setApiForm]=useState({api_enabled:!!supplier.api_enabled,api_type:supplier.api_type||"",
+    api_endpoint:supplier.api_endpoint||"",api_auth_method:supplier.api_auth_method||"",api_secret:""});
+  const [revealedSecret,setRevealedSecret]=useState(null);
+  const [apiTestResult,setApiTestResult]=useState(null);
+  const [addNum,setAddNum]=useState({mode:"single",number:"",country_name:"",country_code:"",prefix:"",
+    range_start:"",range_end:"",ivr_context:"",tariff:"",currency:supplier.currency||"EUR"});
+  const [showAddNum,setShowAddNum]=useState(false);
+  const [addTest,setAddTest]=useState({number:"",country_name:"",prefix:"",ivr_context:"",notes:""});
+  const [showAddTest,setShowAddTest]=useState(false);
+
+  const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
+  const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
+
+  useEffect(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
+  useEffect(()=>{
+    if(tab==="numbers") loadNumbers();
+    if(tab==="test") loadTest();
+  },[tab,supplier.id]);
+
+  const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
+
+  const savePayment=async()=>{
+    setSaving(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}`,token,{method:"PUT",body:JSON.stringify(payForm)});
+    setSaving(false);
+    if(d.success) flash("Payment details saved"); else alert(d.error||"Failed to save");
+  };
+
+  const saveApi=async()=>{
+    setSaving(true);
+    const body={...apiForm};
+    if(!body.api_secret) delete body.api_secret;
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}`,token,{method:"PUT",body:JSON.stringify(body)});
+    setSaving(false);
+    if(d.success){flash("API settings saved");setApiForm({...apiForm,api_secret:""});} else alert(d.error||"Failed to save");
+  };
+
+  const revealSecret=async()=>{
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/reveal`,token,{method:"POST"});
+    if(d.value!==undefined) setRevealedSecret(d.value); else alert(d.error||"Failed to reveal");
+  };
+
+  const testConnection=async()=>{
+    setApiTestResult({loading:true});
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-test`,token,{method:"POST"});
+    setApiTestResult(d);
+  };
+
+  const addNumber=async()=>{
+    if(addNum.mode==="single"&&!addNum.number){alert("Number is required");return;}
+    if(addNum.mode==="range"&&(!addNum.range_start||!addNum.range_end)){alert("Range start and end are required");return;}
+    setSaving(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token,{method:"POST",body:JSON.stringify(addNum)});
+    setSaving(false);
+    if(d.success){
+      flash("Number"+(addNum.mode==="range"?" range":"")+" added");
+      setAddNum({mode:"single",number:"",country_name:"",country_code:"",prefix:"",range_start:"",range_end:"",ivr_context:"",tariff:"",currency:supplier.currency||"EUR"});
+      setShowAddNum(false); loadNumbers();
+    } else alert(d.error||"Failed to add");
+  };
+
+  const addTestNumber=async()=>{
+    if(!addTest.number){alert("Test number is required");return;}
+    setSaving(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token,{method:"POST",body:JSON.stringify(addTest)});
+    setSaving(false);
+    if(d.success){
+      flash("Test number added");
+      setAddTest({number:"",country_name:"",prefix:"",ivr_context:"",notes:""});
+      setShowAddTest(false); loadTest();
+    } else alert(d.error||"Failed to add");
+  };
+
+  const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); };
+  const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); };
+  const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); };
+
+  const TABS=[["overview","Overview"],["numbers","Numbers / Ranges"],["test","Test Numbers"],["payment","Payment"],["api","API"]];
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button onClick={onBack} style={{padding:"6px 12px",borderRadius:6,border:"1px solid #E0E0E0",
+          background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>← Suppliers</button>
+        <div>
+          <div style={{fontSize:18,fontWeight:700}}>⬡ {supplier.name}</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{supplier.country||"—"} · {supplier.code||"no code"}</div>
+        </div>
+      </div>
+      <div style={{padding:"0 16px",background:"#FFF",borderBottom:"1px solid #E0E0E0",display:"flex",gap:4,overflowX:"auto"}}>
+        {TABS.map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)}
+            style={{padding:"12px 14px",border:"none",background:"transparent",cursor:"pointer",
+              fontSize:12,fontWeight:700,whiteSpace:"nowrap",
+              color:tab===id?"#2CADA6":"#888",
+              borderBottom:tab===id?"2px solid #2CADA6":"2px solid transparent"}}>{label}</button>
+        ))}
+      </div>
+
+      <div style={{padding:"12px 16px"}}>
+        {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
+          background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
+
+        {tab==="overview"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div style={{...cardS,padding:16}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Supplier Information</div>
+              {[["Name",supplier.name],["Code",supplier.code||"—"],["Country",supplier.country||"—"],
+                ["Contact",supplier.contact_name||"—"],["Email",supplier.email||"—"],["Phone",supplier.phone||"—"],
+                ["Status",supplier.status],["Notes",supplier.notes||"—"]].map(([k,v])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",
+                  borderBottom:"1px solid #F5F5F5",fontSize:12}}>
+                  <span style={{color:"#888",fontWeight:600}}>{k}</span>
+                  <span style={{color:"#1A1A1A",fontWeight:600,textAlign:"right",maxWidth:"60%"}}>{v}</span>
+                </div>
+              ))}
+              <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #F0F0F0"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>Linked SIP Trunk</div>
+                {supplier.linked_trunk?(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{supplier.linked_trunk.nickname}</span>
+                    <button onClick={()=>setPage&&setPage("ast-trunks")}
+                      style={{padding:"5px 12px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                        color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>View Trunk</button>
+                  </div>
+                ):<div style={{fontSize:12,color:"#999"}}>No trunk linked yet — configure under Asterisk Configuration → Trunks.</div>}
+              </div>
+            </div>
+            <div style={{...cardS,padding:16}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Business Summary</div>
+              {[["Production Numbers",supplier.number_count],["Test Numbers",supplier.test_number_count],
+                ["Calls",supplier.calls],["Minutes",supplier.minutes],
+                ["Revenue",parseFloat(supplier.revenue||0).toFixed(4)+" "+(supplier.currency==="USD"?"$":"€")]].map(([k,v])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F5F5F5"}}>
+                  <span style={{fontSize:12,color:"#888",fontWeight:600}}>{k}</span>
+                  <span style={{fontSize:14,color:"#1A1A1A",fontWeight:800}}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab==="numbers"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+              <button onClick={()=>setShowAddNum(!showAddNum)}
+                style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#2CADA6",
+                  color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>{showAddNum?"✕ Close":"+ Add Number / Range"}</button>
+            </div>
+            {showAddNum&&(
+              <div style={{...cardS,padding:16,marginBottom:12}}>
+                <div style={{display:"flex",gap:8,marginBottom:12}}>
+                  {["single","range"].map(m=>(
+                    <button key={m} onClick={()=>setAddNum({...addNum,mode:m})}
+                      style={{padding:"6px 14px",borderRadius:16,border:"1px solid "+(addNum.mode===m?"#2CADA6":"#E0E0E0"),
+                        background:addNum.mode===m?"rgba(44,173,166,0.1)":"#FFF",
+                        color:addNum.mode===m?"#2CADA6":"#666",fontSize:11,fontWeight:700,cursor:"pointer",textTransform:"capitalize"}}>{m}</button>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  {addNum.mode==="single"?(
+                    <div><div style={lblS}>Number *</div>
+                      <input style={inpS} value={addNum.number} onChange={e=>setAddNum({...addNum,number:e.target.value})} placeholder="+9779767851530"/></div>
+                  ):(<>
+                    <div><div style={lblS}>From *</div>
+                      <input style={inpS} value={addNum.range_start} onChange={e=>setAddNum({...addNum,range_start:e.target.value})} placeholder="9779767851530"/></div>
+                    <div><div style={lblS}>To *</div>
+                      <input style={inpS} value={addNum.range_end} onChange={e=>setAddNum({...addNum,range_end:e.target.value})} placeholder="9779767851559"/></div>
+                  </>)}
+                  <div><div style={lblS}>Country</div>
+                    <select style={inpS} value={addNum.country_name} onChange={e=>{
+                      const c=COUNTRIES.find(x=>x.name===e.target.value);
+                      setAddNum({...addNum,country_name:e.target.value,country_code:c?.code||""});}}>
+                      <option value="">— Select —</option>
+                      {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
+                    </select></div>
+                  <div><div style={lblS}>Prefix</div>
+                    <input style={inpS} value={addNum.prefix} onChange={e=>setAddNum({...addNum,prefix:e.target.value})} placeholder="9779767851"/></div>
+                  <div><div style={lblS}>IVR</div>
+                    <select style={inpS} value={addNum.ivr_context} onChange={e=>setAddNum({...addNum,ivr_context:e.target.value})}>
+                      <option value="">— Default —</option>
+                      {ivrs.map(i=><option key={i.id||i.context} value={i.context||i.name}>{i.name||i.context}</option>)}
+                    </select></div>
+                  <div><div style={lblS}>Tariff / min</div>
+                    <input type="number" step="0.001" style={inpS} value={addNum.tariff} onChange={e=>setAddNum({...addNum,tariff:e.target.value})} placeholder="0.063"/></div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={addNumber} disabled={saving}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Saving...":"✅ Add"}</button>
+                  <button onClick={()=>setShowAddNum(false)}
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{...cardS,overflow:"hidden",marginBottom:12}}>
+              <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>Individual Numbers ({numbers.numbers.length})</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                  <thead><tr>{["Number","Country","Prefix","IVR","Status","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {numbers.numbers.length===0
+                      ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No individual numbers yet</td></tr>
+                      :numbers.numbers.map((n,i)=>(
+                        <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                          <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{n.prefix||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.ivr_context||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{n.status}</td>
+                          <td style={{padding:"8px 10px",textAlign:"center"}}>
+                            <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{...cardS,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>Ranges ({numbers.ranges.length})</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                  <thead><tr>{["Prefix","From","To","Count","Country","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {numbers.ranges.length===0
+                      ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No ranges yet</td></tr>
+                      :numbers.ranges.map((r,i)=>(
+                        <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                          <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{r.range_start}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{r.range_end}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{r.total_count}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.country_name||"—"}</td>
+                          <td style={{padding:"8px 10px",textAlign:"center"}}>
+                            <button onClick={()=>delRange(r.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="test"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:10}}>
+              <button onClick={()=>setPage&&setPage("testlivecall")}
+                style={{padding:"8px 16px",borderRadius:20,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                  color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>📞 Live Test Call</button>
+              <button onClick={()=>setShowAddTest(!showAddTest)}
+                style={{padding:"8px 16px",borderRadius:20,border:"none",background:"#2CADA6",
+                  color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>{showAddTest?"✕ Close":"+ Add Test Number"}</button>
+            </div>
+            {showAddTest&&(
+              <div style={{...cardS,padding:16,marginBottom:12}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div><div style={lblS}>Test Number *</div>
+                    <input style={inpS} value={addTest.number} onChange={e=>setAddTest({...addTest,number:e.target.value})} placeholder="+9779767851530"/></div>
+                  <div><div style={lblS}>Country</div>
+                    <select style={inpS} value={addTest.country_name} onChange={e=>setAddTest({...addTest,country_name:e.target.value})}>
+                      <option value="">— Select —</option>
+                      {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
+                    </select></div>
+                  <div><div style={lblS}>IVR</div>
+                    <select style={inpS} value={addTest.ivr_context} onChange={e=>setAddTest({...addTest,ivr_context:e.target.value})}>
+                      <option value="">— Default —</option>
+                      {ivrs.map(i=><option key={i.id||i.context} value={i.context||i.name}>{i.name||i.context}</option>)}
+                    </select></div>
+                  <div><div style={lblS}>Notes</div>
+                    <input style={inpS} value={addTest.notes} onChange={e=>setAddTest({...addTest,notes:e.target.value})} placeholder="Optional"/></div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={addTestNumber} disabled={saving}
+                    style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    {saving?"Saving...":"✅ Add Test Number"}</button>
+                  <button onClick={()=>setShowAddTest(false)}
+                    style={{padding:"10px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+                </div>
+              </div>
+            )}
+            <div style={{...cardS,overflow:"hidden"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                  <thead><tr>{["Test Number","Country","IVR","Status","Last Test","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {testNumbers.length===0
+                      ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet</td></tr>
+                      :testNumbers.map((n,i)=>(
+                        <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                          <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.ivr_context||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{n.status}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#999"}}>{(n.updated_at||"").slice(0,16).replace("T"," ")||"—"}</td>
+                          <td style={{padding:"8px 10px",textAlign:"center"}}>
+                            <button onClick={()=>delTest(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="payment"&&(
+          <div style={{...cardS,padding:16,maxWidth:520}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Payment / Commercial Terms</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:14}}>Supplier-specific terms only — does not affect customer/reseller billing or historical revenue.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div><div style={lblS}>Tariff / min</div>
+                <input type="number" step="0.001" style={inpS} value={payForm.tariff} onChange={e=>setPayForm({...payForm,tariff:e.target.value})} placeholder="0.420"/></div>
+              <div><div style={lblS}>Currency</div>
+                <select style={inpS} value={payForm.currency} onChange={e=>setPayForm({...payForm,currency:e.target.value})}>
+                  <option value="EUR">EUR €</option><option value="USD">USD $</option></select></div>
+              <div><div style={lblS}>Payment Terms</div>
+                <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
+                  <option value="">— Select —</option>
+                  <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
+                  <option value="Biweekly">Biweekly</option><option value="Monthly">Monthly</option></select></div>
+              <div><div style={lblS}>Settlement Period</div>
+                <input style={inpS} value={payForm.settlement_period} onChange={e=>setPayForm({...payForm,settlement_period:e.target.value})} placeholder="Net 15"/></div>
+              <div><div style={lblS}>Payment Status</div>
+                <select style={inpS} value={payForm.payment_status} onChange={e=>setPayForm({...payForm,payment_status:e.target.value})}>
+                  <option value="">— Select —</option>
+                  <option value="current">Current</option><option value="overdue">Overdue</option>
+                  <option value="on_hold">On Hold</option></select></div>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={lblS}>Notes</div>
+              <textarea style={{...inpS,minHeight:60,resize:"vertical"}} value={payForm.notes} onChange={e=>setPayForm({...payForm,notes:e.target.value})}/>
+            </div>
+            <button onClick={savePayment} disabled={saving}
+              style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              {saving?"Saving...":"✅ Save Payment Details"}</button>
+          </div>
+        )}
+
+        {tab==="api"&&(
+          <div style={{...cardS,padding:16,maxWidth:520}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>API Integration (optional)</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:14}}>For CDR/number interrogation, balance/status and sync only — never required for normal SIP traffic.</div>
+            <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,cursor:"pointer"}}>
+              <input type="checkbox" checked={apiForm.api_enabled} onChange={e=>setApiForm({...apiForm,api_enabled:e.target.checked})}/>
+              <span style={{fontSize:12,fontWeight:600}}>API Enabled</span>
+            </label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div><div style={lblS}>API Type</div>
+                <input style={inpS} value={apiForm.api_type} onChange={e=>setApiForm({...apiForm,api_type:e.target.value})} placeholder="REST"/></div>
+              <div><div style={lblS}>Auth Method</div>
+                <select style={inpS} value={apiForm.api_auth_method} onChange={e=>setApiForm({...apiForm,api_auth_method:e.target.value})}>
+                  <option value="">— Select —</option>
+                  <option value="bearer">Bearer Token</option><option value="basic">Basic Auth</option>
+                  <option value="api_key">API Key</option></select></div>
+              <div style={{gridColumn:"1 / -1"}}><div style={lblS}>Endpoint</div>
+                <input style={inpS} value={apiForm.api_endpoint} onChange={e=>setApiForm({...apiForm,api_endpoint:e.target.value})} placeholder="https://supplier.example/api"/></div>
+              <div style={{gridColumn:"1 / -1"}}>
+                <div style={lblS}>Secret / Token {supplier.has_api_secret?"(configured — leave blank to keep)":""}</div>
+                <input type="password" style={inpS} value={apiForm.api_secret} onChange={e=>setApiForm({...apiForm,api_secret:e.target.value})}
+                  placeholder={supplier.has_api_secret?"••••••••":"Not set"}/>
+                {supplier.has_api_secret&&user?.role==='superadmin'&&(
+                  <button onClick={revealSecret} style={{marginTop:6,padding:"4px 10px",borderRadius:6,border:"1px solid #E0E0E0",
+                    background:"#F5F5F5",color:"#555",fontSize:10,fontWeight:700,cursor:"pointer"}}>Reveal current value</button>
+                )}
+                {revealedSecret!==null&&<div style={{marginTop:6,padding:"6px 10px",borderRadius:6,background:"#FFF8E1",
+                  border:"1px solid #F5A623",fontSize:11,fontFamily:"monospace",wordBreak:"break-all"}}>{revealedSecret}</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <button onClick={saveApi} disabled={saving}
+                style={{padding:"10px 20px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Save API Settings"}</button>
+              <button onClick={testConnection} disabled={!supplier.api_endpoint&&!apiForm.api_endpoint}
+                style={{padding:"10px 16px",borderRadius:8,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                  color:"#2CADA6",fontSize:12,fontWeight:700,cursor:"pointer"}}>Test Connection</button>
+              {apiTestResult&&!apiTestResult.loading&&(
+                <span style={{fontSize:11,fontWeight:700,color:apiTestResult.success?"#10B981":"#EF4444"}}>
+                  {apiTestResult.success?"✅ Connected":"❌ "+(apiTestResult.error||"Connection failed")}</span>
+              )}
+              {apiTestResult?.loading&&<span style={{fontSize:11,color:"#999"}}>Testing...</span>}
+            </div>
+            <div style={{marginTop:12,fontSize:10,color:"#AAA"}}>
+              Last sync: {supplier.api_last_sync||"never"} · Last status: {supplier.api_last_status||"—"}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -5450,6 +6013,7 @@ export default function App(){
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
       case "customers":    return <CustomersPage token={token}/>;
+      case "suppliers":    return <SupplierAccountsPage token={token} user={user} setPage={setPage}/>;
       case "resellers":     return <ResellerPortalPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
       case "testnumbers":   return <TestNumbersPage token={token}/>;
