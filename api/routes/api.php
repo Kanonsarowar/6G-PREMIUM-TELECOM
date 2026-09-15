@@ -170,8 +170,8 @@ function importDetectHeaderMap($tokens) {
         'range_end'    => ['range_end','rangeend','to','end'],
         'country'      => ['country'],
         'prefix'       => ['prefix','code'],
-        'price'        => ['price','rate','cost','tariff'],
-        'payment_term' => ['payment_term','paymentterm','term','terms'],
+        'price'        => ['price','rate','cost','tariff','payout'],
+        'payment_term' => ['payment_term','paymentterm','term','terms','billing_period','billingperiod'],
         'operator'     => ['operator','carrier','network'],
     ];
     $map = [];
@@ -213,6 +213,10 @@ function importParseRecordFromHeader($tokens, $headerMap) {
     if ($rec['number']) $rec['number'] = importNormalizeDigits($rec['number']);
     if ($rec['range_start']) $rec['range_start'] = importNormalizeDigits($rec['range_start']);
     if ($rec['range_end']) $rec['range_end'] = importNormalizeDigits($rec['range_end']);
+    // An explicit Prefix column can arrive formatted for readability (e.g.
+    // "88 233 770") rather than as a bare digit string - normalize it the
+    // same way numbers are, so it actually matches existing prefixes.
+    if ($rec['prefix']) $rec['prefix'] = importNormalizeDigits($rec['prefix']);
     if ($rec['price'] !== null) $rec['price'] = importParsePrice($rec['price']);
     if (!$rec['prefix']) {
         $base = $rec['range_start'] ?: $rec['number'];
@@ -326,7 +330,7 @@ function importParseRecordHeuristic($tokens) {
     return $rec;
 }
 
-function parseSupplierImportRecords($text) {
+function parseSupplierImportRecords($text, $defaultCountry = null) {
     $text = (string)$text;
     // Strip a UTF-8 BOM (common in Excel-exported CSVs) - left in place it
     // silently attaches to the first header cell (e.g. "\xEF\xBB\xBFPrefix")
@@ -347,6 +351,10 @@ function parseSupplierImportRecords($text) {
         if ($line === '') continue;
         $tokens = importSplitLine($line);
         $rec = $headerMap ? importParseRecordFromHeader($tokens, $headerMap) : importParseRecordHeuristic($tokens);
+        // Many supplier files only ever cover one country/network (their
+        // own), so it's often simply not a column at all - fall back to
+        // the supplier's own on-file country rather than leaving it blank.
+        if (!$rec['country'] && $defaultCountry) $rec['country'] = $defaultCountry;
         $rec['raw_line'] = $line;
         $rec['mode'] = $rec['range_start'] && $rec['range_end'] ? 'range' : 'single';
         $records[] = $rec;
@@ -1039,7 +1047,7 @@ Route::middleware('auth:sanctum')->group(function() {
         if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
         if (!$r->filled('raw_text')) return response()->json(['error'=>'raw_text is required'],422);
 
-        $parsed = parseSupplierImportRecords($r->raw_text);
+        $parsed = parseSupplierImportRecords($r->raw_text, $supplier->country);
         $existingPrefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('prefix');
         $existingNumbers = DB::table('dids')->pluck('number')
             ->map(fn($n)=>ltrim($n,'+'))->flip();
