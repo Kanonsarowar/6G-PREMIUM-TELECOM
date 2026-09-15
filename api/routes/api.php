@@ -246,33 +246,51 @@ function importParseRecordHeuristic($tokens) {
         }
     }
 
-    // Two number-like tokens are ambiguous: a genuine range's start/end
-    // share the same digit length (same prefix, differing suffix), while a
-    // (prefix, number) pair does not - the prefix is always shorter than
-    // the full number it prefixes. Only treat them as a range when the
-    // lengths match; otherwise the shorter one is the prefix and the
-    // longer one is the number, kept as two separate fields.
+    // Two number-like tokens are ambiguous in general: it could be a
+    // range's start/end (equal digit length - same prefix, differing
+    // suffix), a (prefix, number) pair (different lengths), or simply two
+    // unrelated full numbers on a richer row - e.g. caller + destination
+    // in a CDR-shaped export, which commonly differ by only 1-2 digits of
+    // length depending on country code length. Only guess "different
+    // lengths = prefix+number" when the row is EXACTLY those two fields
+    // and nothing else; with other columns present (dates, durations,
+    // prices...) that signal is unreliable, so the safer choice is to
+    // take the last number found and derive its prefix mechanically
+    // rather than risk mistaking one real number for a prefix of another.
     if (count($numberLike) >= 2) {
         [$a, $b] = [$numberLike[0], $numberLike[1]];
-        if (strlen($a) === strlen($b)) {
+        if (count($numberLike) === 2 && count($tokens) === 2 && strlen($a) === strlen($b)) {
             $rec['range_start'] = $a;
             $rec['range_end']   = $b;
-        } elseif (strlen($a) < strlen($b)) {
-            $rec['prefix'] = $a; $rec['number'] = $b;
+        } elseif (count($numberLike) === 2 && count($tokens) === 2 && strlen($a) !== strlen($b)) {
+            if (strlen($a) < strlen($b)) { $rec['prefix'] = $a; $rec['number'] = $b; }
+            else { $rec['prefix'] = $b; $rec['number'] = $a; }
+        } elseif (strlen($a) === strlen($b)) {
+            // Equal length with extra columns present is still an
+            // unambiguous range (e.g. "range_start range_end country
+            // price term operator").
+            $rec['range_start'] = $a;
+            $rec['range_end']   = $b;
         } else {
-            $rec['prefix'] = $b; $rec['number'] = $a;
+            $rec['number'] = end($numberLike);
         }
     } elseif (count($numberLike) === 1) {
         $rec['number'] = $numberLike[0];
     }
 
     // A short leftover alnum token with no digits is most likely the
-    // operator/carrier name; a 3-6 digit leftover with no letters is most
-    // likely an explicit prefix override.
+    // operator/carrier name. A short digit leftover is only accepted as an
+    // explicit prefix override if it's actually a prefix of the detected
+    // number/range - i.e. the number literally starts with it. Without
+    // that check, an unrelated short numeric column (call duration, a
+    // sequence id, a count) gets mistaken for the prefix purely because it
+    // happens to be 2-6 digits, which is a real column, just not this one.
+    $numBase = $rec['range_start'] ?: $rec['number'];
     foreach ($leftover as $tok) {
         if (preg_match('/^[A-Za-z][A-Za-z\-\s]{1,30}$/', $tok) && $rec['operator'] === null) {
             $rec['operator'] = $tok;
-        } elseif (preg_match('/^\d{2,6}$/', $tok) && $rec['prefix'] === null) {
+        } elseif (preg_match('/^\d{2,6}$/', $tok) && $rec['prefix'] === null
+            && $numBase && str_starts_with($numBase, $tok)) {
             $rec['prefix'] = $tok;
         }
     }
