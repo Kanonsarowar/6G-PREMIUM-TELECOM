@@ -1615,9 +1615,10 @@ function SupplierAccountsPage({token,user,setPage}){
 
 function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [tab,setTab]=useState("overview");
+  const [prefixes,setPrefixes]=useState([]);
   const [numbers,setNumbers]=useState({numbers:[],ranges:[]});
   const [testNumbers,setTestNumbers]=useState([]);
-  const [ivrs,setIvrs]=useState([]);
+  const [accessHistory,setAccessHistory]=useState([]);
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
   const [payForm,setPayForm]=useState({
@@ -1627,22 +1628,82 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     api_endpoint:supplier.api_endpoint||"",api_auth_method:supplier.api_auth_method||"",api_secret:""});
   const [revealedSecret,setRevealedSecret]=useState(null);
   const [apiTestResult,setApiTestResult]=useState(null);
-  const [addNum,setAddNum]=useState({mode:"single",number:"",country_name:"",country_code:"",prefix:"",
-    range_start:"",range_end:"",ivr_context:"",tariff:"",currency:supplier.currency||"EUR"});
-  const [showAddNum,setShowAddNum]=useState(false);
-  const [addTest,setAddTest]=useState({number:"",country_name:"",prefix:"",ivr_context:"",notes:""});
-  const [showAddTest,setShowAddTest]=useState(false);
 
+  const [showAddPrefix,setShowAddPrefix]=useState(false);
+  const [editingPrefix,setEditingPrefix]=useState(null);
+  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});
+  const [showAddNum,setShowAddNum]=useState(false);
+  const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
+  const [showAddTest,setShowAddTest]=useState(false);
+  const [addTest,setAddTest]=useState({prefix_id:"",number:""});
+
+  const PAYMENT_TERMS=["Net 0","Net 7","Net 15","Net 30","Net 45","Net 60","Custom"];
+
+  const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
   const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
+  const loadAccessHistory=()=>apiFetch(`/supplier-accounts/${supplier.id}/access-history`,token).then(d=>setAccessHistory(d.data||[]));
 
-  useEffect(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
-  useEffect(()=>{
-    if(tab==="numbers") loadNumbers();
-    if(tab==="test") loadTest();
-  },[tab,supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); },[supplier.id]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
+
+  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});setShowAddPrefix(true);};
+  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",status:p.status});setShowAddPrefix(true);};
+
+  const savePrefix=async()=>{
+    if(!prefixForm.prefix||!prefixForm.country||!prefixForm.price||!prefixForm.payment_term||(!editingPrefix&&!prefixForm.test_number)){
+      alert("Prefix, country, price, payment term and test number are required");return;
+    }
+    setSaving(true);
+    const d=editingPrefix
+      ?await apiFetch(`/supplier-accounts/${supplier.id}/prefixes/${editingPrefix.id}`,token,{method:"PUT",body:JSON.stringify(prefixForm)})
+      :await apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token,{method:"POST",body:JSON.stringify(prefixForm)});
+    setSaving(false);
+    if(d.success){
+      flash(editingPrefix?"Prefix updated":"Prefix added");
+      setShowAddPrefix(false); loadPrefixes(); loadTest(); setTab("overview");
+    } else alert(d.error||"Failed to save prefix");
+  };
+
+  const delPrefix=async(p)=>{
+    const msg2=`Deleting this prefix will also permanently remove ${p.number_count} number(s)/range(s) and ${p.test_number_count} test number(s) associated with this prefix. Continue?`;
+    if(!window.confirm(msg2)) return;
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/prefixes/${p.id}`,token,{method:"DELETE"});
+    if(d.success){flash("Prefix deleted");loadPrefixes();loadNumbers();loadTest();loadAccessHistory();}
+    else alert(d.error||"Failed to delete");
+  };
+
+  const addNumber=async()=>{
+    if(!addNum.prefix_id){alert("Select a Prefix first");return;}
+    if(addNum.mode==="single"&&!addNum.number){alert("Number is required");return;}
+    if(addNum.mode==="range"&&(!addNum.range_start||!addNum.range_end)){alert("Range start and end are required");return;}
+    setSaving(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token,{method:"POST",body:JSON.stringify(addNum)});
+    setSaving(false);
+    if(d.success){
+      flash("Number"+(addNum.mode==="range"?" range":"")+" added");
+      setAddNum({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
+      setShowAddNum(false); loadNumbers(); loadPrefixes(); setTab("overview");
+    } else alert(d.error||"Failed to add");
+  };
+
+  const addTestNumber=async()=>{
+    if(!addTest.prefix_id){alert("Select a Prefix first");return;}
+    if(!addTest.number){alert("Test number is required");return;}
+    setSaving(true);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token,{method:"POST",body:JSON.stringify(addTest)});
+    setSaving(false);
+    if(d.success){
+      flash("Test number added");
+      setAddTest({prefix_id:"",number:""});
+      setShowAddTest(false); loadTest(); loadPrefixes(); setTab("overview");
+    } else alert(d.error||"Failed to add");
+  };
+
+  const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
+  const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
+  const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); loadPrefixes(); };
 
   const savePayment=async()=>{
     setSaving(true);
@@ -1671,45 +1732,21 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     setApiTestResult(d);
   };
 
-  const addNumber=async()=>{
-    if(addNum.mode==="single"&&!addNum.number){alert("Number is required");return;}
-    if(addNum.mode==="range"&&(!addNum.range_start||!addNum.range_end)){alert("Range start and end are required");return;}
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token,{method:"POST",body:JSON.stringify(addNum)});
-    setSaving(false);
-    if(d.success){
-      flash("Number"+(addNum.mode==="range"?" range":"")+" added");
-      setAddNum({mode:"single",number:"",country_name:"",country_code:"",prefix:"",range_start:"",range_end:"",ivr_context:"",tariff:"",currency:supplier.currency||"EUR"});
-      setShowAddNum(false); loadNumbers();
-    } else alert(d.error||"Failed to add");
-  };
-
-  const addTestNumber=async()=>{
-    if(!addTest.number){alert("Test number is required");return;}
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token,{method:"POST",body:JSON.stringify(addTest)});
-    setSaving(false);
-    if(d.success){
-      flash("Test number added");
-      setAddTest({number:"",country_name:"",prefix:"",ivr_context:"",notes:""});
-      setShowAddTest(false); loadTest();
-    } else alert(d.error||"Failed to add");
-  };
-
-  const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); };
-  const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); };
-  const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); };
-
   const TABS=[["overview","Overview"],["numbers","Numbers / Ranges"],["test","Test Numbers"],["payment","Payment"],["api","API"]];
+  const fmtUSDT=(v)=>parseFloat(v||0).toFixed(4)+" USDT";
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <button onClick={onBack} style={{padding:"6px 12px",borderRadius:6,border:"1px solid #E0E0E0",
           background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>← Suppliers</button>
-        <div>
-          <div style={{fontSize:18,fontWeight:700}}>⬡ {supplier.name}</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>{supplier.country||"—"} · {supplier.code||"no code"}</div>
+        <div style={{fontSize:18,fontWeight:700}}>⬡ {supplier.name}</div>
+        <div style={{display:"flex",gap:8,marginLeft:"auto",flexWrap:"wrap"}}>
+          <button onClick={openAddPrefix} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ ADD PREFIX</button>
+          <button onClick={()=>{setShowAddNum(true);setTab("numbers");}} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ ADD NUMBER / RANGE</button>
+          <button onClick={()=>{setShowAddTest(true);setTab("test");}} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ TEST NUMBER</button>
+          <button onClick={()=>setTab("payment")} style={{padding:"8px 14px",borderRadius:8,border:"1px solid #E0E0E0",background:"#F5F5F5",color:"#555",fontSize:11,fontWeight:700,cursor:"pointer"}}>PAYMENT</button>
+          <button onClick={()=>setTab("api")} style={{padding:"8px 14px",borderRadius:8,border:"1px solid #E0E0E0",background:"#F5F5F5",color:"#555",fontSize:11,fontWeight:700,cursor:"pointer"}}>API</button>
         </div>
       </div>
       <div style={{padding:"0 16px",background:"#FFF",borderBottom:"1px solid #E0E0E0",display:"flex",gap:4,overflowX:"auto"}}>
@@ -1727,40 +1764,139 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           background:"rgba(16,185,129,0.1)",border:"1px solid #10B981",fontSize:12,color:"#10B981",fontWeight:600}}>✅ {msg}</div>}
 
         {tab==="overview"&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div>
+            <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+              <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+                  <thead><tr>{["Country","Prefix","Price","Term","Test Number","Access","Operator","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                    prefixes.map((p,i)=>(
+                      <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
+                        <td style={{padding:"8px 10px"}}>
+                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                            background:p.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
+                            color:p.status==="active"?"#10B981":"#888"}}>{p.status==="active"?"Available":"Unavailable"}</span></td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.operator||"—"}</td>
+                        <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
+                          <button onClick={()=>openEditPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                            background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Edit</button>
+                          <button onClick={()=>delPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
+                            background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+              <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>NUMBER</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                  <thead><tr>{["Number","Country","Price","Term","Prefix","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {numbers.numbers.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers yet</td></tr>:
+                    numbers.numbers.map((n,i)=>(
+                      <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{n.prefix||"—"}</td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                            cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                      </tr>
+                    ))}
+                    {numbers.ranges.map((r,i)=>(
+                      <tr key={"r"+r.id} style={{borderBottom:"1px solid #F5F5F5",background:"#FFFBEA"}}>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>{r.range_start} – {r.range_end}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.country_name||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(r.rate)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{r.prefix} ({r.total_count})</td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={()=>delRange(r.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                            cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+              <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>TEST NUMBER</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
+                  <thead><tr>{["Country","Prefix","Price","Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {testNumbers.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet</td></tr>:
+                    testNumbers.map((n,i)=>(
+                      <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{n.prefix||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
+                        <td style={{padding:"8px 10px",textAlign:"center"}}>
+                          <button onClick={()=>delTest(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
+                            cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+              <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
+              <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>"Access From" is the caller/operator origin — never the supplier's SIP IP.</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                  <thead><tr>{["Date","Prefix","Price","Test Number","Access From"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {accessHistory.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
+                    accessHistory.map((h,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(h.date||"").slice(0,16).replace("T"," ")}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.price)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{h.test_number}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{h.access_from}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div style={{...cardS,padding:16}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Supplier Information</div>
-              {[["Name",supplier.name],["Code",supplier.code||"—"],["Country",supplier.country||"—"],
-                ["Contact",supplier.contact_name||"—"],["Email",supplier.email||"—"],["Phone",supplier.phone||"—"],
-                ["Status",supplier.status],["Notes",supplier.notes||"—"]].map(([k,v])=>(
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:800,textTransform:"uppercase"}}>{supplier.name}</div>
+                <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:700,
+                  background:supplier.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
+                  color:supplier.status==="active"?"#10B981":"#888"}}>● {supplier.status==="active"?"Active":"Inactive"}</span>
+              </div>
+              {[["Code",supplier.code||"—"],["Country",supplier.country||"—"],["Contact",supplier.contact_name||"—"],
+                ["Email",supplier.email||"—"],["Phone",supplier.phone||"—"],
+                ["SIP Trunk",supplier.linked_trunk?supplier.linked_trunk.nickname:"No trunk linked"]].map(([k,v])=>(
                 <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",
                   borderBottom:"1px solid #F5F5F5",fontSize:12}}>
                   <span style={{color:"#888",fontWeight:600}}>{k}</span>
-                  <span style={{color:"#1A1A1A",fontWeight:600,textAlign:"right",maxWidth:"60%"}}>{v}</span>
+                  <span style={{color:"#1A1A1A",fontWeight:600}}>{v}</span>
                 </div>
               ))}
-              <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #F0F0F0"}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>Linked SIP Trunk</div>
-                {supplier.linked_trunk?(
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{supplier.linked_trunk.nickname}</span>
-                    <button onClick={()=>setPage&&setPage("ast-trunks")}
-                      style={{padding:"5px 12px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-                        color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>View Trunk</button>
-                  </div>
-                ):<div style={{fontSize:12,color:"#999"}}>No trunk linked yet — configure under Asterisk Configuration → Trunks.</div>}
-              </div>
-            </div>
-            <div style={{...cardS,padding:16}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Business Summary</div>
-              {[["Production Numbers",supplier.number_count],["Test Numbers",supplier.test_number_count],
-                ["Calls",supplier.calls],["Minutes",supplier.minutes],
-                ["Revenue",parseFloat(supplier.revenue||0).toFixed(4)+" "+(supplier.currency==="USD"?"$":"€")]].map(([k,v])=>(
-                <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F5F5F5"}}>
-                  <span style={{fontSize:12,color:"#888",fontWeight:600}}>{k}</span>
-                  <span style={{fontSize:14,color:"#1A1A1A",fontWeight:800}}>{v}</span>
-                </div>
-              ))}
+              {supplier.linked_trunk&&<button onClick={()=>setPage&&setPage("ast-trunks")}
+                style={{marginTop:10,padding:"6px 14px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
+                  color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>View Trunk</button>}
             </div>
           </div>
         )}
@@ -1774,6 +1910,18 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             </div>
             {showAddNum&&(
               <div style={{...cardS,padding:16,marginBottom:12}}>
+                <div style={{marginBottom:10}}>
+                  <div style={lblS}>Prefix *</div>
+                  <select style={inpS} value={addNum.prefix_id} onChange={e=>setAddNum({...addNum,prefix_id:e.target.value})}>
+                    <option value="">— Select Prefix —</option>
+                    {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
+                  </select>
+                </div>
+                {addNum.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addNum.prefix_id));return p&&(
+                  <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555"}}>
+                    <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span><span>Term: <b>{p.payment_term}</b></span>
+                  </div>
+                );})()}
                 <div style={{display:"flex",gap:8,marginBottom:12}}>
                   {["single","range"].map(m=>(
                     <button key={m} onClick={()=>setAddNum({...addNum,mode:m})}
@@ -1785,29 +1933,13 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                   {addNum.mode==="single"?(
                     <div><div style={lblS}>Number *</div>
-                      <input style={inpS} value={addNum.number} onChange={e=>setAddNum({...addNum,number:e.target.value})} placeholder="+9779767851530"/></div>
+                      <input style={inpS} value={addNum.number} onChange={e=>setAddNum({...addNum,number:e.target.value})} placeholder="+9198760001"/></div>
                   ):(<>
                     <div><div style={lblS}>From *</div>
-                      <input style={inpS} value={addNum.range_start} onChange={e=>setAddNum({...addNum,range_start:e.target.value})} placeholder="9779767851530"/></div>
+                      <input style={inpS} value={addNum.range_start} onChange={e=>setAddNum({...addNum,range_start:e.target.value})} placeholder="9198760001"/></div>
                     <div><div style={lblS}>To *</div>
-                      <input style={inpS} value={addNum.range_end} onChange={e=>setAddNum({...addNum,range_end:e.target.value})} placeholder="9779767851559"/></div>
+                      <input style={inpS} value={addNum.range_end} onChange={e=>setAddNum({...addNum,range_end:e.target.value})} placeholder="9198760100"/></div>
                   </>)}
-                  <div><div style={lblS}>Country</div>
-                    <select style={inpS} value={addNum.country_name} onChange={e=>{
-                      const c=COUNTRIES.find(x=>x.name===e.target.value);
-                      setAddNum({...addNum,country_name:e.target.value,country_code:c?.code||""});}}>
-                      <option value="">— Select —</option>
-                      {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
-                    </select></div>
-                  <div><div style={lblS}>Prefix</div>
-                    <input style={inpS} value={addNum.prefix} onChange={e=>setAddNum({...addNum,prefix:e.target.value})} placeholder="9779767851"/></div>
-                  <div><div style={lblS}>IVR</div>
-                    <select style={inpS} value={addNum.ivr_context} onChange={e=>setAddNum({...addNum,ivr_context:e.target.value})}>
-                      <option value="">— Default —</option>
-                      {ivrs.map(i=><option key={i.id||i.context} value={i.context||i.name}>{i.name||i.context}</option>)}
-                    </select></div>
-                  <div><div style={lblS}>Tariff / min</div>
-                    <input type="number" step="0.001" style={inpS} value={addNum.tariff} onChange={e=>setAddNum({...addNum,tariff:e.target.value})} placeholder="0.063"/></div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={addNumber} disabled={saving}
@@ -1823,7 +1955,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>Individual Numbers ({numbers.numbers.length})</div>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-                  <thead><tr>{["Number","Country","Prefix","IVR","Status","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Number","Country","Price","Term","Prefix","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
                     {numbers.numbers.length===0
                       ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No individual numbers yet</td></tr>
@@ -1831,9 +1963,9 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                           <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
                           <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
                           <td style={{padding:"8px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{n.prefix||"—"}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.ivr_context||"—"}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{n.status}</td>
                           <td style={{padding:"8px 10px",textAlign:"center"}}>
                             <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
                               cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
@@ -1848,7 +1980,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>Ranges ({numbers.ranges.length})</div>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-                  <thead><tr>{["Prefix","From","To","Count","Country","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Prefix","From","To","Count","Price","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
                     {numbers.ranges.length===0
                       ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No ranges yet</td></tr>
@@ -1858,7 +1990,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                           <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{r.range_start}</td>
                           <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{r.range_end}</td>
                           <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{r.total_count}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.country_name||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(r.rate)}</td>
                           <td style={{padding:"8px 10px",textAlign:"center"}}>
                             <button onClick={()=>delRange(r.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
                               cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
@@ -1883,21 +2015,21 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             </div>
             {showAddTest&&(
               <div style={{...cardS,padding:16,marginBottom:12}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                  <div><div style={lblS}>Test Number *</div>
-                    <input style={inpS} value={addTest.number} onChange={e=>setAddTest({...addTest,number:e.target.value})} placeholder="+9779767851530"/></div>
-                  <div><div style={lblS}>Country</div>
-                    <select style={inpS} value={addTest.country_name} onChange={e=>setAddTest({...addTest,country_name:e.target.value})}>
-                      <option value="">— Select —</option>
-                      {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
-                    </select></div>
-                  <div><div style={lblS}>IVR</div>
-                    <select style={inpS} value={addTest.ivr_context} onChange={e=>setAddTest({...addTest,ivr_context:e.target.value})}>
-                      <option value="">— Default —</option>
-                      {ivrs.map(i=><option key={i.id||i.context} value={i.context||i.name}>{i.name||i.context}</option>)}
-                    </select></div>
-                  <div><div style={lblS}>Notes</div>
-                    <input style={inpS} value={addTest.notes} onChange={e=>setAddTest({...addTest,notes:e.target.value})} placeholder="Optional"/></div>
+                <div style={{marginBottom:10}}>
+                  <div style={lblS}>Prefix *</div>
+                  <select style={inpS} value={addTest.prefix_id} onChange={e=>setAddTest({...addTest,prefix_id:e.target.value})}>
+                    <option value="">— Select Prefix —</option>
+                    {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
+                  </select>
+                </div>
+                {addTest.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addTest.prefix_id));return p&&(
+                  <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555"}}>
+                    <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span>
+                  </div>
+                );})()}
+                <div style={{marginBottom:10}}>
+                  <div style={lblS}>Number *</div>
+                  <input style={inpS} value={addTest.number} onChange={e=>setAddTest({...addTest,number:e.target.value})} placeholder="+919876543210"/>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={addTestNumber} disabled={saving}
@@ -1911,17 +2043,16 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <div style={{...cardS,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-                  <thead><tr>{["Test Number","Country","IVR","Status","Last Test","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Country","Prefix","Price","Number","Del"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
                     {testNumbers.length===0
-                      ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet</td></tr>
+                      ?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet</td></tr>
                       :testNumbers.map((n,i)=>(
                         <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                          <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
                           <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.ivr_context||"—"}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{n.status}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#999"}}>{(n.updated_at||"").slice(0,16).replace("T"," ")||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{n.prefix||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
                           <td style={{padding:"8px 10px",textAlign:"center"}}>
                             <button onClick={()=>delTest(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
                               cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
@@ -1939,15 +2070,13 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Payment / Commercial Terms</div>
             <div style={{fontSize:11,color:"#999",marginBottom:4}}>Supplier-specific terms only — does not affect customer/reseller billing or historical revenue.</div>
             <div style={{fontSize:11,color:"#F5A623",marginBottom:14,fontWeight:600}}>
-              ⚠ The payable rate is configured per number/prefix/range on the Numbers / Ranges tab, not here.</div>
+              ⚠ The payable rate and payment term are configured per Prefix, not here. All supplier pricing is USDT only.</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div><div style={lblS}>Payment Terms</div>
+              <div><div style={lblS}>Settlement Frequency</div>
                 <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
                   <option value="">— Select —</option>
                   <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
-                  <option value="Biweekly">Biweekly</option><option value="Monthly">Monthly</option></select></div>
-              <div><div style={lblS}>Settlement Period</div>
-                <input style={inpS} value={payForm.settlement_period} onChange={e=>setPayForm({...payForm,settlement_period:e.target.value})} placeholder="Net 15"/></div>
+                  <option value="Monthly">Monthly</option><option value="Other">Other</option></select></div>
               <div><div style={lblS}>Payment Status</div>
                 <select style={inpS} value={payForm.payment_status} onChange={e=>setPayForm({...payForm,payment_status:e.target.value})}>
                   <option value="">— Select —</option>
@@ -2018,9 +2147,50 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         )}
       </div>
+
+      {showAddPrefix&&(
+        <div onClick={()=>setShowAddPrefix(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>{editingPrefix?"Edit Prefix":"Add Prefix"}</div>
+            <div style={{marginBottom:10}}><div style={lblS}>Prefix *</div>
+              <input style={inpS} value={prefixForm.prefix} onChange={e=>setPrefixForm({...prefixForm,prefix:e.target.value})} placeholder="919876XXXX"/></div>
+            <div style={{marginBottom:10}}><div style={lblS}>Country *</div>
+              <select style={inpS} value={prefixForm.country} onChange={e=>setPrefixForm({...prefixForm,country:e.target.value})}>
+                <option value="">— Select —</option>
+                {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
+              </select></div>
+            <div style={{marginBottom:10}}><div style={lblS}>Price / Min (USDT) *</div>
+              <input type="number" step="0.001" style={inpS} value={prefixForm.price} onChange={e=>setPrefixForm({...prefixForm,price:e.target.value})} placeholder="0.040"/></div>
+            <div style={{marginBottom:10}}><div style={lblS}>Payment Term *</div>
+              <select style={inpS} value={prefixForm.payment_term} onChange={e=>setPrefixForm({...prefixForm,payment_term:e.target.value})}>
+                <option value="">— Select —</option>
+                {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
+              </select></div>
+            <div style={{marginBottom:10}}>
+              <div style={lblS}>Test Number {editingPrefix?"":"*"}</div>
+              <input style={inpS} value={prefixForm.test_number} onChange={e=>setPrefixForm({...prefixForm,test_number:e.target.value})} placeholder="+919876543210" disabled={!!editingPrefix}/>
+              {editingPrefix&&<div style={{fontSize:10,color:"#999",marginTop:4}}>Manage additional test numbers from the Test Numbers tab.</div>}
+            </div>
+            <div style={{marginBottom:10}}><div style={lblS}>Operator (optional)</div>
+              <input style={inpS} value={prefixForm.operator} onChange={e=>setPrefixForm({...prefixForm,operator:e.target.value})} placeholder="STC"/></div>
+            <div style={{marginBottom:16}}><div style={lblS}>Status</div>
+              <select style={inpS} value={prefixForm.status} onChange={e=>setPrefixForm({...prefixForm,status:e.target.value})}>
+                <option value="active">Active</option><option value="inactive">Inactive</option>
+              </select></div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={savePrefix} disabled={saving}
+                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                {saving?"Saving...":editingPrefix?"✅ Save Changes":"✅ Add Prefix"}</button>
+              <button onClick={()=>setShowAddPrefix(false)}
+                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ── Supplier Payments (Pending / History / Payment Methods) ─────────
 // Amounts here are always the supplier PAYABLE, computed server-side from
@@ -2031,16 +2201,13 @@ function SupplierPaymentsPage({token,user}){
   const [tab,setTab]=useState("pending");
   const [pending,setPending]=useState({Daily:[],Weekly:[],Monthly:[],Other:[]});
   const [history,setHistory]=useState([]);
-  const [methods,setMethods]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [msg,setMsg]=useState(null);
   const [payModal,setPayModal]=useState(null);
-  const [payForm,setPayForm]=useState({payment_method_id:"",paid_at:"",reference:"",notes:""});
+  const [payForm,setPayForm]=useState({paid_at:"",reference:"",notes:""});
   const [saving,setSaving]=useState(false);
-  const [histFilter,setHistFilter]=useState({supplier_id:"",payment_method_id:"",currency:"",date_from:"",date_to:""});
-  const [showAddMethod,setShowAddMethod]=useState(false);
-  const [newMethod,setNewMethod]=useState("");
+  const [histFilter,setHistFilter]=useState({supplier_id:"",date_from:"",date_to:""});
 
   const loadPending=()=>apiFetch("/supplier-payments/pending",token).then(d=>setPending(d.data||{Daily:[],Weekly:[],Monthly:[],Other:[]}));
   const loadHistory=()=>{
@@ -2048,25 +2215,23 @@ function SupplierPaymentsPage({token,user}){
     Object.entries(histFilter).forEach(([k,v])=>{if(v)params.set(k,v);});
     apiFetch("/supplier-payments/history?"+params.toString(),token).then(d=>setHistory(d.data||[]));
   };
-  const loadMethods=()=>apiFetch("/payment-methods",token).then(d=>setMethods(d.data||[]));
   const loadSuppliers=()=>apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));
 
-  useEffect(()=>{setLoading(true);Promise.all([loadPending(),loadMethods(),loadSuppliers()]).then(()=>setLoading(false));},[token]);
+  useEffect(()=>{setLoading(true);Promise.all([loadPending(),loadSuppliers()]).then(()=>setLoading(false));},[token]);
   useEffect(()=>{if(tab==="history")loadHistory();},[tab]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
 
   const openPay=(row)=>{
     setPayModal(row);
-    setPayForm({payment_method_id:"",paid_at:new Date().toISOString().slice(0,10),reference:"",notes:""});
+    setPayForm({paid_at:new Date().toISOString().slice(0,10),reference:"",notes:""});
   };
 
   const markPaid=async()=>{
-    if(!payForm.payment_method_id){alert("Select a payment method");return;}
     setSaving(true);
     const d=await apiFetch("/supplier-payments/mark-paid",token,{method:"POST",body:JSON.stringify({
       supplier_id:payModal.supplier_id,period_start:payModal.period_start,period_end:payModal.period_end,
-      currency:payModal.currency,...payForm,
+      payment_term:payModal.payment_term,...payForm,
     })});
     setSaving(false);
     if(d.success){
@@ -2075,25 +2240,15 @@ function SupplierPaymentsPage({token,user}){
     } else alert(d.error||"Failed to mark paid");
   };
 
-  const toggleMethod=async(m)=>{await apiFetch("/payment-methods/"+m.id,token,{method:"PUT",body:JSON.stringify({name:m.name,enabled:!m.enabled})});loadMethods();};
-  const addMethod=async()=>{
-    if(!newMethod.trim())return;
-    const d=await apiFetch("/payment-methods",token,{method:"POST",body:JSON.stringify({name:newMethod.trim()})});
-    if(d.success){setNewMethod("");setShowAddMethod(false);loadMethods();} else alert(d.error||"Failed to add");
-  };
-  const delMethod=async(m)=>{
-    if(!window.confirm(`Delete "${m.name}"?`))return;
-    const d=await apiFetch("/payment-methods/"+m.id,token,{method:"DELETE"});
-    if(d.success) loadMethods(); else alert(d.error||"Failed to delete");
-  };
-
-  const TABS=[["pending","Pending"],["history","History"],["methods","Payment Methods"]];
+  const TABS=[["pending","Pending"],["history","History"]];
   const BUCKET_ORDER=["Daily","Weekly","Monthly","Other"];
+  const fmtUSDT=(v)=>parseFloat(v||0).toFixed(4)+" USDT";
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>💰 Supplier Payments</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>All supplier pricing and payments are in USDT only.</div>
       </div>
       <div style={{padding:"0 16px",background:"#FFF",borderBottom:"1px solid #E0E0E0",display:"flex",gap:4}}>
         {TABS.map(([id,label])=>(
@@ -2117,18 +2272,18 @@ function SupplierPaymentsPage({token,user}){
                 {rows.length===0?<div style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Nothing pending</div>:
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
-                    <thead><tr>{["Supplier","Period","Calls","Minutes","Amount","Currency","Due Date","Status","Action"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                    <thead><tr>{["Supplier","Settlement Period","Calls","Billable Minutes","Amount Due","Payment Term","Due Date","Status","Action"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                     <tbody>
                       {rows.map((r,i)=>{
                         const overdue=new Date(r.due_date)<new Date(new Date().toDateString());
                         return(
-                        <tr key={r.supplier_id+r.currency+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <tr key={r.supplier_id+r.payment_term+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                           <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{r.supplier_name}</td>
                           <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.period_start} → {r.period_end}</td>
                           <td style={{padding:"8px 10px",fontSize:12}}>{r.calls}</td>
                           <td style={{padding:"8px 10px",fontSize:12}}>{r.minutes}</td>
-                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{r.amount.toFixed(4)}</td>
-                          <td style={{padding:"8px 10px",fontSize:11}}>{r.currency}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(r.amount)}</td>
+                          <td style={{padding:"8px 10px",fontSize:11}}>{r.payment_term}</td>
                           <td style={{padding:"8px 10px",fontSize:11,color:overdue?"#EF4444":"#555",fontWeight:overdue?700:400}}>{r.due_date}</td>
                           <td style={{padding:"8px 10px"}}>
                             <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
@@ -2155,14 +2310,6 @@ function SupplierPaymentsPage({token,user}){
                 <select style={{...inpS,width:160}} value={histFilter.supplier_id} onChange={e=>setHistFilter({...histFilter,supplier_id:e.target.value})}>
                   <option value="">All</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                 </select></div>
-              <div><div style={lblS}>Method</div>
-                <select style={{...inpS,width:140}} value={histFilter.payment_method_id} onChange={e=>setHistFilter({...histFilter,payment_method_id:e.target.value})}>
-                  <option value="">All</option>{methods.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-                </select></div>
-              <div><div style={lblS}>Currency</div>
-                <select style={{...inpS,width:100}} value={histFilter.currency} onChange={e=>setHistFilter({...histFilter,currency:e.target.value})}>
-                  <option value="">All</option><option value="EUR">EUR</option><option value="USD">USD</option>
-                </select></div>
               <div><div style={lblS}>From</div>
                 <input type="date" style={{...inpS,width:140}} value={histFilter.date_from} onChange={e=>setHistFilter({...histFilter,date_from:e.target.value})}/></div>
               <div><div style={lblS}>To</div>
@@ -2172,9 +2319,9 @@ function SupplierPaymentsPage({token,user}){
             <div style={{...cardS,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:1000}}>
-                  <thead><tr>{["Paid Date","Supplier","Period","Calls","Minutes","Rate","Amount","Currency","Method","Reference","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Paid Date","Supplier","Settlement Period","Calls","Billable Minutes","Supplier Rate","Amount Paid","Payment Method","Reference","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {history.length===0?<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
+                    {history.length===0?<tr><td colSpan={10} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
                     history.map((h,i)=>(
                       <tr key={h.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                         <td style={{padding:"8px 10px",fontSize:11}}>{(h.paid_at||"").slice(0,10)}</td>
@@ -2182,10 +2329,9 @@ function SupplierPaymentsPage({token,user}){
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
                         <td style={{padding:"8px 10px",fontSize:12}}>{h.total_calls}</td>
                         <td style={{padding:"8px 10px",fontSize:12}}>{h.total_minutes}</td>
-                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{parseFloat(h.rate||0).toFixed(6)}</td>
-                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{parseFloat(h.total_amount||0).toFixed(4)}</td>
-                        <td style={{padding:"8px 10px",fontSize:11}}>{h.currency}</td>
-                        <td style={{padding:"8px 10px",fontSize:11}}>{h.payment_method_name||"—"}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(h.rate)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.total_amount)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11}}>{h.payment_method_name||"USDT"}</td>
                         <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{h.reference||"—"}</td>
                         <td style={{padding:"8px 10px"}}>
                           <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:"rgba(16,185,129,0.1)",color:"#10B981"}}>PAID</span></td>
@@ -2197,36 +2343,6 @@ function SupplierPaymentsPage({token,user}){
             </div>
           </div>
         )}
-
-        {tab==="methods"&&(
-          <div style={{...cardS,padding:16,maxWidth:520}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:700}}>Payment Methods</div>
-              <button onClick={()=>setShowAddMethod(!showAddMethod)}
-                style={{padding:"6px 14px",borderRadius:16,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                {showAddMethod?"✕ Close":"+ Add Method"}</button>
-            </div>
-            {showAddMethod&&(
-              <div style={{display:"flex",gap:8,marginBottom:14}}>
-                <input style={inpS} value={newMethod} onChange={e=>setNewMethod(e.target.value)} placeholder="e.g. Payoneer"/>
-                <button onClick={addMethod} style={{padding:"9px 16px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Add</button>
-              </div>
-            )}
-            {methods.map(m=>(
-              <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #F5F5F5"}}>
-                <span style={{fontSize:13,fontWeight:600,color:m.enabled?"#1A1A1A":"#AAA"}}>{m.name}</span>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={()=>toggleMethod(m)}
-                    style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(m.enabled?"#F5A623":"#10B981"),
-                      background:m.enabled?"rgba(245,166,35,0.1)":"rgba(16,185,129,0.1)",
-                      color:m.enabled?"#F5A623":"#10B981",fontSize:10,fontWeight:700,cursor:"pointer"}}>{m.enabled?"Disable":"Enable"}</button>
-                  <button onClick={()=>delMethod(m)}
-                    style={{padding:"4px 10px",borderRadius:6,border:"1px solid #EF4444",background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {payModal&&(
@@ -2234,19 +2350,12 @@ function SupplierPaymentsPage({token,user}){
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
             <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Mark as Paid</div>
             {[["Supplier",payModal.supplier_name],["Settlement Period",payModal.period_start+" → "+payModal.period_end],
-              ["Amount",payModal.amount.toFixed(4)+" "+payModal.currency]].map(([k,v])=>(
+              ["Amount",fmtUSDT(payModal.amount)],["Payment Method","USDT"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
                 <span style={{color:"#888",fontWeight:600}}>{k}</span><span style={{fontWeight:700}}>{v}</span>
               </div>
             ))}
             <div style={{marginTop:14,marginBottom:10}}>
-              <div style={lblS}>Payment Method *</div>
-              <select style={inpS} value={payForm.payment_method_id} onChange={e=>setPayForm({...payForm,payment_method_id:e.target.value})}>
-                <option value="">— Select —</option>
-                {methods.filter(m=>m.enabled).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-            <div style={{marginBottom:10}}>
               <div style={lblS}>Payment Date</div>
               <input type="date" style={inpS} value={payForm.paid_at} onChange={e=>setPayForm({...payForm,paid_at:e.target.value})}/>
             </div>

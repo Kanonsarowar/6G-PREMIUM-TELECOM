@@ -45,22 +45,39 @@ function redactSupplier($supplier) {
 }
 
 // Supplier payable is calculated from the rate configured on the supplier's
-// own Number/Prefix/Range records (dids.tariff, did_ranges.rate) - never
-// from cdrs.revenue, which is customer-facing selling revenue. Individual
+// Prefix (the master inventory record - supplier_prefixes.price), never
+// from cdrs.revenue (customer-facing selling revenue) and never from a
+// currency field: the platform pays suppliers in USDT only. Individual
 // DIDs are matched exactly by number; anything only covered by a range
-// (no individual DID row) is matched by prefix. Split by currency since a
-// supplier's numbers can be priced in more than one currency.
-function computeSupplierPayable($supplierId, $from, $to) {
+// (no individual DID row) is matched by prefix string. Rows without a
+// linked prefix_id fall back to the legacy dids.tariff/did_ranges.rate
+// (pre-Prefix-system data) so older/unrelated DIDs are unaffected. Grouped
+// by payment_term, since that now belongs to the Prefix and different
+// prefixes under the same supplier may carry different terms.
+function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30') {
+    // Asterisk CDRs store the dialed number without a leading '+' (see
+    // import_cdr.sh), while dids.number is stored with one - REPLACE()
+    // normalizes both sides so the exact match isn't silently missed.
     $exact = DB::table('cdrs')
-        ->join('dids', 'cdrs.did', '=', 'dids.number')
+        ->join('dids', function($join) {
+            $join->on(DB::raw("REPLACE(cdrs.did,'+','')"), '=', DB::raw("REPLACE(dids.number,'+','')"));
+        })
+        ->leftJoin('supplier_prefixes', 'dids.prefix_id', '=', 'supplier_prefixes.id')
         ->where('dids.supplier_id', $supplierId)
         ->whereBetween('cdrs.call_start', [$from, $to])
-        ->select('cdrs.id', 'cdrs.billsec', 'dids.tariff as rate', 'dids.currency as currency')
+        ->select('cdrs.id', 'cdrs.billsec',
+            DB::raw('COALESCE(supplier_prefixes.price, dids.tariff) as rate'),
+            DB::raw("COALESCE(supplier_prefixes.payment_term, '$defaultTerm') as payment_term"))
         ->get();
 
     $matchedIds = $exact->pluck('id')->all();
-    $ranges = DB::table('did_ranges')->where('supplier_id', $supplierId)
-        ->whereNotNull('prefix')->where('prefix', '!=', '')->get();
+    $ranges = DB::table('did_ranges')
+        ->leftJoin('supplier_prefixes', 'did_ranges.prefix_id', '=', 'supplier_prefixes.id')
+        ->where('did_ranges.supplier_id', $supplierId)
+        ->whereNotNull('did_ranges.prefix')->where('did_ranges.prefix', '!=', '')
+        ->select('did_ranges.prefix', DB::raw('COALESCE(supplier_prefixes.price, did_ranges.rate) as rate'),
+            DB::raw("COALESCE(supplier_prefixes.payment_term, '$defaultTerm') as payment_term"))
+        ->get();
 
     $rangeMatches = collect();
     if ($ranges->isNotEmpty()) {
@@ -71,7 +88,7 @@ function computeSupplierPayable($supplierId, $from, $to) {
             foreach ($ranges as $rng) {
                 $prefix = preg_replace('/\s+/', '', $rng->prefix);
                 if ($prefix !== '' && str_starts_with($digits, $prefix)) {
-                    $rangeMatches->push((object)['id'=>$c->id,'billsec'=>$c->billsec,'rate'=>$rng->rate,'currency'=>$rng->currency]);
+                    $rangeMatches->push((object)['id'=>$c->id,'billsec'=>$c->billsec,'rate'=>$rng->rate,'payment_term'=>$rng->payment_term]);
                     break;
                 }
             }
@@ -79,18 +96,23 @@ function computeSupplierPayable($supplierId, $from, $to) {
     }
 
     $out = [];
-    foreach ($exact->concat($rangeMatches)->groupBy('currency') as $currency => $rows) {
+    foreach ($exact->concat($rangeMatches)->groupBy('payment_term') as $term => $rows) {
         $minutes = $rows->sum('billsec') / 60;
         $amount  = $rows->sum(fn($r) => ($r->billsec / 60) * (float)$r->rate);
         $out[] = [
-            'currency' => $currency,
-            'calls'    => $rows->count(),
-            'minutes'  => round($minutes, 2),
-            'amount'   => round($amount, 4),
-            'rate'     => $minutes > 0 ? round($amount / $minutes, 6) : 0,
+            'payment_term' => $term,
+            'calls'        => $rows->count(),
+            'minutes'      => round($minutes, 2),
+            'amount'       => round($amount, 4),
+            'rate'         => $minutes > 0 ? round($amount / $minutes, 6) : 0,
         ];
     }
     return $out;
+}
+
+function parsePaymentTermDays($term) {
+    if ($term && preg_match('/(\d+)/', $term, $m)) return (int)$m[1];
+    return 30;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────
@@ -565,10 +587,102 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['success'=>$ok,'status'=>$ok?'connected':'failed','http_code'=>$code]);
     });
 
+    // ── Supplier Prefixes (master inventory record) ─────────────
+    // Prefix is the master record: Numbers/Ranges and Test Numbers both
+    // belong to a Prefix (prefix_id) and inherit country/price/payment_term
+    // from it. Rate is always USDT/min - no currency field exists here by
+    // design. Deleting a Prefix cascades (DB-level FK) to its child
+    // dids/did_ranges rows only; cdrs and invoices have no FK to
+    // supplier_prefixes, so historical CDRs/revenue/payments are never
+    // affected by a prefix deletion.
+    Route::get('/v1/supplier-accounts/{id}/prefixes', function($id) {
+        $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->orderBy('prefix')->get();
+        $numberCounts = DB::table('dids')->where('supplier_id',$id)->where('is_test',0)
+            ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+        $rangeCounts = DB::table('did_ranges')->where('supplier_id',$id)
+            ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+        $testCounts = DB::table('dids')->where('supplier_id',$id)->where('is_test',1)
+            ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+        $out = $prefixes->map(function($p) use ($numberCounts,$rangeCounts,$testCounts) {
+            $p = (array)$p;
+            $p['number_count'] = ($numberCounts[$p['id']] ?? 0) + ($rangeCounts[$p['id']] ?? 0);
+            $p['test_number_count'] = $testCounts[$p['id']] ?? 0;
+            return $p;
+        });
+        return response()->json(['data'=>$out]);
+    });
+
+    Route::post('/v1/supplier-accounts/{id}/prefixes', function(Request $r, $id) {
+        $supplier = DB::table('suppliers')->find($id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$r->prefix || !$r->country || !$r->price || !$r->payment_term || !$r->test_number)
+            return response()->json(['error'=>'Prefix, country, price, payment term and test number are required'],422);
+        if (DB::table('supplier_prefixes')->where('supplier_id',$id)->where('prefix',$r->prefix)->exists())
+            return response()->json(['error'=>'This prefix already exists for this supplier'],409);
+
+        $prefixId = DB::table('supplier_prefixes')->insertGetId([
+            'supplier_id'   => $id,
+            'prefix'        => $r->prefix,
+            'country'       => $r->country,
+            'price'         => $r->price,
+            'payment_term'  => $r->payment_term,
+            'test_number'   => $r->test_number,
+            'operator'      => $r->operator,
+            'status'        => $r->status ?? 'active',
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+
+        // The Prefix's own required test number is immediately reflected as
+        // a real Test Number record too, so both tables stay in sync without
+        // asking the user to enter it twice.
+        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->test_number),'+');
+        if (!DB::table('dids')->where('number',$num)->exists()) {
+            $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
+            DB::table('dids')->insert([
+                'number' => $num, 'trunk_id' => $trunk->id ?? null, 'supplier_id' => $id,
+                'prefix_id' => $prefixId, 'is_test' => 1, 'prefix' => $r->prefix,
+                'country_name' => $r->country, 'country_code' => 'XX', 'tariff' => $r->price,
+                'currency' => 'USDT', 'status' => 'active', 'ivr_context' => 'custom/6g-premium-telecom',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($prefixId)],201);
+    });
+
+    Route::put('/v1/supplier-accounts/{id}/prefixes/{prefixId}', function(Request $r, $id, $prefixId) {
+        $prefix = DB::table('supplier_prefixes')->where('id',$prefixId)->where('supplier_id',$id)->first();
+        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],404);
+        if ($r->filled('prefix') && $r->prefix !== $prefix->prefix
+            && DB::table('supplier_prefixes')->where('supplier_id',$id)->where('prefix',$r->prefix)->exists())
+            return response()->json(['error'=>'This prefix already exists for this supplier'],409);
+        DB::table('supplier_prefixes')->where('id',$prefixId)->update([
+            'prefix'       => $r->prefix ?? $prefix->prefix,
+            'country'      => $r->country ?? $prefix->country,
+            'price'        => $r->price ?? $prefix->price,
+            'payment_term' => $r->payment_term ?? $prefix->payment_term,
+            'test_number'  => $r->test_number ?? $prefix->test_number,
+            'operator'     => $r->operator ?? $prefix->operator,
+            'status'       => $r->status ?? $prefix->status,
+            'updated_at'   => now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($prefixId)]);
+    });
+
+    Route::delete('/v1/supplier-accounts/{id}/prefixes/{prefixId}', function($id, $prefixId) {
+        $prefix = DB::table('supplier_prefixes')->where('id',$prefixId)->where('supplier_id',$id)->first();
+        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],404);
+        // DB-level ON DELETE CASCADE removes child dids/did_ranges rows;
+        // cdrs/invoices are untouched (no FK path from supplier_prefixes).
+        DB::table('supplier_prefixes')->where('id',$prefixId)->delete();
+        return response()->json(['success'=>true]);
+    });
+
     // Numbers/ranges are the supplier's production inventory (existing
-    // dids/did_ranges tables, filtered by supplier_id). Test numbers use
-    // the same dids table with is_test=1 so they can never mix with
-    // production numbers.
+    // dids/did_ranges tables, filtered by supplier_id) and always belong to
+    // a Prefix. Test numbers use the same dids table with is_test=1 so they
+    // can never mix with production numbers.
     Route::get('/v1/supplier-accounts/{id}/numbers', function($id) {
         $numbers = DB::table('dids')->where('supplier_id',$id)->where('is_test',0)->orderByDesc('created_at')->get();
         $ranges  = DB::table('did_ranges')->where('supplier_id',$id)->orderByDesc('created_at')->get();
@@ -578,6 +692,10 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::post('/v1/supplier-accounts/{id}/numbers', function(Request $r, $id) {
         $supplier = DB::table('suppliers')->find($id);
         if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$r->prefix_id) return response()->json(['error'=>'prefix_id is required'],422);
+        $prefix = DB::table('supplier_prefixes')->where('id',$r->prefix_id)->where('supplier_id',$id)->first();
+        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],422);
+        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
 
         if ($r->mode === 'range') {
             if (!$r->range_start || !$r->range_end) return response()->json(['error'=>'range_start and range_end are required'],422);
@@ -586,16 +704,17 @@ Route::middleware('auth:sanctum')->group(function() {
             $count = (int)$end - (int)$start + 1;
             if ($count < 1) return response()->json(['error'=>'range_end must be >= range_start'],422);
             $rangeId = DB::table('did_ranges')->insertGetId([
-                'batch_name'    => $r->batch_name ?? (($r->country_name??'Unknown').' '.($r->prefix ?? substr($start,0,-4))),
-                'country_code'  => $r->country_code,
-                'country_name'  => $r->country_name,
-                'prefix'        => $r->prefix ?? substr($start,0,-4),
+                'batch_name'    => $r->batch_name ?? ($prefix->country.' '.$prefix->prefix),
+                'country_code'  => 'XX',
+                'country_name'  => $prefix->country,
+                'prefix'        => $prefix->prefix,
+                'prefix_id'     => $prefix->id,
                 'range_start'   => $start,
                 'range_end'     => $end,
-                'rate'          => $r->tariff ?? $supplier->tariff ?? 0,
-                'selling_price' => $r->selling_price ?? $r->tariff ?? 0,
-                'currency'      => $r->currency ?? $supplier->currency ?? 'EUR',
-                'payment_terms' => $r->payment_terms ?? $supplier->payment_terms ?? 'Weekly',
+                'rate'          => $prefix->price,
+                'selling_price' => $prefix->price,
+                'currency'      => 'USDT',
+                'payment_terms' => $prefix->payment_term,
                 'supplier_name' => $supplier->name,
                 'supplier_id'   => $id,
                 'default_ivr'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
@@ -612,19 +731,19 @@ Route::middleware('auth:sanctum')->group(function() {
         $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
         if (DB::table('dids')->where('number',$num)->exists())
             return response()->json(['error'=>'Number already exists'],409);
-        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
         $didId = DB::table('dids')->insertGetId([
             'number'        => $num,
             'trunk_id'      => $trunk->id ?? null,
             'supplier_id'   => $id,
+            'prefix_id'     => $prefix->id,
             'is_test'       => 0,
-            'prefix'        => $r->prefix ?? '',
-            'country_name'  => $r->country_name ?? 'Unknown',
-            'country_code'  => $r->country_code ?? 'XX',
-            'tariff'        => $r->tariff ?? $supplier->tariff ?? 0.07,
-            'selling_price' => $r->selling_price ?? $r->tariff ?? 0.07,
-            'currency'      => $r->currency ?? $supplier->currency ?? 'EUR',
-            'payment_terms' => $r->payment_terms ?? $supplier->payment_terms ?? 'Weekly',
+            'prefix'        => $prefix->prefix,
+            'country_name'  => $prefix->country,
+            'country_code'  => 'XX',
+            'tariff'        => $prefix->price,
+            'selling_price' => $prefix->price,
+            'currency'      => 'USDT',
+            'payment_terms' => $prefix->payment_term,
             'status'        => 'active',
             'ivr_context'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
             'created_at'    => now(),
@@ -641,6 +760,9 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::post('/v1/supplier-accounts/{id}/test-numbers', function(Request $r, $id) {
         $supplier = DB::table('suppliers')->find($id);
         if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        if (!$r->prefix_id) return response()->json(['error'=>'prefix_id is required'],422);
+        $prefix = DB::table('supplier_prefixes')->where('id',$r->prefix_id)->where('supplier_id',$id)->first();
+        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],422);
         if (!$r->number) return response()->json(['error'=>'number is required'],422);
         $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
         if (DB::table('dids')->where('number',$num)->exists())
@@ -650,18 +772,46 @@ Route::middleware('auth:sanctum')->group(function() {
             'number'        => $num,
             'trunk_id'      => $trunk->id ?? null,
             'supplier_id'   => $id,
+            'prefix_id'     => $prefix->id,
             'is_test'       => 1,
-            'prefix'        => $r->prefix ?? '',
-            'country_name'  => $r->country_name ?? 'Unknown',
-            'country_code'  => $r->country_code ?? 'XX',
-            'currency'      => $r->currency ?? $supplier->currency ?? 'EUR',
-            'status'        => $r->status ?? 'active',
+            'prefix'        => $prefix->prefix,
+            'country_name'  => $prefix->country,
+            'country_code'  => 'XX',
+            'tariff'        => $prefix->price,
+            'currency'      => 'USDT',
+            'status'        => 'active',
             'ivr_context'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
             'created_at'    => now(),
             'updated_at'    => now(),
         ]);
         if ($r->notes) DB::table('dids')->where('id',$id2)->update(['route'=>$r->notes]);
         return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id2)],201);
+    });
+
+    // Access History uses real CDRs against this supplier's test numbers.
+    // "Access From" is the CALLER origin (cdrs.src) - never the supplier's
+    // own SIP IP, which is a Trunk/Asterisk concept and has no place here.
+    Route::get('/v1/supplier-accounts/{id}/access-history', function($id) {
+        // Keyed by the number with any leading '+' stripped, since Asterisk
+        // CDRs (cdrs.did) never carry one while dids.number always does.
+        $testNumbers = DB::table('dids')->where('supplier_id',$id)->where('is_test',1)->get()
+            ->keyBy(fn($d) => ltrim($d->number, '+'));
+        if ($testNumbers->isEmpty()) return response()->json(['data'=>[]]);
+        $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('id');
+        $rows = DB::table('cdrs')->whereIn(DB::raw("REPLACE(did,'+','')"), $testNumbers->keys())
+            ->orderByDesc('call_start')->limit(200)->get();
+        $out = $rows->map(function($c) use ($testNumbers, $prefixes) {
+            $tn = $testNumbers[ltrim($c->did,'+')] ?? null;
+            $prefix = $tn && $tn->prefix_id ? ($prefixes[$tn->prefix_id] ?? null) : null;
+            return [
+                'date'        => $c->call_start,
+                'prefix'      => $prefix->prefix ?? ($tn->prefix ?? '—'),
+                'price'       => $prefix->price ?? ($tn->tariff ?? 0),
+                'test_number' => $c->did,
+                'access_from' => $c->src ?? '—',
+            ];
+        });
+        return response()->json(['data'=>$out->values()]);
     });
 
     // ── Supplier Payments (reuses invoices table, invoice_type='supplier_payment') ──
@@ -685,11 +835,10 @@ Route::middleware('auth:sanctum')->group(function() {
             $to = now();
             if ($from->gte($to)) continue;
 
-            foreach (computeSupplierPayable($s->id, $from, $to) as $row) {
+            $defaultTerm = $s->settlement_period ?: 'Net 30';
+            foreach (computeSupplierPayable($s->id, $from, $to, $defaultTerm) as $row) {
                 if ($row['calls'] <= 0) continue;
                 $bucket = in_array($s->payment_terms, ['Daily','Weekly','Monthly']) ? $s->payment_terms : 'Other';
-                $days = 0;
-                if ($s->settlement_period && preg_match('/(\d+)/', $s->settlement_period, $m)) $days = (int)$m[1];
                 $buckets[$bucket][] = [
                     'supplier_id'   => $s->id,
                     'supplier_name' => $s->name,
@@ -698,10 +847,10 @@ Route::middleware('auth:sanctum')->group(function() {
                     'calls'         => $row['calls'],
                     'minutes'       => $row['minutes'],
                     'amount'        => $row['amount'],
-                    'currency'      => $row['currency'],
+                    'currency'      => 'USDT',
                     'rate'          => $row['rate'],
-                    'due_date'      => $to->copy()->addDays($days)->toDateString(),
-                    'payment_terms' => $s->payment_terms,
+                    'payment_term'  => $row['payment_term'],
+                    'due_date'      => $to->copy()->addDays(parsePaymentTermDays($row['payment_term']))->toDateString(),
                 ];
             }
         }
@@ -711,17 +860,21 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::post('/v1/supplier-payments/mark-paid', function(Request $r) {
         $supplier = DB::table('suppliers')->find($r->supplier_id);
         if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-        if (!$r->period_start || !$r->period_end || !$r->currency) return response()->json(['error'=>'period_start, period_end and currency are required'],422);
-        if (!$r->payment_method_id || !DB::table('payment_methods')->where('id',$r->payment_method_id)->exists())
-            return response()->json(['error'=>'A valid payment method is required'],422);
+        if (!$r->period_start || !$r->period_end || !$r->payment_term) return response()->json(['error'=>'period_start, period_end and payment_term are required'],422);
 
         // Recompute authoritatively server-side rather than trusting client totals.
         $from = \Carbon\Carbon::parse($r->period_start)->startOfDay();
         $to   = \Carbon\Carbon::parse($r->period_end)->endOfDay();
-        $rows = collect(computeSupplierPayable($supplier->id, $from, $to))->firstWhere('currency', $r->currency);
-        if (!$rows || $rows['calls'] <= 0) return response()->json(['error'=>'No pending payable amount found for this period/currency'],422);
+        $rows = collect(computeSupplierPayable($supplier->id, $from, $to, $r->payment_term))->firstWhere('payment_term', $r->payment_term);
+        if (!$rows || $rows['calls'] <= 0) return response()->json(['error'=>'No pending payable amount found for this period/term'],422);
 
-        $invNum = 'SPAY-'.now()->format('YmdHis').'-'.$supplier->id.'-'.$r->currency;
+        // Platform pays suppliers in USDT only - fixed method, no selection UI.
+        $usdtMethodId = DB::table('payment_methods')->where('name','USDT')->value('id');
+        if (!$usdtMethodId) {
+            $usdtMethodId = DB::table('payment_methods')->insertGetId(['name'=>'USDT','enabled'=>true,'created_at'=>now(),'updated_at'=>now()]);
+        }
+
+        $invNum = 'SPAY-'.now()->format('YmdHis').'-'.$supplier->id;
         $id = DB::table('invoices')->insertGetId([
             'invoice_number'    => $invNum,
             'supplier_id'       => $supplier->id,
@@ -731,11 +884,11 @@ Route::middleware('auth:sanctum')->group(function() {
             'total_calls'       => $rows['calls'],
             'total_minutes'     => $rows['minutes'],
             'total_amount'      => $rows['amount'],
-            'currency'          => $rows['currency'],
+            'currency'          => 'USDT',
             'rate'              => $rows['rate'],
             'status'            => 'paid',
             'invoice_type'      => 'supplier_payment',
-            'payment_method_id' => $r->payment_method_id,
+            'payment_method_id' => $usdtMethodId,
             'paid_at'           => $r->paid_at ? \Carbon\Carbon::parse($r->paid_at) : now(),
             'reference'         => $r->reference,
             'notes'             => $r->notes,
@@ -745,7 +898,7 @@ Route::middleware('auth:sanctum')->group(function() {
 
         DB::table('audit_logs')->insert([
             'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'MARK_PAID',
-            'module'=>'Supplier Payments','details'=>"Paid {$rows['amount']} {$rows['currency']} to {$supplier->name} for {$from->toDateString()}–{$to->toDateString()}",
+            'module'=>'Supplier Payments','details'=>"Paid {$rows['amount']} USDT to {$supplier->name} for {$from->toDateString()}–{$to->toDateString()}",
             'ip_address'=>$r->ip(),'method'=>'POST','url'=>'/api/v1/supplier-payments/mark-paid',
             'status_code'=>201,'created_at'=>now(),'updated_at'=>now(),
         ]);
