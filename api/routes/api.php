@@ -781,7 +781,7 @@ Route::middleware('auth:sanctum')->group(function() {
         if (!$s) return response()->json(['error'=>'Supplier not found'],404);
         $data = $r->only([
             'name','code','country','contact_name','email','phone','status','notes',
-            'tariff','currency','payment_terms','settlement_period','payment_status',
+            'tariff','currency','payment_terms','settlement_period',
             'api_enabled','api_type','api_endpoint','api_auth_method',
         ]);
         if ($r->filled('api_secret')) $data['api_secret'] = $r->api_secret;

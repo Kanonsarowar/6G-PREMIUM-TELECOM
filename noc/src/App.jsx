@@ -1612,7 +1612,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [payHistory,setPayHistory]=useState([]);
   const [payHistFilter,setPayHistFilter]=useState({payment_term:"",date_from:"",date_to:""});
   const [payForm,setPayForm]=useState({payment_terms:supplier.payment_terms||"",settlement_period:supplier.settlement_period||"",
-    payment_status:supplier.payment_status||"",notes:supplier.notes||""});
+    notes:supplier.notes||""});
   const [payDialog,setPayDialog]=useState(null);
   const [payDialogForm,setPayDialogForm]=useState({paid_at:"",reference:"",notes:""});
 
@@ -2504,18 +2504,12 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               </div>
 
               <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Payment Terms</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                <div><div style={lblS}>Settlement Frequency</div>
+              <div style={{marginBottom:12,maxWidth:260}}>
+                <div style={lblS}>Settlement Frequency</div>
                   <select style={inpS} value={payForm.payment_terms} onChange={e=>setPayForm({...payForm,payment_terms:e.target.value})}>
                     <option value="">— Select —</option>
                     <option value="Daily">Daily</option><option value="Weekly">Weekly</option>
                     <option value="Monthly">Monthly</option></select></div>
-                <div><div style={lblS}>Payment Status</div>
-                  <select style={inpS} value={payForm.payment_status} onChange={e=>setPayForm({...payForm,payment_status:e.target.value})}>
-                    <option value="">— Select —</option>
-                    <option value="current">Current</option><option value="overdue">Overdue</option>
-                    <option value="on_hold">On Hold</option></select></div>
-              </div>
               <button onClick={savePayment} disabled={saving}
                 style={{padding:"9px 18px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                 {saving?"Saving...":"Save Payment Terms"}</button>
