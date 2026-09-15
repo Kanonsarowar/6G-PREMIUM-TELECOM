@@ -2120,50 +2120,6 @@ Route::delete('/v1/test/access-list/{id}', function($id) {
     return response()->json(['success'=>true]);
 });
 
-// ── Access List ────────────────────────────────────────────────
-Route::get('/v1/access-list', function() {
-    $rows = DB::table('access_list')->where('status','active')
-              ->orderBy('operator')->orderBy('country')->orderBy('prefix')->get();
-    $grouped = [];
-    foreach($rows as $r){
-        $grouped[$r->operator]['operator'] = $r->operator;
-        $grouped[$r->operator]['countries'][$r->country][] = $r;
-    }
-    $out = [];
-    foreach($grouped as $op=>$g){
-        $countries = [];
-        foreach($g['countries'] as $cn=>$items){
-            $countries[] = ['country'=>$cn,'entries'=>array_values($items)];
-        }
-        $out[] = ['operator'=>$op,'countries'=>$countries,
-                  'total'=>array_sum(array_map(fn($c)=>count($c['entries']),$countries))];
-    }
-    return response()->json(['data'=>$out,'count'=>count($rows)]);
-});
-
-Route::post('/v1/access-list', function(Request $r) {
-    if(!$r->operator || !$r->country || !$r->prefix)
-        return response()->json(['error'=>'operator, country and prefix are required'],422);
-    try {
-        $id = DB::table('access_list')->insertGetId([
-            'operator'=>$r->operator, 'country'=>$r->country, 'prefix'=>$r->prefix,
-            'supplier'=>$r->supplier, 'price'=>(float)($r->price??0),
-            'currency'=>$r->currency??'EUR', 'test_number'=>$r->test_number,
-            'note'=>$r->note, 'status'=>'active',
-            'created_at'=>now(), 'updated_at'=>now(),
-        ]);
-        return response()->json(['success'=>true,'id'=>$id]);
-    } catch(\Exception $e){
-        return response()->json(['error'=>str_contains($e->getMessage(),'uniq_op_prefix')
-            ? 'This prefix already exists for that operator' : 'Insert failed'],409);
-    }
-});
-
-Route::delete('/v1/access-list/{id}', function($id) {
-    DB::table('access_list')->delete($id);
-    return response()->json(['success'=>true]);
-});
-
 // ── Delete DID Range (and its numbers) ─────────────────────────
 Route::delete('/v1/did-ranges/{id}', function($id) {
     $range = DB::table('did_ranges')->find($id);
