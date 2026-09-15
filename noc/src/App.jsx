@@ -1630,6 +1630,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   const liveCallRef=useRef(null);
   const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
+  const SAUDI_OPERATORS=["STC","Mobily","Zain KSA","Virgin Mobile","Lebara","Friendi Mobile","Red Bull MOBILE","Other"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
@@ -2223,7 +2224,11 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               <input style={inpS} value={prefixForm.test_number} onChange={e=>setPrefixForm({...prefixForm,test_number:e.target.value})} placeholder="+919876543210" disabled={!!editingPrefix}/>
             </div>
             <div style={{marginBottom:10}}><div style={lblS}>Operator (optional)</div>
-              <input style={inpS} value={prefixForm.operator} onChange={e=>setPrefixForm({...prefixForm,operator:e.target.value})} placeholder="STC"/></div>
+              <select style={inpS} value={prefixForm.operator} onChange={e=>setPrefixForm({...prefixForm,operator:e.target.value})}>
+                <option value="">— Select —</option>
+                {prefixForm.operator&&!SAUDI_OPERATORS.includes(prefixForm.operator)&&<option value={prefixForm.operator}>{prefixForm.operator}</option>}
+                {SAUDI_OPERATORS.map(o=><option key={o} value={o}>{o}</option>)}
+              </select></div>
             <div style={{marginBottom:16}}><div style={lblS}>Status</div>
               <select style={inpS} value={prefixForm.status} onChange={e=>setPrefixForm({...prefixForm,status:e.target.value})}>
                 <option value="active">Active</option><option value="inactive">Inactive</option>
