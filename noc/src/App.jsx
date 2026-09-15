@@ -49,11 +49,6 @@ const getNavGroups=(role)=>{
     {id:"resellers",label:"Resellers",icon:"👥"},
     {id:"customers",label:"Customers",icon:"◷"},
   ]},
-  {key:"network",label:"Networking",items:[
-    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
-    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
-    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
-  ]},
   {key:"testlab",label:"Test Lab",items:[
     {id:"testnumbers",label:"Test Numbers",icon:"📋"},
     {id:"addtestnumber",label:"Add Test Number",icon:"➕"},
@@ -64,21 +59,20 @@ const getNavGroups=(role)=>{
     {id:"fraudcontrol",label:"Fraud Control",icon:"🛡"},
     {id:"auditlog",label:"Audit Log",icon:"📜"},
   ]},
+  {key:"automation",label:"Automation",items:[
+    {id:"scheduler",label:"Scheduler",icon:"⏱"},
+  ]},
   {key:"system",label:"System",items:[
     {id:"systemhealth",label:"System Health",icon:"♥"},
+    ...(isSuperAdmin?[{id:"sysops",label:"System Operations",icon:"🛠"}]:[]),
     ...(isSuperAdmin?[{id:"settings",label:"Settings",icon:"⚙"}]:[]),
   ]},
   ...(isSuperAdmin?[{key:"asterisk",label:"Asterisk Configuration",items:[
-    {id:"ast-general",label:"General",icon:"⚙"},
-    {id:"ast-suppliers",label:"Suppliers / SIP Auth",icon:"📞"},
-    {id:"ast-did",label:"DID / Prefix Routing",icon:"🔀"},
-    {id:"ast-ivr",label:"IVR Routing",icon:"🎙"},
-    {id:"ast-rtp",label:"RTP",icon:"📡"},
-    {id:"ast-firewall",label:"Firewall Info",icon:"🧱"},
-    {id:"ast-preview",label:"Config Preview",icon:"👁"},
-    {id:"ast-apply",label:"Apply Configuration",icon:"🚀"},
-    {id:"ast-reload",label:"Reload / Status",icon:"🔄"},
-    {id:"ast-history",label:"History / Backup",icon:"🕘"},
+    {id:"ast-trunks",label:"Trunks",icon:"📞"},
+    {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
+    {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
+    {id:"ast-sipsettings",label:"SIP Settings",icon:"⚙"},
+    {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
   ]}]:[]),
 ]};
 
@@ -4408,8 +4402,30 @@ function SettingsPage({user,logout}){
   );
 }
 
+// ── Placeholder pages ────────────────────────────────────────────────
+function ComingSoonPage({icon,title,description}){
+  return(
+    <div style={{padding:16}}>
+      <div style={{fontSize:16,fontWeight:800,marginBottom:4}}>{icon} {title}</div>
+      <Card style={{padding:40,textAlign:"center",marginTop:12}}>
+        <div style={{fontSize:32,marginBottom:8}}>{icon}</div>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Coming soon</div>
+        <div style={{color:C.muted,fontSize:12,maxWidth:420,margin:"0 auto"}}>{description}</div>
+      </Card>
+    </div>
+  );
+}
+function SchedulerPage(){
+  return <ComingSoonPage icon="⏱" title="Scheduler"
+    description="Automated/scheduled NOC jobs will be managed here."/>;
+}
+function SystemOperationsPage(){
+  return <ComingSoonPage icon="🛠" title="System Operations"
+    description="Operational controls for the platform (outside of Asterisk-specific reload/apply, which live under Asterisk Configuration → SIP Settings) will be managed here."/>;
+}
+
 // ── Asterisk Configuration ──────────────────────────────────────────
-function AsteriskConfigPage({token,user,initialTab}){
+function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   const [tab,setTab]=useState(initialTab||"general");
   const [status,setStatus]=useState(null);
   const [general,setGeneral]=useState(null);
@@ -4513,11 +4529,15 @@ function AsteriskConfigPage({token,user,initialTab}){
 
   // ── Supplier / SIP Auth CRUD ──────────────────────────────────────
   const openAddSupplier=()=>setSupplierModal({mode:"add",id:null,form:{
-    name:"",nickname:"",host:"",port:"5060",auth_type:"ip",sip_username:"",sip_password:"",qualify:"60"}});
+    name:"",nickname:"",host:"",port:"5060",transport:"udp",pjsip_name:"",
+    auth_type:"ip",sip_username:"",sip_password:"",qualify:"60",
+    codecs:"ulaw,alaw",max_channels:"500",max_call_duration:"1800"}});
   const openEditSupplier=(s)=>setSupplierModal({mode:"edit",id:s.id,form:{
     name:s.name||"",nickname:s.nickname||"",host:s.host||"",port:s.port||"5060",
+    transport:s.transport||"udp",pjsip_name:s.pjsip_name||"",
     auth_type:s.auth_type||"ip",sip_username:s.sip_username||"",sip_password:"",
-    qualify:s.qualify??"60"}});
+    qualify:s.qualify??"60",codecs:s.codecs||"ulaw,alaw",
+    max_channels:s.max_channels??"500",max_call_duration:s.max_call_duration??"1800"}});
   const saveSupplierModal=async()=>{
     if(!supplierModal) return;
     setBusy(true);
@@ -4530,7 +4550,9 @@ function AsteriskConfigPage({token,user,initialTab}){
         await apiFetch(`/suppliers/${newId}`,token,{method:"PUT",body:JSON.stringify({
           ...created.data,nickname:f.nickname||f.name,auth_type:f.auth_type,
           sip_username:f.sip_username,sip_password:f.sip_password||undefined,
-          qualify:f.qualify,is_active:1})});
+          qualify:f.qualify,transport:f.transport,pjsip_name:f.pjsip_name,
+          codecs:f.codecs,max_channels:f.max_channels,max_call_duration:f.max_call_duration,
+          is_active:1})});
       }
     } else {
       const current=suppliers.find(s=>s.id===supplierModal.id)||{};
@@ -4580,18 +4602,19 @@ function AsteriskConfigPage({token,user,initialTab}){
     setBusy(false);loadPrefixes();
   };
 
-  const tabs=[
+  const allTabs=[
     {id:"general",label:"General"},
-    {id:"suppliers",label:"Suppliers / SIP Auth"},
+    {id:"suppliers",label:"Trunks"},
     {id:"did",label:"DID / Prefix Routing"},
     {id:"ivr",label:"IVR Routing"},
-    {id:"rtp",label:"RTP"},
+    {id:"rtp",label:"RTP / Media"},
     {id:"firewall",label:"Firewall Info"},
     {id:"preview",label:"Config Preview"},
     {id:"apply",label:"Apply Configuration"},
     {id:"reload",label:"Reload / Status"},
     {id:"history",label:"History / Backup"},
   ];
+  const tabs=visibleTabIds?allTabs.filter(t=>visibleTabIds.includes(t.id)):allTabs;
 
   const statusDot=(ok)=>(
     <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",
@@ -4635,10 +4658,12 @@ function AsteriskConfigPage({token,user,initialTab}){
   return(
     <div style={{padding:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-        <div style={{fontSize:16,fontWeight:800}}>📡 Asterisk Configuration</div>
+        <div style={{fontSize:16,fontWeight:800}}>{tabs.length===1&&tabs[0].id==="suppliers"?"📞 Trunks":"⚙ SIP Settings"}</div>
       </div>
       <div style={{fontSize:11,color:C.muted,marginBottom:14}}>
-        Configure Asterisk entirely from this panel — Panel Forms → Database → Generator → Preview → Validate → Apply → Reload → Asterisk. You never need to hand-edit /etc/asterisk/*.conf.
+        {tabs.length===1&&tabs[0].id==="suppliers"
+          ?"Manage the SIP/PJSIP connection to each supplier — IP, auth, transport, codecs, qualify and capacity. Refers to the same trunk record used on Partners → Suppliers for commercial details."
+          :"Global Asterisk/PJSIP configuration — Panel Forms → Database → Generator → Preview → Validate → Apply → Reload → Asterisk. You never need to hand-edit /etc/asterisk/*.conf."}
       </div>
 
       {/* Dashboard cards */}
@@ -4659,15 +4684,17 @@ function AsteriskConfigPage({token,user,initialTab}){
       </div>
 
       {/* Sub-tabs */}
-      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
-            style={{padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11.5,fontWeight:700,
-              background:tab===t.id?C.accent:"#F0F0F5",color:tab===t.id?"#FFF":C.muted}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {tabs.length>1&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
+          {tabs.map(t=>(
+            <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
+              style={{padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11.5,fontWeight:700,
+                background:tab===t.id?C.accent:"#F0F0F5",color:tab===t.id?"#FFF":C.muted}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {result&&(
         <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
@@ -4722,24 +4749,27 @@ function AsteriskConfigPage({token,user,initialTab}){
       {tab==="suppliers"&&(
         <Card style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:13,fontWeight:700}}>Suppliers / SIP Authentication</div>
-            <button onClick={openAddSupplier} style={btn(C.green)}>+ Add Supplier IP</button>
+            <div style={{fontSize:13,fontWeight:700}}>Trunks</div>
+            <button onClick={openAddSupplier} style={btn(C.green)}>+ Add Trunk</button>
           </div>
           <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
-            Configures the SIP access side (IP/port/auth) of suppliers already created on the Suppliers page. Each enabled supplier below gets its own PJSIP endpoint + identify section in the generated config.
+            The SIP/PJSIP connection side (IP/port/transport/auth/codecs/capacity) of each supplier trunk. Commercial details (contact, panel, notes) live on Partners → Suppliers — both views edit the same trunk record. Each enabled trunk below gets its own PJSIP endpoint + identify section in the generated config.
           </div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
-                <th style={{padding:"6px 8px"}}>Supplier</th><th>SIP IP</th><th>SIP Port</th><th>Authentication</th><th>Status</th><th></th>
+                <th style={{padding:"6px 8px"}}>Trunk</th><th>PJSIP Name</th><th>SIP IP</th><th>Port</th><th>Authentication</th><th>Max Ch</th><th>DIDs</th><th>Status</th><th></th>
               </tr></thead>
               <tbody>
                 {suppliers.map(s=>(
                   <tr key={s.id} style={{borderTop:`1px solid ${C.border}`}}>
                     <td style={{padding:"8px"}}>{s.nickname||s.name}</td>
+                    <td style={{fontFamily:"monospace",fontSize:11}}>{s.pjsip_name||"—"}</td>
                     <td style={{fontFamily:"monospace"}}>{s.host}</td>
                     <td>{s.port||5060}</td>
                     <td>{s.auth_type||"ip"}{s.has_sip_password?" 🔒":""}</td>
+                    <td>{s.max_channels??"—"}</td>
+                    <td>{s.did_count??0}</td>
                     <td>{statusDot(!!s.is_active)}{s.is_active?"Enabled":"Disabled"}</td>
                     <td>
                       <div style={{display:"flex",gap:6}}>
@@ -4750,7 +4780,7 @@ function AsteriskConfigPage({token,user,initialTab}){
                     </td>
                   </tr>
                 ))}
-                {!suppliers.length&&<tr><td colSpan={6} style={{padding:16,textAlign:"center",color:C.muted}}>No suppliers yet — click "+ Add Supplier IP".</td></tr>}
+                {!suppliers.length&&<tr><td colSpan={9} style={{padding:16,textAlign:"center",color:C.muted}}>No trunks yet — click "+ Add Trunk".</td></tr>}
               </tbody>
             </table>
           </div>
@@ -5043,6 +5073,16 @@ function AsteriskConfigPage({token,user,initialTab}){
           {field("SIP Port",
             <input style={inp} type="number" value={supplierModal.form.port}
               onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,port:e.target.value}}))}/>)}
+          {field("Transport",
+            <select style={sel} value={supplierModal.form.transport}
+              onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,transport:e.target.value}}))}>
+              <option value="udp">UDP</option>
+              <option value="tcp">TCP</option>
+              <option value="tls">TLS</option>
+            </select>)}
+          {field("PJSIP Endpoint Name (leave blank to auto-generate from nickname)",
+            <input style={inp} value={supplierModal.form.pjsip_name} placeholder="AUTO-GENERATED"
+              onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,pjsip_name:e.target.value}}))}/>)}
           {field("Authentication",
             <select style={sel} value={supplierModal.form.auth_type}
               onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,auth_type:e.target.value}}))}>
@@ -5059,6 +5099,31 @@ function AsteriskConfigPage({token,user,initialTab}){
           {field("Qualify Frequency (seconds, 0 = off)",
             <input style={inp} type="number" value={supplierModal.form.qualify}
               onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,qualify:e.target.value}}))}/>)}
+          {field("Max Channels",
+            <input style={inp} type="number" value={supplierModal.form.max_channels}
+              onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,max_channels:e.target.value}}))}/>)}
+          {field("Max Call Duration (seconds, not yet enforced by the dialplan)",
+            <input style={inp} type="number" value={supplierModal.form.max_call_duration}
+              onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,max_call_duration:e.target.value}}))}/>)}
+          {field("Codecs",
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {["ulaw","alaw","g722","gsm","slin","g726","speex","opus"].map(codec=>{
+                const selected=(supplierModal.form.codecs||"").split(",").map(c=>c.trim()).includes(codec);
+                return(
+                  <label key={codec} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,
+                    padding:"4px 8px",borderRadius:6,border:`1px solid ${selected?C.accent:C.border}`,
+                    background:selected?`${C.accent}15`:"transparent",cursor:"pointer"}}>
+                    <input type="checkbox" checked={selected} onChange={e=>{
+                      const codecs=(supplierModal.form.codecs||"").split(",").map(c=>c.trim()).filter(Boolean);
+                      if(e.target.checked){codecs.push(codec);}
+                      else{const i=codecs.indexOf(codec);if(i>-1)codecs.splice(i,1);}
+                      setSupplierModal(m=>({...m,form:{...m.form,codecs:codecs.join(",")}}));
+                    }}/>
+                    {codec}
+                  </label>
+                );
+              })}
+            </div>)}
         </>,
         saveSupplierModal,
         supplierModal.mode==="add"?"Add Supplier":"Save Changes"
@@ -6258,11 +6323,14 @@ export default function App(){
       "test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist",
       "sip-monitor":"sipmonitor",
       "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
-      "asterisk-config":"ast-general","asterisk":"ast-general",
-      "asterisk-general":"ast-general","asterisk-suppliers":"ast-suppliers","asterisk-did":"ast-did",
-      "asterisk-ivr":"ast-ivr","asterisk-rtp":"ast-rtp","asterisk-firewall":"ast-firewall",
-      "asterisk-preview":"ast-preview","asterisk-apply":"ast-apply","asterisk-reload":"ast-reload",
-      "asterisk-history":"ast-history",
+      "asterisk-config":"ast-sipsettings","asterisk":"ast-sipsettings",
+      "asterisk-general":"ast-sipsettings","asterisk-suppliers":"ast-trunks","asterisk-did":"routeprefix",
+      "asterisk-ivr":"routeprefix","asterisk-rtp":"ast-sipsettings","asterisk-firewall":"ast-sipsettings",
+      "asterisk-preview":"ast-sipsettings","asterisk-apply":"ast-sipsettings","asterisk-reload":"ast-sipsettings",
+      "asterisk-history":"ast-sipsettings",
+      "asterisk-trunks":"ast-trunks","trunks":"ast-trunks",
+      "sip-settings":"ast-sipsettings","sipsettings":"ast-sipsettings",
+      "networking":"ast-sipsettings","network":"ast-sipsettings",
     };
     return routes[path]||"dashboard";
   };
@@ -6274,10 +6342,7 @@ export default function App(){
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list",
       "sipmonitor":"sip-monitor","quality":"quality","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","addtestnumber":"add-test-number","fraudcontrol":"fraud-control","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","testaccesslist":"test-access-list","fraudcontrol":"fraud-control","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","add-test-number":"addtestnumber","fraud-control":"fraudcontrol","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","test-access-list":"testaccesslist","fraud-control":"fraudcontrol","system-health":"systemhealth","audit":"auditlog",
-      "ast-general":"asterisk-general","ast-suppliers":"asterisk-suppliers","ast-did":"asterisk-did",
-      "ast-ivr":"asterisk-ivr","ast-rtp":"asterisk-rtp","ast-firewall":"asterisk-firewall",
-      "ast-preview":"asterisk-preview","ast-apply":"asterisk-apply","ast-reload":"asterisk-reload",
-      "ast-history":"asterisk-history",
+      "ast-trunks":"asterisk-trunks","ast-sipsettings":"sip-settings",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -6468,23 +6533,11 @@ export default function App(){
       case "addtestnumber": return <AddTestNumberPage token={token}/>;
       case "fraudcontrol":  return <FraudControlPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
-      case "sipmonitor":    return <SIPMonitorPage token={token}/>;
-      case "testnumbers":   return <TestNumbersPage token={token}/>;
-      case "testlivecall":  return <TestLiveCallPage token={token}/>;
-      case "testaccesslist":return <TestAccessListPage token={token}/>;
-      case "fraudcontrol":  return <FraudControlPage token={token}/>;
-      case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
-      case "ast-general":   return <AsteriskConfigPage key="ast-general" token={token} user={user} initialTab="general"/>;
-      case "ast-suppliers": return <AsteriskConfigPage key="ast-suppliers" token={token} user={user} initialTab="suppliers"/>;
-      case "ast-did":       return <AsteriskConfigPage key="ast-did" token={token} user={user} initialTab="did"/>;
-      case "ast-ivr":       return <AsteriskConfigPage key="ast-ivr" token={token} user={user} initialTab="ivr"/>;
-      case "ast-rtp":       return <AsteriskConfigPage key="ast-rtp" token={token} user={user} initialTab="rtp"/>;
-      case "ast-firewall":  return <AsteriskConfigPage key="ast-firewall" token={token} user={user} initialTab="firewall"/>;
-      case "ast-preview":   return <AsteriskConfigPage key="ast-preview" token={token} user={user} initialTab="preview"/>;
-      case "ast-apply":     return <AsteriskConfigPage key="ast-apply" token={token} user={user} initialTab="apply"/>;
-      case "ast-reload":    return <AsteriskConfigPage key="ast-reload" token={token} user={user} initialTab="reload"/>;
-      case "ast-history":   return <AsteriskConfigPage key="ast-history" token={token} user={user} initialTab="history"/>;
+      case "ast-trunks":     return <AsteriskConfigPage key="ast-trunks" token={token} user={user} initialTab="suppliers" visibleTabIds={["suppliers"]}/>;
+      case "ast-sipsettings":return <AsteriskConfigPage key="ast-sipsettings" token={token} user={user} initialTab="general" visibleTabIds={["general","rtp","firewall","preview","apply","reload","history"]}/>;
+      case "scheduler":     return <SchedulerPage/>;
+      case "sysops":        return <SystemOperationsPage/>;
       default:             return <DashboardPage token={token}/>;
     }
   };

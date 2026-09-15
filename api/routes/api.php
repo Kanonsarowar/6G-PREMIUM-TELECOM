@@ -270,7 +270,13 @@ Route::middleware('auth:sanctum')->group(function() {
     // secret values are only obtainable via the superadmin-only /reveal
     // endpoint below, which is audit-logged.
     Route::get('/v1/suppliers', function(Request $request) {
-        $trunks = DB::table('trunks')->get()->map(fn($t) => redactTrunk($t))->values();
+        $didCounts = DB::table('dids')->select('trunk_id', DB::raw('COUNT(*) as c'))
+            ->groupBy('trunk_id')->pluck('c', 'trunk_id');
+        $trunks = DB::table('trunks')->get()->map(function($t) use ($didCounts) {
+            $t = redactTrunk($t);
+            $t['did_count'] = $didCounts[$t['id']] ?? 0;
+            return $t;
+        })->values();
         return response()->json(['data'=>$trunks]);
     });
 
