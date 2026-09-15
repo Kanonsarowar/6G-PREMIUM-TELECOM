@@ -1660,6 +1660,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [syncNumbersResult,setSyncNumbersResult]=useState(null);
   const [syncingCdr,setSyncingCdr]=useState(false);
   const [syncCdrResult,setSyncCdrResult]=useState(null);
+  const [checkingLive,setCheckingLive]=useState(false);
+  const [checkLiveResult,setCheckLiveResult]=useState(null);
   const [supplierCdr,setSupplierCdr]=useState([]);
 
   const liveCallRef=useRef(null);
@@ -1961,6 +1963,15 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-sync-cdr`,token,{method:"POST"});
     setSyncCdrResult(d);setSyncingCdr(false);
     if(d.success){loadSupplierCdr();}
+  };
+
+  const checkApiLiveCalls=async()=>{
+    setCheckingLive(true);setCheckLiveResult(null);
+    const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-live-calls`,token);
+    const count=Array.isArray(d.data)?d.data.length:0;
+    setCheckLiveResult({success:true,message:`${count} active call${count===1?"":"s"} right now`});
+    setCheckingLive(false);
+    loadLiveCalls();
   };
 
   const actionBtn=(bg,border)=>({padding:"10px 18px",borderRadius:8,border:border?`1px solid ${border}`:"none",
@@ -2587,6 +2598,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 style={{padding:"9px 14px",borderRadius:8,border:"1px solid #2CADA6",background:"#FFF",
                   color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                 {syncingCdr?"Syncing...":"⇅ Sync CDR"}</button>
+              <button onClick={checkApiLiveCalls} disabled={checkingLive||(!supplier.api_endpoint&&!apiForm.api_endpoint)}
+                style={{padding:"9px 14px",borderRadius:8,border:"1px solid #2CADA6",background:"#FFF",
+                  color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                {checkingLive?"Checking...":"⇅ Sync Live Calls"}</button>
             </div>
             {syncNumbersResult&&(
               <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:syncNumbersResult.success?"#10B981":"#EF4444"}}>
@@ -2595,6 +2610,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             {syncCdrResult&&(
               <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:syncCdrResult.success?"#10B981":"#EF4444"}}>
                 {syncCdrResult.success?"✅ "+syncCdrResult.message:"❌ "+(syncCdrResult.error||"Sync failed")}</div>
+            )}
+            {checkLiveResult&&(
+              <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:checkLiveResult.success?"#10B981":"#EF4444"}}>
+                {checkLiveResult.success?"✅ "+checkLiveResult.message:"❌ "+(checkLiveResult.error||"Check failed")}</div>
             )}
             <div style={{fontSize:10,color:"#AAA",marginBottom:16}}>
               Last sync: {supplier.api_last_sync||"never"} · Last status: {supplier.api_last_status||"—"}
