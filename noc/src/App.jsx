@@ -1589,7 +1589,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   const [showAddPrefix,setShowAddPrefix]=useState(false);
   const [editingPrefix,setEditingPrefix]=useState(null);
-  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});
+  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});
   const [showAddNum,setShowAddNum]=useState(false);
   const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
   const [showAddTest,setShowAddTest]=useState(false);
@@ -1640,8 +1640,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const loadSupplierCdr=()=>apiFetch(`/supplier-accounts/${supplier.id}/cdr?pageSize=50`,token).then(d=>setSupplierCdr(d.data||[]));
   const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
   const loadAccessHistory=()=>apiFetch(`/supplier-accounts/${supplier.id}/access-history`,token).then(d=>setAccessHistory(d.data||[]));
+  const [ivrs,setIvrs]=useState([]);
+  const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
 
-  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadSupplierCdr(); },[supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadSupplierCdr(); loadIvrs(); },[supplier.id]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -1723,8 +1725,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   useEffect(()=>{ loadLiveCalls(); },[supplier.id,prefixes.length,numbers.numbers.length,testNumbers.length]);
 
-  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",status:"active"});setShowAddPrefix(true);};
-  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",country_code:p.country_code||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",status:p.status});setShowAddPrefix(true);};
+  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});setShowAddPrefix(true);};
+  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",country_code:p.country_code||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",ivr_context:p.ivr_context||"",status:p.status});setShowAddPrefix(true);};
 
   const savePrefix=async()=>{
     if(!prefixForm.prefix||!prefixForm.country||!prefixForm.price||!prefixForm.payment_term||(!editingPrefix&&!prefixForm.test_number)){
@@ -2017,9 +2019,9 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-              <thead><tr>{["Prefix","Country","Code","Price","Payment Term","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Prefix","Country","Code","Price","Payment Term","IVR","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {prefixes.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
                 prefixes.map((p,i)=>(
                   <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
@@ -2027,6 +2029,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(p.ivr_context||"—").replace("custom/","")}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
                     <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
                       <button onClick={()=>openEditPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
@@ -2243,6 +2246,13 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 {prefixForm.operator&&!SAUDI_OPERATORS.includes(prefixForm.operator)&&<option value={prefixForm.operator}>{prefixForm.operator}</option>}
                 {SAUDI_OPERATORS.map(o=><option key={o} value={o}>{o}</option>)}
               </select></div>
+            <div style={{marginBottom:10}}><div style={lblS}>IVR (optional)</div>
+              <select style={inpS} value={prefixForm.ivr_context} onChange={e=>setPrefixForm({...prefixForm,ivr_context:e.target.value})}>
+                <option value="">— Select —</option>
+                {ivrs.map(i=><option key={i.id} value={`custom/${i.name}`}>{i.display_name||i.name}</option>)}
+              </select>
+              <div style={{fontSize:10,color:"#999",marginTop:4}}>Applies to every number under this prefix — new and existing.</div>
+            </div>
             <div style={{marginBottom:16}}><div style={lblS}>Status</div>
               <select style={inpS} value={prefixForm.status} onChange={e=>setPrefixForm({...prefixForm,status:e.target.value})}>
                 <option value="active">Active</option><option value="inactive">Inactive</option>
