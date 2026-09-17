@@ -16,6 +16,13 @@ $ivr       = $argv[5] ?? 'custom/6g-premium-telecom';
 $channel   = $argv[6] ?? $env['channel'] ?? '';
 $call_start= time() - $billsec;
 
+// Asterisk's own billsec truncates any fractional second (floor), while the
+// supplier bills any started second as a full one (ceiling). Bump by 1 so
+// our recorded duration/revenue matches the supplier's convention instead of
+// reading a false ~1s-shorter call on every reconciliation. Done after
+// $call_start so the start time itself isn't skewed by the rounding.
+if ($billsec > 0) $billsec++;
+
 // Detect supplier from channel. Historical hardcoded names are tried
 // first so existing dashboards/reports that already group by these exact
 // strings keep working unchanged; anything not in this map (including
@@ -25,7 +32,7 @@ $call_start= time() - $billsec;
 // channel name (see AsteriskConfigGenerator::pjsipManagedBlock).
 $trunk_name = 'PROFESSOR';
 $endpointMap = [
-    'WTP'=>'WTP',
+    'WORLD-PREMIUM-TELECOM' => 'WTP',
     'MEDIATEL'   => 'Tokyo',
     'PHONEGROUP' => 'Berlin',
     'GAMA'       => 'Nairobi',

@@ -1069,6 +1069,7 @@ Route::middleware('auth:sanctum')->group(function() {
         if (DB::table('supplier_prefixes')->where('supplier_id',$id)->where('prefix',$r->prefix)->exists())
             return response()->json(['error'=>'This prefix already exists for this supplier'],409);
 
+        $ivrContext = $r->ivr_context ?: 'custom/6g-premium-telecom';
         $prefixId = DB::table('supplier_prefixes')->insertGetId([
             'supplier_id'   => $id,
             'prefix'        => $r->prefix,
@@ -1078,6 +1079,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'payment_term'  => $r->payment_term,
             'test_number'   => $r->test_number,
             'operator'      => $r->operator,
+            'ivr_context'   => $r->ivr_context,
             'status'        => $r->status ?? 'active',
             'created_at'    => now(),
             'updated_at'    => now(),
@@ -1093,7 +1095,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 'number' => $num, 'trunk_id' => $trunk->id ?? null, 'supplier_id' => $id,
                 'prefix_id' => $prefixId, 'is_test' => 1, 'prefix' => $r->prefix,
                 'country_name' => $r->country, 'country_code' => 'XX', 'tariff' => $r->price,
-                'currency' => 'USDT', 'status' => 'active', 'ivr_context' => 'custom/6g-premium-telecom',
+                'currency' => 'USDT', 'status' => 'active', 'ivr_context' => $ivrContext,
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
@@ -1107,6 +1109,7 @@ Route::middleware('auth:sanctum')->group(function() {
         if ($r->filled('prefix') && $r->prefix !== $prefix->prefix
             && DB::table('supplier_prefixes')->where('supplier_id',$id)->where('prefix',$r->prefix)->exists())
             return response()->json(['error'=>'This prefix already exists for this supplier'],409);
+        $newIvrContext = $r->ivr_context ?? $prefix->ivr_context;
         DB::table('supplier_prefixes')->where('id',$prefixId)->update([
             'prefix'       => $r->prefix ?? $prefix->prefix,
             'country'      => $r->country ?? $prefix->country,
@@ -1115,9 +1118,19 @@ Route::middleware('auth:sanctum')->group(function() {
             'payment_term' => $r->payment_term ?? $prefix->payment_term,
             'test_number'  => $r->test_number ?? $prefix->test_number,
             'operator'     => $r->operator ?? $prefix->operator,
+            'ivr_context'  => $newIvrContext,
             'status'       => $r->status ?? $prefix->status,
             'updated_at'   => now(),
         ]);
+
+        // Changing the prefix's IVR re-applies it to every number already
+        // created under this prefix - the whole point of assigning IVR at
+        // the prefix level instead of per individual number.
+        if ($r->filled('ivr_context') && $newIvrContext !== $prefix->ivr_context) {
+            DB::table('dids')->where('prefix_id', $prefixId)->update(['ivr_context' => $newIvrContext, 'updated_at' => now()]);
+            DB::table('did_ranges')->where('prefix_id', $prefixId)->update(['default_ivr' => $newIvrContext, 'updated_at' => now()]);
+        }
+
         return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($prefixId)]);
     });
 
@@ -1169,7 +1182,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 'supplier_name' => $supplier->name,
                 'supplier_id'   => $id,
                 'trunk_id'      => $trunk->id ?? null,
-                'default_ivr'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
+                'default_ivr'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
                 'total_count'   => $count,
                 'is_active'     => 1,
                 'created_at'    => now(),
@@ -1197,7 +1210,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'currency'      => 'USDT',
             'payment_terms' => $prefix->payment_term,
             'status'        => 'active',
-            'ivr_context'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
+            'ivr_context'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
             'created_at'    => now(),
             'updated_at'    => now(),
         ]);
@@ -1232,7 +1245,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'tariff'        => $prefix->price,
             'currency'      => 'USDT',
             'status'        => 'active',
-            'ivr_context'   => $r->ivr_context ?? 'custom/6g-premium-telecom',
+            'ivr_context'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
             'created_at'    => now(),
             'updated_at'    => now(),
         ]);
@@ -2064,10 +2077,19 @@ Route::get('/v1/sip/activity', function() {
             $billsec = trim($parts[13]??'0','"');
             $disposition = trim($parts[14]??'','"');
             if(empty($src)||empty($dst)) continue;
-            $supplier = 'WTP';
-            if(stripos($channel,'MEDIATEL')!==false) $supplier='Mediatel';
+            $supplier = 'Unknown';
+            if(stripos($channel,'WORLD-PREMIUM-TELECOM')!==false) $supplier='WTP';
+            elseif(stripos($channel,'MEDIATEL')!==false) $supplier='Mediatel';
             elseif(stripos($channel,'PHONEGROUP')!==false) $supplier='Phonegroup';
             elseif(stripos($channel,'PURPLE')!==false) $supplier='Purple Number';
+            if($supplier === 'Unknown'){
+                foreach(DB::table('trunks')->where('is_active',1)->get() as $t){
+                    if(stripos($channel, $t->name) !== false){
+                        $supplier = $t->nickname ?: $t->name;
+                        break;
+                    }
+                }
+            }
             $answered[] = [
                 'time'     => $start,
                 'method'   => 'INVITE',
@@ -2179,7 +2201,7 @@ Route::get('/v1/live-calls', function() {
         $trunk_name = 'Unknown';
         // Map Asterisk endpoint names to code names
         $endpointMap = [
-            'WTP'        => 'WTP',
+            'WORLD-PREMIUM-TELECOM' => 'WTP',
             'MEDIATEL'   => 'Mediatel',
             'PHONEGROUP' => 'Phonegroup',
             'GAMA'       => 'Purple Number',
@@ -2430,168 +2452,6 @@ Route::get('/v1/suppliers/{id}/live-calls', function($id) {
     return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
 });
 
-// ── Supplier API Sync ─────────────────────────────────────────
-Route::post('/v1/suppliers/{id}/sync-dids', function($id) {
-    $supplier = DB::table('trunks')->find($id);
-    if(!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-    if(!$supplier->api_url) return response()->json(['error'=>'No API URL configured'],400);
-    if(!$supplier->api_did || $supplier->api_did==='0') return response()->json(['error'=>'DID API not enabled'],400);
-
-    // Build API URL
-    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_did_path??'dids','/');
-
-    // Call supplier API
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer '.($supplier->api_key??''),
-            'X-API-Key: '.($supplier->api_key??''),
-            'Accept: application/json',
-        ],
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if(!$response) return response()->json(['error'=>'Could not reach supplier API'],502);
-
-    $data = json_decode($response, true);
-    if(!$data) return response()->json(['error'=>'Invalid JSON response from supplier'],502);
-
-    // ── Universal Normalizer ──────────────────────────────────
-    // Try to find the array of numbers in response
-    $numbers = [];
-    $possibleArrayKeys = ['data','numbers','dids','items','results','list','records','numbers_list'];
-    foreach($possibleArrayKeys as $key){
-        if(isset($data[$key]) && is_array($data[$key])){
-            $numbers = $data[$key];
-            break;
-        }
-    }
-    // If response itself is array
-    if(empty($numbers) && isset($data[0])) $numbers = $data;
-
-    if(empty($numbers)) return response()->json(['error'=>'Could not find numbers in response','raw'=>substr($response,0,500)],422);
-
-    // Field name variations for each standard field
-    $fieldMap = [
-        'number'       => ['number','did','ddi','msisdn','e164','phone','phonenumber','num','cli','destination','tn'],
-        'country_code' => ['country_code','countrycode','cc','country','iso','iso2','country_iso'],
-        'country_name' => ['country_name','countryname','country','nation','country_label'],
-        'rate'         => ['rate','tariff','price','cost','buy_rate','buying_rate','rate_per_min','price_per_minute'],
-        'currency'     => ['currency','cur','currency_code','curr'],
-    ];
-
-    $imported = 0;
-    $skipped  = 0;
-    $errors   = 0;
-
-    foreach($numbers as $item){
-        if(!is_array($item)) continue;
-
-        // Normalize keys to lowercase
-        $item = array_change_key_case($item, CASE_LOWER);
-
-        // Extract each field trying all variations
-        $extracted = [];
-        foreach($fieldMap as $standard => $variations){
-            foreach($variations as $v){
-                if(isset($item[$v]) && $item[$v]!==null && $item[$v]!==''){
-                    $extracted[$standard] = $item[$v];
-                    break;
-                }
-            }
-        }
-
-        // Must have a number at minimum
-        if(empty($extracted['number'])) { $errors++; continue; }
-
-        // Normalize number format to E.164
-        $num = preg_replace('/[^0-9+]/','',$extracted['number']);
-        if(!str_starts_with($num,'+')) $num = '+'.$num;
-
-        // Skip if already exists
-        $exists = DB::table('dids')->where('number',$num)->orWhere('number',ltrim($num,'+'  ))->exists();
-        if($exists){ $skipped++; continue; }
-
-        // Detect country from number if not provided
-        $countryCode = $extracted['country_code'] ?? null;
-        $countryName = $extracted['country_name'] ?? null;
-        if(!$countryCode){
-            // Basic prefix detection
-            $prefixMap = [
-                '39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
-                '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
-                '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'86'=>['CN','China'],
-                '91'=>['IN','India'],'55'=>['BR','Brazil'],'52'=>['MX','Mexico'],
-                '880'=>['BD','Bangladesh'],'92'=>['PK','Pakistan'],'998'=>['UZ','Uzbekistan'],
-                '593'=>['EC','Ecuador'],'995'=>['GE','Georgia'],'882'=>['SAT','Satellite'],
-            ];
-            $stripped = ltrim($num,'+');
-            foreach([3,2,1] as $len){
-                $prefix = substr($stripped,0,$len);
-                if(isset($prefixMap[$prefix])){
-                    $countryCode = $prefixMap[$prefix][0];
-                    $countryName = $prefixMap[$prefix][1];
-                    break;
-                }
-            }
-        }
-
-        // Insert normalized DID
-        DB::table('dids')->insert([
-            'number'       => $num,
-            'trunk_id'     => $supplier->id,
-            'country_code' => $countryCode ?? 'XX',
-            'country_name' => $countryName ?? 'Unknown',
-            'rate'         => floatval($extracted['rate'] ?? 0),
-            'currency'     => $extracted['currency'] ?? 'USD',
-            'status'       => 'active',
-            'created_at'   => now(),
-            'updated_at'   => now(),
-        ]);
-        $imported++;
-    }
-
-    // Update last sync time
-    DB::table('trunks')->where('id',$id)->update(['updated_at'=>now()]);
-
-    return response()->json([
-        'success'  => true,
-        'imported' => $imported,
-        'skipped'  => $skipped,
-        'errors'   => $errors,
-        'total'    => count($numbers),
-        'message'  => "Sync complete: {$imported} imported, {$skipped} already exist, {$errors} failed",
-    ]);
-});
-
-// ── Supplier Live Calls Sync ───────────────────────────────────
-Route::get('/v1/suppliers/{id}/live-calls', function($id) {
-    $supplier = DB::table('trunks')->find($id);
-    if(!$supplier||!$supplier->api_url) return response()->json(['data'=>[]]);
-
-    $url = rtrim($supplier->api_url,'/').'/'.ltrim($supplier->api_livecalls_path??'livecalls','/');
-    $ch = curl_init();
-    curl_setopt_array($ch,[
-        CURLOPT_URL=>$url,
-        CURLOPT_RETURNTRANSFER=>true,
-        CURLOPT_TIMEOUT=>10,
-        CURLOPT_HTTPHEADER=>[
-            'Authorization: Bearer '.($supplier->api_key??''),
-            'X-API-Key: '.($supplier->api_key??''),
-            'Accept: application/json',
-        ],
-    ]);
-    $response = curl_exec($ch);
-    curl_close($ch);
-    $data = json_decode($response,true);
-    return response()->json(['data'=>$data??[],'supplier'=>$supplier->nickname??$supplier->name]);
-});
-
 
 // ── Invoice PDF Download ───────────────────────────────────────
 Route::get('/v1/invoices/{id}/pdf', function($id) {
@@ -2608,41 +2468,6 @@ Route::put('/v1/invoices/{id}/status', function(Request $r, $id) {
         'updated_at' => now(),
     ]);
     return response()->json(['success'=>true]);
-});
-
-// ── Auto Generate Weekly Invoice (cron) ───────────────────────
-Route::post('/v1/invoices/generate-weekly-supplier', function() {
-    $suppliers = DB::table('trunks')->where('is_active',1)->get();
-    $created = [];
-    foreach($suppliers as $supplier){
-        $cdrs = DB::table('cdrs')
-            ->where('trunk_name',$supplier->name)
-            ->where('created_at','>=',now()->startOfWeek())
-            ->where('created_at','<=',now()->endOfWeek())
-            ->get();
-        if($cdrs->isEmpty()) continue;
-        $total = $cdrs->sum('revenue');
-        $calls = $cdrs->count();
-        $minutes = $cdrs->sum('billsec') / 60;
-        $invNum = 'SINV-'.date('YW').'-'.strtoupper($supplier->name);
-        DB::table('invoices')->insert([
-            'invoice_number' => $invNum,
-            'supplier_name'  => $supplier->nickname??$supplier->name,
-            'period_start'   => now()->startOfWeek(),
-            'period_end'     => now()->endOfWeek(),
-            'total_calls'    => $calls,
-            'total_minutes'  => round($minutes,2),
-            'total_amount'   => round($total,4),
-            'currency'       => $r->currency ?? 'USDT',
-            'status'         => 'unpaid',
-            'invoice_type'   => 'supplier-weekly',
-            'due_date'       => now()->addDays(7),
-            'created_at'     => now(),
-            'updated_at'     => now(),
-        ]);
-        $created[] = $invNum;
-    }
-    return response()->json(['success'=>true,'created'=>$created,'message'=>count($created).' supplier invoices generated']);
 });
 
 // ── Bulk DID Management ────────────────────────────────────────
