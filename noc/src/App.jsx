@@ -6049,8 +6049,10 @@ function SIPMonitorPage({token}){
         if(cur){
           const s=line.match(/(Avail|NonQual|Unavail|Not in use|In use)/);
           if(s&&!cur.status) cur.status=s[1];
-          const r=line.match(/([\d.]+)$/);
-          if(r&&cur.rtt==="—") cur.rtt=r[1]+"ms";
+          if(/^\s*Contact:/.test(line)){
+            const r=line.match(/([\d.]+)$/);
+            if(r&&cur.rtt==="—") cur.rtt=r[1]+"ms";
+          }
         }
       }
       setEps(epList);
