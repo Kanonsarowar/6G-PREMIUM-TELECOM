@@ -407,8 +407,13 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // ── CDR ───────────────────────────────────────────────────
     Route::get('/v1/cdr', function(Request $r) {
-        $q = DB::table('cdrs')->orderByDesc('call_start');
-        if($r->search) $q->where('src','like',"%{$r->search}%")->orWhere('did','like',"%{$r->search}%");
+        // Billable calls only - a call with no revenue (a $0-rate test prefix,
+        // an unrated/failed leg, etc.) isn't real traffic and clutters the CDR.
+        $q = DB::table('cdrs')->where('revenue','>',0)->orderByDesc('call_start');
+        if($r->search) {
+            $term = $r->search;
+            $q->where(fn($q2) => $q2->where('src','like',"%{$term}%")->orWhere('did','like',"%{$term}%"));
+        }
         return response()->json($q->paginate($r->per_page??50));
     });
 
