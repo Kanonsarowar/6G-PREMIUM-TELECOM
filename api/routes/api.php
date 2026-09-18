@@ -2273,13 +2273,71 @@ Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
     $range = DB::table('did_ranges')->find($id);
     if(!$range) return response()->json(['error'=>'Range not found'],404);
-    
+
     // Update DIDs in this range
     $count = DB::table('dids')
         ->where('prefix',$range->prefix)
         ->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
-    
+
     DB::table('did_ranges')->where('id',$id)->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
+    return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
+});
+
+// ── Prefixes (IVR is assigned here, not on ranges - see
+// 2026_09_15_000011_add_ivr_context_to_supplier_prefixes migration) ──
+Route::get('/v1/prefixes', function() {
+    $prefixes = DB::table('supplier_prefixes')
+        ->leftJoin('suppliers','supplier_prefixes.supplier_id','=','suppliers.id')
+        ->select('supplier_prefixes.*','suppliers.name as supplier_name')
+        ->orderBy('supplier_prefixes.prefix')
+        ->get();
+    $numberCounts = DB::table('dids')->whereNotNull('prefix_id')
+        ->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+    $rangeCounts = DB::table('did_ranges')->whereNotNull('prefix_id')
+        ->select('prefix_id',DB::raw('SUM(total_count) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+    $out = $prefixes->map(function($p) use ($numberCounts,$rangeCounts) {
+        $p = (array)$p;
+        $p['number_count'] = ($numberCounts[$p['id']] ?? 0) + ($rangeCounts[$p['id']] ?? 0);
+        return $p;
+    });
+    return response()->json(['data'=>$out,'total'=>count($out)]);
+});
+
+// Bulk update IVR for all Prefixes - cascades to every DID/range under each one
+Route::put('/v1/prefixes/bulk-ivr', function(Request $r) {
+    $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
+    DB::table('supplier_prefixes')->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+    $count = DB::table('dids')->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+    // Copy selected IVR file as default
+    $ivrName = str_replace('custom/','',$ivr);
+    $srcSlin = "/var/lib/asterisk/sounds/custom/{$ivrName}.slin";
+    $dstSlin = "/var/lib/asterisk/sounds/custom/6g-premium-telecom.slin";
+    if(file_exists($srcSlin) && $ivrName !== '6g-premium-telecom'){
+        copy($srcSlin, $dstSlin);
+        exec("chown asterisk:asterisk {$dstSlin}");
+        exec("chmod 644 {$dstSlin}");
+        foreach([
+            "/usr/share/asterisk/sounds/custom/6g-premium-telecom.slin",
+        ] as $altDst){
+            @copy($srcSlin, $altDst);
+            exec("chown asterisk:asterisk {$altDst} 2>/dev/null");
+            exec("chmod 644 {$altDst} 2>/dev/null");
+        }
+    }
+    DB::table('did_ranges')->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
+    return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
+});
+
+// Update IVR for a specific Prefix - re-applies to every DID/range already
+// created under it, the same way price/payment term cascade at the prefix level.
+Route::put('/v1/prefixes/{id}/ivr', function(Request $r, $id) {
+    $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
+    $prefix = DB::table('supplier_prefixes')->find($id);
+    if(!$prefix) return response()->json(['error'=>'Prefix not found'],404);
+
+    DB::table('supplier_prefixes')->where('id',$id)->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+    $count = DB::table('dids')->where('prefix_id',$id)->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+    DB::table('did_ranges')->where('prefix_id',$id)->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
 });
 

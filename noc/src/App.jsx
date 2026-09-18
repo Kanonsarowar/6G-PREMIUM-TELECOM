@@ -3776,15 +3776,15 @@ function IVRStep({n,current,label}){
 // ── Connect IVR ─────────────────────────────────────────────────
 function ConnectIVRPage({token}){
   const [step,setStep]=useState(1);
-  const [ranges,setRanges]=useState([]);
+  const [prefixes,setPrefixes]=useState([]);
   const [ivrs,setIvrs]=useState([]);
-  const [range,setRange]=useState("ALL");
+  const [prefixId,setPrefixId]=useState("ALL");
   const [ivr,setIvr]=useState("");
   const [applying,setApplying]=useState(false);
   const [msg,setMsg]=useState("");
 
   useEffect(()=>{
-    apiFetch("/did-ranges",token).then(d=>setRanges(d.data||[]));
+    apiFetch("/prefixes",token).then(d=>setPrefixes(d.data||[]));
     apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
   },[token]);
 
@@ -3795,10 +3795,10 @@ function ConnectIVRPage({token}){
   const apply=async()=>{
     setApplying(true);setMsg("");
     const ivrCtx=ivr.startsWith("custom/")?ivr:`custom/${ivr}`;
-    if(range==="ALL"){
-      await apiFetch("/did-ranges/bulk-ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
+    if(prefixId==="ALL"){
+      await apiFetch("/prefixes/bulk-ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
     } else {
-      await apiFetch(`/did-ranges/${range}/ivr`,token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
+      await apiFetch(`/prefixes/${prefixId}/ivr`,token,{method:"PUT",body:JSON.stringify({ivr_context:ivrCtx})});
     }
     setMsg("✅ IVR applied successfully!");
     setApplying(false);
@@ -3808,12 +3808,12 @@ function ConnectIVRPage({token}){
   return(
     <div style={{padding:16}}>
       <div style={{fontSize:16,fontWeight:800,marginBottom:4}}>🔗 Connect IVR</div>
-      <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Assign IVR audio to DID ranges</div>
+      <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Assign IVR audio to DID prefixes</div>
 
       <Card style={{padding:20,maxWidth:520,margin:"0 auto"}}>
         {/* Step indicators */}
         <div style={{display:"flex",gap:8,marginBottom:24}}>
-          {[["1","Range"],["2","IVR"],["3","Apply"]].map(([n,label])=>(
+          {[["1","Prefix"],["2","IVR"],["3","Apply"]].map(([n,label])=>(
             <div key={n} style={{flex:1,textAlign:"center"}}>
               <div style={{width:32,height:32,borderRadius:"50%",margin:"0 auto 4px",
                 display:"flex",alignItems:"center",justifyContent:"center",
@@ -3827,21 +3827,21 @@ function ConnectIVRPage({token}){
           ))}
         </div>
 
-        {/* Step 1 - Select Range */}
+        {/* Step 1 - Select Prefix */}
         {step===1&&(
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Select Range</div>
-              <select style={sel} value={range} onChange={e=>setRange(e.target.value)}>
-                <option value="ALL">ALL RANGES ({ranges.length} ranges)</option>
-                {ranges.map(r=>(
-                  <option key={r.id} value={r.id}>{r.country_name} — {r.batch_name} ({r.total_count} numbers)</option>
+              <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Select Prefix</div>
+              <select style={sel} value={prefixId} onChange={e=>setPrefixId(e.target.value)}>
+                <option value="ALL">ALL PREFIXES ({prefixes.length} prefixes)</option>
+                {prefixes.map(p=>(
+                  <option key={p.id} value={p.id}>{p.country} — {p.prefix}{p.supplier_name?` (${p.supplier_name})`:""} ({p.number_count||0} numbers)</option>
                 ))}
               </select>
             </div>
             <div style={{padding:"10px 12px",borderRadius:8,background:`${C.blue}08`,
               border:`1px solid ${C.blue}20`,fontSize:11,color:C.blue}}>
-              {range==="ALL"?`Will update all ${ranges.length} ranges`:`Selected range ID: ${range}`}
+              {prefixId==="ALL"?`Will update all ${prefixes.length} prefixes`:`Selected prefix ID: ${prefixId}`}
             </div>
             <button onClick={()=>setStep(2)}
               style={{padding:"12px",borderRadius:8,border:`1px solid ${C.green}40`,
@@ -3886,7 +3886,7 @@ function ConnectIVRPage({token}){
             <div style={{background:`${C.green}05`,border:`1px solid ${C.green}20`,
               borderRadius:10,padding:16}}>
               <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:12}}>Ready to Apply</div>
-              {[["Range",range==="ALL"?"All Ranges":`Range ID: ${range}`],
+              {[["Prefix",prefixId==="ALL"?"All Prefixes":`Prefix ID: ${prefixId}`],
                 ["IVR",ivr.replace("custom/","")]].map(([k,v])=>(
                 <div key={k} style={{display:"flex",justifyContent:"space-between",
                   padding:"6px 0",borderBottom:`1px solid rgba(255,255,255,0.05)`}}>
