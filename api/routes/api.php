@@ -2062,50 +2062,45 @@ Route::get('/v1/sip/activity', function() {
         }
     }
 
-    // Get CDR CSV for recent answered calls
-    $answered = [];
-    $csvFile = '/var/log/asterisk/cdr-csv/Master.csv';
-    if(file_exists($csvFile)){
-        exec("tail -20 {$csvFile}", $csvLines);
-        foreach($csvLines as $line){
-            $parts = str_getcsv($line);
-            if(count($parts) < 14) continue;
-            $src = trim($parts[1]??'','"');
-            $dst = trim($parts[2]??'','"');
-            $channel = trim($parts[5]??'','"');
-            $start = trim($parts[9]??'','"');
-            $billsec = trim($parts[13]??'0','"');
-            $disposition = trim($parts[14]??'','"');
-            if(empty($src)||empty($dst)) continue;
-            $supplier = 'Unknown';
-            if(stripos($channel,'WORLD-PREMIUM-TELECOM')!==false) $supplier='WTP';
-            elseif(stripos($channel,'MEDIATEL')!==false) $supplier='Mediatel';
-            elseif(stripos($channel,'PHONEGROUP')!==false) $supplier='Phonegroup';
-            elseif(stripos($channel,'PURPLE')!==false) $supplier='Purple Number';
-            if($supplier === 'Unknown'){
-                foreach(DB::table('trunks')->where('is_active',1)->get() as $t){
-                    if(stripos($channel, $t->name) !== false){
-                        $supplier = $t->nickname ?: $t->name;
-                        break;
-                    }
-                }
-            }
-            $answered[] = [
-                'time'     => $start,
-                'method'   => 'INVITE',
-                'caller'   => $src,
-                'did'      => $dst,
-                'supplier' => $supplier,
-                'result'   => $disposition==='ANSWERED'?'ANSWERED':($disposition==='BUSY'?'BUSY':'REJECTED'),
-                'reason'   => $disposition,
-                'duration' => intval($billsec),
-                'source'   => '—',
-            ];
-        }
+    // Get every tracked supplier INVITE (all outcomes) from live_calls, kept by
+    // App\Console\Commands\AmiListener via real Asterisk AMI events - not just
+    // the ones that happened to complete a CDR row (CDR rows for internal
+    // dialplan legs are always "ANSWERED" regardless of the real call outcome,
+    // so they can't be used to tell rejected/no-answer calls apart).
+    $resultMap = [
+        'Answered'    => 'ANSWERED',
+        'Hangup'      => 'ANSWERED',
+        'Busy'        => 'BUSY',
+        'No Answer'   => 'NOANSWER',
+        'Cancelled'   => 'CANCELLED',
+        'Congestion'  => 'CONGESTION',
+        'Unavailable' => 'UNAVAILABLE',
+        'Rejected'    => 'REJECTED',
+        'Ringing'     => 'RINGING',
+        'New'         => 'RINGING',
+    ];
+
+    $tracked = [];
+    foreach (DB::table('live_calls')->whereNotNull('trunk_name')->orderByDesc('created_at')->limit(50)->get() as $c) {
+        $duration = $c->ended_at
+            ? (strtotime($c->ended_at) - strtotime($c->created_at))
+            : (time() - strtotime($c->created_at));
+
+        $tracked[] = [
+            'time'     => $c->created_at,
+            'method'   => 'INVITE',
+            'caller'   => $c->src ?: $c->caller,
+            'did'      => $c->dst ?: $c->callee,
+            'supplier' => $c->trunk_name,
+            'result'   => $resultMap[$c->status] ?? 'REJECTED',
+            'reason'   => $c->hangup_cause ?: $c->status,
+            'duration' => max(0, (int) $duration),
+            'source'   => '—',
+        ];
     }
 
     // Merge and sort by time desc
-    $all = array_merge(array_reverse($answered), $invites);
+    $all = array_merge($tracked, $invites);
     usort($all, fn($a,$b)=>strcmp($b['time'],$a['time']));
 
     // Get channels

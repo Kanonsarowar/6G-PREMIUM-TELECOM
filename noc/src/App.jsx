@@ -6070,8 +6070,19 @@ function SIPMonitorPage({token}){
   },[autoRefresh,load,loadLog,tab]);
 
   const sipFiltered=invites.filter(inv=>!sipSearch||(inv.caller||'').includes(sipSearch)||(inv.did||'').includes(sipSearch)||(inv.supplier||'').toLowerCase().includes(sipSearch.toLowerCase()));
-  const rColor=(r)=>r==="ANSWERED"?"#10B981":r==="BUSY"?"#F59E0B":"#EF4444";
-  const rIcon=(r)=>r==="ANSWERED"?"✅":r==="BUSY"?"⚠️":"❌";
+  const RESULT_META={
+    ANSWERED:   {label:"CONNECTED",  color:"#10B981", icon:"✅"},
+    RINGING:    {label:"RINGING",    color:"#3B82F6", icon:"📞"},
+    BUSY:       {label:"BUSY",       color:"#F59E0B", icon:"⚠️"},
+    NOANSWER:   {label:"NO ANSWER",  color:"#F59E0B", icon:"❌"},
+    CANCELLED:  {label:"CANCELLED",  color:"#9CA3AF", icon:"↩️"},
+    CONGESTION: {label:"CONGESTION", color:"#EF4444", icon:"🚫"},
+    UNAVAILABLE:{label:"UNAVAILABLE",color:"#EF4444", icon:"❌"},
+    REJECTED:   {label:"REJECTED",   color:"#EF4444", icon:"❌"},
+  };
+  const resultMeta=(r)=>RESULT_META[r]||{label:r||"UNKNOWN",color:"#9CA3AF",icon:"❓"};
+  const rColor=(r)=>resultMeta(r).color;
+  const rIcon=(r)=>resultMeta(r).icon;
   const sColor=(s)=>s==="Avail"?"#10B981":s==="Not in use"||s==="NonQual"?"#F59E0B":"#EF4444";
   const sIcon=(s)=>s==="Avail"?"🟢":s==="Not in use"||s==="NonQual"?"🟡":"🔴";
   const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",
@@ -6163,7 +6174,7 @@ function SIPMonitorPage({token}){
                         <td style={{padding:"5px 8px"}}>
                           <span style={{fontSize:9,padding:"2px 6px",borderRadius:8,fontWeight:700,
                             background:rColor(inv.result)+"15",color:rColor(inv.result),whiteSpace:"nowrap"}}>
-                            {rIcon(inv.result)} {inv.result==="ANSWERED"?"RECEIVED":inv.result==="BUSY"?"BUSY":"REJECTED"}
+                            {rIcon(inv.result)} {resultMeta(inv.result).label}
                           </span>
                         </td>
                       </tr>
