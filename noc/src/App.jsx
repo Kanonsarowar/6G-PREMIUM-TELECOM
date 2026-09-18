@@ -5080,21 +5080,12 @@ function SystemOperationsPage(){
 
 // ── Asterisk Configuration ──────────────────────────────────────────
 function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
-  const [tab,setTab]=useState(initialTab||"general");
+  const [tab,setTab]=useState(initialTab||"suppliers");
   const [status,setStatus]=useState(null);
-  const [general,setGeneral]=useState(null);
-  const [generalForm,setGeneralForm]=useState(null);
   const [suppliers,setSuppliers]=useState([]);
   const [prefixes,setPrefixes]=useState([]);
   const [ivrs,setIvrs]=useState([]);
-  const [firewall,setFirewall]=useState(null);
-  const [preview,setPreview]=useState(null);
-  const [previewLoading,setPreviewLoading]=useState(false);
-  const [history,setHistory]=useState([]);
-  const [expandedHistoryId,setExpandedHistoryId]=useState(null);
   const [busy,setBusy]=useState(false);
-  const [result,setResult]=useState(null);
-  const [confirmApply,setConfirmApply]=useState(false);
   const [supplierModal,setSupplierModal]=useState(null); // {mode:'add'|'edit', id, form}
   const [commercialSuppliers,setCommercialSuppliers]=useState([]); // Partners -> Suppliers records, for the trunk's Supplier picker
   const [routeModal,setRouteModal]=useState(null); // {mode:'add'|'edit', id, form}
@@ -5107,81 +5098,17 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   const smallBtn=(col)=>({...btn(col),padding:"4px 8px",fontSize:10});
 
   const loadStatus=useCallback(()=>{apiFetch("/asterisk-config/status",token).then(d=>setStatus(d.data||null));},[token]);
-  const loadGeneral=useCallback(()=>{apiFetch("/asterisk-config/general",token).then(d=>{setGeneral(d.data||null);setGeneralForm(d.data||null);});},[token]);
   const loadSuppliers=useCallback(()=>{apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));},[token]);
   const loadCommercialSuppliers=useCallback(()=>{apiFetch("/supplier-accounts",token).then(d=>setCommercialSuppliers(d.data||[]));},[token]);
   const loadPrefixes=useCallback(()=>{apiFetch("/route-prefixes",token).then(d=>setPrefixes(d.data||[]));},[token]);
   const loadIvrs=useCallback(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
-  const loadFirewall=useCallback(()=>{apiFetch("/asterisk-config/firewall",token).then(d=>setFirewall(d.data||null));},[token]);
-  const loadHistory=useCallback(()=>{apiFetch("/asterisk-config/history",token).then(d=>setHistory(d.data||[]));},[token]);
-  const loadPreview=useCallback(()=>{
-    setPreviewLoading(true);
-    apiFetch("/asterisk-config/preview",token).then(d=>{setPreview(d.data||null);setPreviewLoading(false);});
-  },[token]);
 
-  useEffect(()=>{ loadStatus(); loadGeneral(); },[loadStatus,loadGeneral]);
+  useEffect(()=>{ loadStatus(); },[loadStatus]);
   useEffect(()=>{
     if(tab==="suppliers") { loadSuppliers(); loadCommercialSuppliers(); }
     if(tab==="did") { loadPrefixes(); loadSuppliers(); loadIvrs(); }
     if(tab==="ivr") loadIvrs();
-    if(tab==="firewall") { loadFirewall(); loadSuppliers(); }
-    if(tab==="preview"||tab==="apply") loadPreview();
-    if(tab==="reload") loadStatus();
-    if(tab==="history") loadHistory();
   },[tab]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const saveGeneral=async()=>{
-    setBusy(true);setResult(null);
-    const d=await apiFetch("/asterisk-config/general",token,{method:"PUT",body:JSON.stringify(generalForm)});
-    setResult(d.data?{success:true,summary:"General settings saved."}:{success:false,error:d.error});
-    setGeneral(d.data||general);setGeneralForm(d.data||generalForm);setBusy(false);
-  };
-
-  const saveRtp=async(rtp_start,rtp_end)=>{
-    setBusy(true);setResult(null);
-    const d=await apiFetch("/asterisk-config/rtp",token,{method:"PUT",body:JSON.stringify({rtp_start,rtp_end})});
-    setResult(d.data?{success:true,note:d.note}:{success:false,error:d.error});
-    setGeneral(d.data||general);setBusy(false);
-  };
-
-  const doApply=async()=>{
-    setBusy(true);setResult(null);setConfirmApply(false);
-    const d=await apiFetch("/asterisk-config/apply",token,{method:"POST"});
-    setResult(d.data||d);setBusy(false);
-    loadStatus();loadPreview();loadHistory();
-  };
-
-  const doReload=async(which)=>{
-    setBusy(true);setResult(null);
-    const d=await apiFetch(`/asterisk-config/reload/${which}`,token,{method:"POST"});
-    setResult(d.data||d);setBusy(false);loadStatus();
-  };
-
-  const doTest=async()=>{
-    setBusy(true);setResult(null);
-    const d=await apiFetch("/asterisk-config/test",token,{method:"POST"});
-    setResult(d.data||d);setBusy(false);
-  };
-
-  const doRollback=async(id)=>{
-    if(!window.confirm(`Rollback to history #${id}? This restores that backup and reloads Asterisk now.`)) return;
-    setBusy(true);setResult(null);
-    const d=await apiFetch(`/asterisk-config/history/${id}/rollback`,token,{method:"POST"});
-    setResult(d.data||d);setBusy(false);loadHistory();loadStatus();
-  };
-
-  const doDownload=async(id)=>{
-    const r=await fetch(`${API}/asterisk-config/history/${id}/download`,{
-      headers:{Authorization:`Bearer ${token}`}});
-    if(!r.ok){alert("Download failed");return;}
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;a.download=`asterisk-backup-${id}.zip`;a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const copyText=(text)=>{navigator.clipboard?.writeText(text);};
 
   // ── Supplier / SIP Auth CRUD ──────────────────────────────────────
   const openAddSupplier=()=>setSupplierModal({mode:"add",id:null,form:{
@@ -5260,35 +5187,15 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   };
 
   const allTabs=[
-    {id:"general",label:"General"},
     {id:"suppliers",label:"Trunks"},
     {id:"did",label:"DID / Prefix Routing"},
     {id:"ivr",label:"IVR Routing"},
-    {id:"rtp",label:"RTP / Media"},
-    {id:"firewall",label:"Firewall Info"},
-    {id:"preview",label:"Config Preview"},
-    {id:"apply",label:"Apply Configuration"},
-    {id:"reload",label:"Reload / Status"},
-    {id:"history",label:"History / Backup"},
   ];
   const tabs=visibleTabIds?allTabs.filter(t=>visibleTabIds.includes(t.id)):allTabs;
 
   const statusDot=(ok)=>(
     <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",
       background:ok?C.green:C.red,marginRight:6}}/>
-  );
-
-  const codeBlock=(title,text)=>(
-    <div style={{marginBottom:14}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-        <div style={{fontSize:12,fontWeight:700,color:C.text}}>{title}</div>
-        <button onClick={()=>copyText(text)} style={{...btn(C.blue),padding:"4px 10px",fontSize:11}}>Copy</button>
-      </div>
-      <pre style={{background:"#0F1420",color:"#D4D8E4",padding:14,borderRadius:8,
-        fontSize:11.5,lineHeight:1.6,overflowX:"auto",maxHeight:320,whiteSpace:"pre",fontFamily:"monospace"}}>
-        {text||"(empty)"}
-      </pre>
-    </div>
   );
 
   const modalShell=(title,onClose,children,onSave,saveLabel)=>(
@@ -5315,12 +5222,10 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   return(
     <div style={{padding:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-        <div style={{fontSize:16,fontWeight:800}}>{tabs.length===1&&tabs[0].id==="suppliers"?"📞 Trunks":"⚙ SIP Settings"}</div>
+        <div style={{fontSize:16,fontWeight:800}}>📞 Trunks</div>
       </div>
       <div style={{fontSize:11,color:C.muted,marginBottom:14}}>
-        {tabs.length===1&&tabs[0].id==="suppliers"
-          ?"Manage the SIP/PJSIP connection to each supplier — IP, auth, transport, codecs, qualify and capacity. Refers to the same trunk record used on Partners → Suppliers for commercial details."
-          :"Global Asterisk/PJSIP configuration — Panel Forms → Database → Generator → Preview → Validate → Apply → Reload → Asterisk. You never need to hand-edit /etc/asterisk/*.conf."}
+        Manage the SIP/PJSIP connection to each supplier — IP, auth, transport, codecs, qualify and capacity. Refers to the same trunk record used on Partners → Suppliers for commercial details.
       </div>
 
       {/* Dashboard cards */}
@@ -5344,7 +5249,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
       {tabs.length>1&&(
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
           {tabs.map(t=>(
-            <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
+            <button key={t.id} onClick={()=>setTab(t.id)}
               style={{padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11.5,fontWeight:700,
                 background:tab===t.id?C.accent:"#F0F0F5",color:tab===t.id?"#FFF":C.muted}}>
               {t.label}
@@ -5353,56 +5258,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
         </div>
       )}
 
-      {result&&(
-        <div style={{padding:"12px 16px",borderRadius:10,marginBottom:14,
-          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-          border:`1px solid ${result.success?C.green:C.red}`}}>
-          <div style={{fontSize:12,fontWeight:700,color:result.success?C.green:C.red}}>
-            {result.success?"Success":(result.status||"Failed")}
-          </div>
-          {result.summary&&<div style={{fontSize:11,color:C.text,marginTop:4,whiteSpace:"pre-wrap"}}>{result.summary}</div>}
-          {result.error&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{result.error}</div>}
-          {result.note&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>{result.note}</div>}
-        </div>
-      )}
-
-      {/* 1. General */}
-      {tab==="general"&&general&&generalForm&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>General Settings</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Asterisk Version</div>
-              <div style={{fontSize:13,fontFamily:"monospace"}}>{status?.version||"—"}</div>
-            </div>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>RTP Range (edit on the RTP tab)</div>
-              <div style={{fontSize:13,fontFamily:"monospace"}}>{general.rtp_start}-{general.rtp_end}</div>
-            </div>
-          </div>
-          <div style={{height:1,background:C.border,margin:"14px 0"}}/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            {field("Asterisk Server / Public IP",
-              <input style={inp} value={generalForm.public_ip_override||""} placeholder={status?.public_ip?`auto-detected: ${status.public_ip}`:"auto-detected if blank"}
-                onChange={e=>setGeneralForm(f=>({...f,public_ip_override:e.target.value}))}/>)}
-            {field("SIP Port",
-              <input style={inp} type="number" value={generalForm.sip_port||""}
-                onChange={e=>setGeneralForm(f=>({...f,sip_port:e.target.value}))}/>)}
-            {field("Default Codecs",
-              <input style={inp} value={generalForm.codecs||""} placeholder="ulaw,alaw"
-                onChange={e=>setGeneralForm(f=>({...f,codecs:e.target.value}))}/>)}
-            {field("Inbound Context",
-              <input style={inp} value={generalForm.inbound_context||""} placeholder="from-suppliers"
-                onChange={e=>setGeneralForm(f=>({...f,inbound_context:e.target.value}))}/>)}
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:14}}>
-            <div style={{fontSize:10,color:C.muted}}>Saved to the database immediately; only takes effect on Asterisk after Apply Configuration.</div>
-            <button onClick={saveGeneral} disabled={busy} style={{...btn(C.green),whiteSpace:"nowrap"}}>{busy?"Saving...":"💾 Save Changes"}</button>
-          </div>
-        </Card>
-      )}
-
-      {/* 2. Suppliers / SIP Authentication */}
+      {/* 1. Suppliers / SIP Authentication */}
       {tab==="suppliers"&&(
         <Card style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -5447,7 +5303,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
         </Card>
       )}
 
-      {/* 3. DID / Prefix Routing */}
+      {/* 2. DID / Prefix Routing */}
       {tab==="did"&&(
         <Card style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -5488,7 +5344,7 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
         </Card>
       )}
 
-      {/* 4. IVR Routing */}
+      {/* 3. IVR Routing */}
       {tab==="ivr"&&(
         <Card style={{padding:16}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>IVR Routing</div>
@@ -5505,215 +5361,6 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
               </Card>
             ))}
             {!ivrs.length&&<div style={{color:C.muted,fontSize:12}}>No IVRs yet — add one on the IVR Library page.</div>}
-          </div>
-        </Card>
-      )}
-
-      {/* 5. RTP */}
-      {tab==="rtp"&&general&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>RTP Configuration</div>
-          <RtpForm general={general} onSave={saveRtp} busy={busy} inp={inp} btn={btn}/>
-          <div style={{fontSize:10,color:C.muted,marginTop:10}}>
-            RTP port range is only re-read by Asterisk on a full reload/restart — Apply Configuration will write it, but Reload PJSIP/Dialplan alone won't pick it up.
-          </div>
-        </Card>
-      )}
-
-      {/* 6. Firewall Information */}
-      {tab==="firewall"&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Firewall Information</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Read-only summary — this module never executes arbitrary shell commands from the browser. Manage rules from the IP Whitelist page.</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-            <Card style={{padding:12}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>SIP</div>
-              <div style={{fontSize:13,fontFamily:"monospace"}}>UDP {general?.sip_port||5060}</div>
-            </Card>
-            <Card style={{padding:12}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>RTP</div>
-              <div style={{fontSize:13,fontFamily:"monospace"}}>UDP {general?.rtp_start}-{general?.rtp_end}</div>
-            </Card>
-          </div>
-          <div style={{fontSize:11,fontWeight:700,marginBottom:6}}>Supplier source IPs that should be allowed</div>
-          <div style={{overflowX:"auto",marginBottom:14}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}><th style={{padding:"6px 8px"}}>Supplier</th><th>IP(s)</th><th>Status</th></tr></thead>
-              <tbody>
-                {suppliers.filter(s=>s.is_active).map(s=>(
-                  <tr key={s.id} style={{borderTop:`1px solid ${C.border}`}}>
-                    <td style={{padding:"8px"}}>{s.nickname||s.name}</td>
-                    <td style={{fontFamily:"monospace"}}>{s.host}</td>
-                    <td>{statusDot(true)}Allowed</td>
-                  </tr>
-                ))}
-                {!suppliers.filter(s=>s.is_active).length&&<tr><td colSpan={3} style={{padding:16,textAlign:"center",color:C.muted}}>No enabled suppliers.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <div style={{fontSize:11,fontWeight:700,marginBottom:6}}>Current UFW rules</div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
-                <th style={{padding:"6px 8px"}}>#</th><th>Port</th><th>Action</th><th>From</th>
-              </tr></thead>
-              <tbody>
-                {(firewall?.firewall_rules||[]).map(r=>(
-                  <tr key={r.num} style={{borderTop:`1px solid ${C.border}`}}>
-                    <td style={{padding:"8px"}}>{r.num}</td><td>{r.port}</td>
-                    <td style={{color:r.action==="ALLOW"?C.green:C.red}}>{r.action}</td><td>{r.from}</td>
-                  </tr>
-                ))}
-                {!(firewall?.firewall_rules||[]).length&&<tr><td colSpan={4} style={{padding:16,textAlign:"center",color:C.muted}}>No rules found.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* 7. Configuration Preview */}
-      {tab==="preview"&&(
-        <Card style={{padding:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:13,fontWeight:700}}>Configuration Preview</div>
-            <button onClick={loadPreview} style={btn(C.blue)}>✓ Validate Configuration</button>
-          </div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Read-only — generated from the forms/database above. Nothing here is written to Asterisk; use Apply Configuration for that.</div>
-          {previewLoading&&<div style={{color:C.muted,fontSize:12}}>Generating…</div>}
-          {preview&&<>
-            {!!preview.errors?.length&&(
-              <div style={{padding:12,borderRadius:8,background:"rgba(239,68,68,0.1)",border:`1px solid ${C.red}`,marginBottom:12,fontSize:11,color:C.red}}>
-                <div style={{fontWeight:700,marginBottom:4}}>Validation errors — must be fixed before Apply</div>
-                {preview.errors.map((e,i)=><div key={i}>⛔ {e}</div>)}
-              </div>
-            )}
-            {!!preview.warnings?.length&&(
-              <div style={{padding:12,borderRadius:8,background:"rgba(245,158,11,0.1)",border:`1px solid ${C.yellow}`,marginBottom:12,fontSize:11,color:"#92650A"}}>
-                <div style={{fontWeight:700,marginBottom:4}}>Warnings</div>
-                {preview.warnings.map((w,i)=><div key={i}>⚠ {w}</div>)}
-              </div>
-            )}
-            <div style={{fontSize:11,fontWeight:700,marginBottom:6}}>Added / Changed / Removed</div>
-            <div style={{padding:12,borderRadius:8,background:"#F8F9FA",border:`1px solid ${C.border}`,marginBottom:14,fontSize:12}}>
-              {(preview.changes||[]).map((c,i)=>(
-                <div key={i} style={{color:c.startsWith("+")?C.green:c.startsWith("-")?C.red:c.startsWith("~")?C.yellow:C.muted}}>{c}</div>
-              ))}
-            </div>
-            {codeBlock("PJSIP CONFIGURATION",preview.pjsip)}
-            {codeBlock("DIALPLAN CONFIGURATION",preview.dialplan)}
-            {codeBlock("RTP CONFIGURATION",preview.rtp)}
-          </>}
-        </Card>
-      )}
-
-      {/* 8. Apply Configuration */}
-      {tab==="apply"&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Apply Configuration</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
-            Save settings → Generate → Preview → Validate → Backup → Apply → Reload required modules (not a full restart) → Health check → History.
-          </div>
-          {preview&&!!preview.errors?.length&&(
-            <div style={{padding:12,borderRadius:8,background:"rgba(239,68,68,0.1)",border:`1px solid ${C.red}`,marginBottom:12,fontSize:11,color:C.red}}>
-              Cannot apply — fix these first:
-              {preview.errors.map((e,i)=><div key={i}>⛔ {e}</div>)}
-            </div>
-          )}
-          <div style={{padding:12,borderRadius:8,background:"#F8F9FA",border:`1px solid ${C.border}`,marginBottom:14,fontSize:12}}>
-            {(preview?.changes||["Loading preview…"]).map((c,i)=>(
-              <div key={i} style={{color:c.startsWith("+")?C.green:c.startsWith("-")?C.red:c.startsWith("~")?C.yellow:C.muted}}>{c}</div>
-            ))}
-          </div>
-          <button disabled={busy||(preview&&!!preview.errors?.length)} onClick={()=>setConfirmApply(true)}
-            style={{...btn(C.green),padding:"14px 24px",fontSize:14,opacity:busy?0.6:1}}>
-            ✅ Validate & Apply Configuration
-          </button>
-
-          {confirmApply&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,
-              display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setConfirmApply(false)}>
-              <div style={{background:"#FFF",borderRadius:12,padding:20,width:420,maxWidth:"90vw"}} onClick={e=>e.stopPropagation()}>
-                <div style={{fontSize:14,fontWeight:800,marginBottom:8}}>Are you sure?</div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:10}}>The following changes will be applied:</div>
-                <div style={{fontSize:12,marginBottom:16,maxHeight:200,overflowY:"auto"}}>
-                  {(preview?.changes||[]).map((c,i)=><div key={i}>{c}</div>)}
-                </div>
-                <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setConfirmApply(false)} style={btn(C.muted)}>Cancel</button>
-                  <button onClick={doApply} style={btn(C.green)}>Validate & Apply Configuration</button>
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* 9. Reload / Status */}
-      {tab==="reload"&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Reload / Status</div>
-          <div style={{fontSize:10,color:C.muted,marginBottom:12}}>Manual operational controls — separate from the normal Save → Preview → Apply configuration workflow above.</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:16}}>
-            <button disabled={busy} onClick={()=>doReload("pjsip")} style={btn(C.blue)}>Reload PJSIP</button>
-            <button disabled={busy} onClick={()=>doReload("dialplan")} style={btn(C.blue)}>Reload Dialplan</button>
-            <button disabled={busy} onClick={()=>doReload("all")} style={btn(C.purple)}>Reload All</button>
-            <button disabled={busy} onClick={doTest} style={btn(C.orange)}>Test Configuration</button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:12}}>
-            {[["Asterisk",status?.online?"ONLINE":"OFFLINE",status?.online],
-              ["PJSIP Identifies",status?.live_identify_count,true],
-              ["Active Calls",status?.active_calls,true],
-              ["RTP",`${status?.rtp_start}-${status?.rtp_end}`,true]].map(([k,v,ok])=>(
-              <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-                <span style={{color:C.muted}}>{k}</span>
-                <span>{statusDot(!!ok)}{String(v)}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* 10. History / Backup */}
-      {tab==="history"&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Configuration History</div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
-                <th style={{padding:"6px 8px"}}>#</th><th>User</th><th>Date/Time</th><th>Action</th><th>Status</th><th>Backup</th><th></th>
-              </tr></thead>
-              <tbody>
-                {history.map(h=>(
-                  <React.Fragment key={h.id}>
-                  <tr style={{borderTop:`1px solid ${C.border}`,verticalAlign:"top"}}>
-                    <td style={{padding:"8px"}}>#{h.id}</td>
-                    <td>{h.user_name||h.user_email}</td>
-                    <td>{new Date(h.created_at).toLocaleString()}</td>
-                    <td style={{maxWidth:220,whiteSpace:"pre-wrap"}}>{h.action}</td>
-                    <td style={{color:h.status==="success"?C.green:h.status==="rolled_back"?C.yellow:C.red}}>{h.status}</td>
-                    <td style={{fontFamily:"monospace",fontSize:10}}>{h.pjsip_backup_path||"—"}</td>
-                    <td>
-                      <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>setExpandedHistoryId(id=>id===h.id?null:h.id)} style={smallBtn(C.muted)}>View</button>
-                        {h.pjsip_backup_path&&<button onClick={()=>doDownload(h.id)} style={smallBtn(C.blue)}>Download</button>}
-                        {h.pjsip_backup_path&&<button onClick={()=>doRollback(h.id)} style={smallBtn(C.red)}>Rollback</button>}
-                      </div>
-                    </td>
-                  </tr>
-                  {expandedHistoryId===h.id&&(
-                    <tr><td colSpan={7} style={{padding:"0 8px 12px",background:"#F8F9FA"}}>
-                      <div style={{fontSize:11,color:C.text,whiteSpace:"pre-wrap",padding:10}}>
-                        <div><b>Configuration version:</b> {h.pjsip_backup_path||"—"}</div>
-                        <div style={{marginTop:6}}><b>Details:</b></div>
-                        <div>{h.summary||"(no details)"}</div>
-                      </div>
-                    </td></tr>
-                  )}
-                  </React.Fragment>
-                ))}
-                {!history.length&&<tr><td colSpan={7} style={{padding:16,textAlign:"center",color:C.muted}}>No history yet — apply a configuration to start one.</td></tr>}
-              </tbody>
-            </table>
           </div>
         </Card>
       )}
@@ -5823,28 +5470,6 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
         saveRouteModal,
         routeModal.mode==="add"?"Add Route":"Save Changes"
       )}
-    </div>
-  );
-}
-
-function RtpForm({general,onSave,busy,inp,btn}){
-  const [start,setStart]=useState(general.rtp_start);
-  const [end,setEnd]=useState(general.rtp_end);
-  const invalid=Number(start)>=Number(end)||Number(start)<1||Number(end)>65535;
-  return(
-    <div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-        <div>
-          <div style={{fontSize:10,color:"#64748B",marginBottom:4}}>RTP Start</div>
-          <input type="number" style={inp} value={start} onChange={e=>setStart(e.target.value)}/>
-        </div>
-        <div>
-          <div style={{fontSize:10,color:"#64748B",marginBottom:4}}>RTP End</div>
-          <input type="number" style={inp} value={end} onChange={e=>setEnd(e.target.value)}/>
-        </div>
-      </div>
-      {invalid&&<div style={{color:"#EF4444",fontSize:11,marginBottom:10}}>Start must be less than End, both within 1-65535.</div>}
-      <button disabled={busy||invalid} onClick={()=>onSave(Number(start),Number(end))} style={btn(C.green)}>Save RTP Range</button>
     </div>
   );
 }
