@@ -5079,16 +5079,12 @@ function SystemOperationsPage(){
 }
 
 // ── Asterisk Configuration ──────────────────────────────────────────
-function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
-  const [tab,setTab]=useState(initialTab||"suppliers");
+function AsteriskConfigPage({token,user}){
   const [status,setStatus]=useState(null);
   const [suppliers,setSuppliers]=useState([]);
-  const [prefixes,setPrefixes]=useState([]);
-  const [ivrs,setIvrs]=useState([]);
   const [busy,setBusy]=useState(false);
   const [supplierModal,setSupplierModal]=useState(null); // {mode:'add'|'edit', id, form}
   const [commercialSuppliers,setCommercialSuppliers]=useState([]); // Partners -> Suppliers records, for the trunk's Supplier picker
-  const [routeModal,setRouteModal]=useState(null); // {mode:'add'|'edit', id, form}
 
   const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
     background:"#FFF",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
@@ -5100,15 +5096,8 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
   const loadStatus=useCallback(()=>{apiFetch("/asterisk-config/status",token).then(d=>setStatus(d.data||null));},[token]);
   const loadSuppliers=useCallback(()=>{apiFetch("/suppliers",token).then(d=>setSuppliers(d.data||[]));},[token]);
   const loadCommercialSuppliers=useCallback(()=>{apiFetch("/supplier-accounts",token).then(d=>setCommercialSuppliers(d.data||[]));},[token]);
-  const loadPrefixes=useCallback(()=>{apiFetch("/route-prefixes",token).then(d=>setPrefixes(d.data||[]));},[token]);
-  const loadIvrs=useCallback(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
 
-  useEffect(()=>{ loadStatus(); },[loadStatus]);
-  useEffect(()=>{
-    if(tab==="suppliers") { loadSuppliers(); loadCommercialSuppliers(); }
-    if(tab==="did") { loadPrefixes(); loadSuppliers(); loadIvrs(); }
-    if(tab==="ivr") loadIvrs();
-  },[tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{ loadStatus(); loadSuppliers(); loadCommercialSuppliers(); },[loadStatus,loadSuppliers,loadCommercialSuppliers]);
 
   // ── Supplier / SIP Auth CRUD ──────────────────────────────────────
   const openAddSupplier=()=>setSupplierModal({mode:"add",id:null,form:{
@@ -5156,42 +5145,6 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
     await apiFetch(`/suppliers/${s.id}`,token,{method:"DELETE"});
     setBusy(false);loadSuppliers();
   };
-
-  // ── DID / Prefix Routing CRUD ──────────────────────────────────────
-  const openAddRoute=()=>setRouteModal({mode:"add",id:null,form:{
-    country_code:"",country_name:"",prefix:"",ivr_context:ivrs[0]?.name||"",priority:"1"}});
-  const openEditRoute=(p)=>setRouteModal({mode:"edit",id:p.id,form:{
-    country_code:p.country_code||"",country_name:p.country_name||"",prefix:p.prefix||"",
-    ivr_context:p.ivr_context||"",priority:p.priority??"1"}});
-  const saveRouteModal=async()=>{
-    if(!routeModal) return;
-    setBusy(true);
-    const f=routeModal.form;
-    if(routeModal.mode==="add"){
-      await apiFetch("/route-prefixes",token,{method:"POST",body:JSON.stringify(f)});
-    } else {
-      await apiFetch(`/route-prefixes/${routeModal.id}`,token,{method:"PUT",body:JSON.stringify(f)});
-    }
-    setBusy(false);setRouteModal(null);loadPrefixes();
-  };
-  const toggleRouteActive=async(p)=>{
-    setBusy(true);
-    await apiFetch(`/route-prefixes/${p.id}`,token,{method:"PUT",body:JSON.stringify({is_active:p.is_active?0:1})});
-    setBusy(false);loadPrefixes();
-  };
-  const deleteRoute=async(p)=>{
-    if(!window.confirm(`Delete route "${p.prefix}"?`)) return;
-    setBusy(true);
-    await apiFetch(`/route-prefixes/${p.id}`,token,{method:"DELETE"});
-    setBusy(false);loadPrefixes();
-  };
-
-  const allTabs=[
-    {id:"suppliers",label:"Trunks"},
-    {id:"did",label:"DID / Prefix Routing"},
-    {id:"ivr",label:"IVR Routing"},
-  ];
-  const tabs=visibleTabIds?allTabs.filter(t=>visibleTabIds.includes(t.id)):allTabs;
 
   const statusDot=(ok)=>(
     <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",
@@ -5245,22 +5198,8 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
         ))}
       </div>
 
-      {/* Sub-tabs */}
-      {tabs.length>1&&(
-        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
-          {tabs.map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)}
-              style={{padding:"7px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11.5,fontWeight:700,
-                background:tab===t.id?C.accent:"#F0F0F5",color:tab===t.id?"#FFF":C.muted}}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* 1. Suppliers / SIP Authentication */}
-      {tab==="suppliers"&&(
-        <Card style={{padding:16}}>
+      {/* Suppliers / SIP Authentication */}
+      <Card style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <div style={{fontSize:13,fontWeight:700}}>Trunks</div>
             <button onClick={openAddSupplier} style={btn(C.green)}>+ Add Trunk</button>
@@ -5301,69 +5240,6 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
           </div>
           }
         </Card>
-      )}
-
-      {/* 2. DID / Prefix Routing */}
-      {tab==="did"&&(
-        <Card style={{padding:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:13,fontWeight:700}}>DID / Prefix / Range Routing</div>
-            <button onClick={openAddRoute} style={btn(C.green)}>+ Add Route</button>
-          </div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
-            Number prefixes are matched to an existing IVR — no dialplan code is typed here, the generator builds it.
-          </div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{textAlign:"left",color:C.muted,fontSize:10}}>
-                <th style={{padding:"6px 8px"}}>Country</th><th>Prefix / Range</th><th>IVR</th><th>Priority</th><th>Status</th><th></th>
-              </tr></thead>
-              <tbody>
-                {[...prefixes].sort((a,b)=>(a.priority??1)-(b.priority??1)).map(p=>{
-                  const ivr=ivrs.find(i=>i.name===p.ivr_context);
-                  return (
-                  <tr key={p.id} style={{borderTop:`1px solid ${C.border}`}}>
-                    <td style={{padding:"8px"}}>{p.country_name||p.country_code}</td>
-                    <td style={{fontFamily:"monospace"}}>{p.prefix}</td>
-                    <td>{ivr?(ivr.title||ivr.name):(p.ivr_context||"—")}{!ivr&&p.ivr_context&&<span style={{color:C.red,fontSize:10}}> (unknown context)</span>}</td>
-                    <td>{p.priority}</td>
-                    <td>{statusDot(!!p.is_active)}{p.is_active?"Enabled":"Disabled"}</td>
-                    <td>
-                      <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>openEditRoute(p)} style={smallBtn(C.blue)}>Edit</button>
-                        <button onClick={()=>toggleRouteActive(p)} style={smallBtn(p.is_active?C.yellow:C.green)}>{p.is_active?"Disable":"Enable"}</button>
-                        <button onClick={()=>deleteRoute(p)} style={smallBtn(C.red)}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                );})}
-                {!prefixes.length&&<tr><td colSpan={6} style={{padding:16,textAlign:"center",color:C.muted}}>No DID/prefix routes yet — click "+ Add Route".</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* 3. IVR Routing */}
-      {tab==="ivr"&&(
-        <Card style={{padding:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>IVR Routing</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>
-            IVRs are authored on the IVR Library page — this is a read-only view of what's available to associate with a DID/prefix route above. Every active one gets its own dialplan context.
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
-            {ivrs.map(ivr=>(
-              <Card key={ivr.id||ivr.name} style={{padding:12}}>
-                <div style={{fontSize:12,fontWeight:700}}>{ivr.title||ivr.name}</div>
-                <div style={{fontSize:10,color:C.muted,marginTop:4}}>Context: <span style={{fontFamily:"monospace"}}>{ivr.name}</span></div>
-                <div style={{fontSize:10,color:C.muted}}>Audio: <span style={{fontFamily:"monospace"}}>{ivr.audio_file}</span></div>
-                <div style={{marginTop:6}}>{statusDot(!!ivr.is_active)}{ivr.is_active?"Active":"Disabled"}</div>
-              </Card>
-            ))}
-            {!ivrs.length&&<div style={{color:C.muted,fontSize:12}}>No IVRs yet — add one on the IVR Library page.</div>}
-          </div>
-        </Card>
-      )}
 
       {/* Supplier add/edit modal */}
       {supplierModal&&modalShell(
@@ -5443,33 +5319,6 @@ function AsteriskConfigPage({token,user,initialTab,visibleTabIds}){
         supplierModal.mode==="add"?"Add Trunk":"Save Changes"
       )}
 
-      {/* DID/Prefix add/edit modal */}
-      {routeModal&&modalShell(
-        routeModal.mode==="add"?"Add Route":"Edit Route",
-        ()=>setRouteModal(null),
-        <>
-          {field("Country Code",
-            <input style={inp} value={routeModal.form.country_code} placeholder="LK"
-              onChange={e=>setRouteModal(m=>({...m,form:{...m.form,country_code:e.target.value}}))}/>)}
-          {field("Country Name",
-            <input style={inp} value={routeModal.form.country_name} placeholder="Sri Lanka"
-              onChange={e=>setRouteModal(m=>({...m,form:{...m.form,country_name:e.target.value}}))}/>)}
-          {field("Prefix / Range (digits, use X for any digit, e.g. 9475790XXXX)",
-            <input style={inp} value={routeModal.form.prefix} placeholder="9475790XXXX"
-              onChange={e=>setRouteModal(m=>({...m,form:{...m.form,prefix:e.target.value}}))}/>)}
-          {field("IVR",
-            <select style={sel} value={routeModal.form.ivr_context}
-              onChange={e=>setRouteModal(m=>({...m,form:{...m.form,ivr_context:e.target.value}}))}>
-              <option value="">— Select IVR —</option>
-              {ivrs.map(i=><option key={i.id} value={i.name}>{i.title||i.name}</option>)}
-            </select>)}
-          {field("Priority (lower = matched first)",
-            <input style={inp} type="number" value={routeModal.form.priority}
-              onChange={e=>setRouteModal(m=>({...m,form:{...m.form,priority:e.target.value}}))}/>)}
-        </>,
-        saveRouteModal,
-        routeModal.mode==="add"?"Add Route":"Save Changes"
-      )}
     </div>
   );
 }
@@ -6466,7 +6315,7 @@ export default function App(){
       case "auditlog":      return <AuditLogPage token={token}/>;
       case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
-      case "ast-trunks":     return <AsteriskConfigPage key="ast-trunks" token={token} user={user} initialTab="suppliers" visibleTabIds={["suppliers"]}/>;
+      case "ast-trunks":     return <AsteriskConfigPage key="ast-trunks" token={token} user={user}/>;
       case "sysops":        return <SystemOperationsPage/>;
       default:             return <DashboardPage token={token}/>;
     }
