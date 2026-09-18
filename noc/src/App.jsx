@@ -1814,8 +1814,24 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const handleImportFile=(e)=>{
     const file=e.target.files?.[0];
     if(!file) return;
-    if(!/\.(csv|txt)$/i.test(file.name)){ alert("Please choose a .csv or .txt file"); return; }
+    if(!/\.(csv|txt|xlsx|xls)$/i.test(file.name)){ alert("Please choose a .csv, .txt, .xlsx or .xls file"); return; }
     setImportFileName(file.name);
+    if(/\.(xlsx|xls)$/i.test(file.name)){
+      const reader=new FileReader();
+      reader.onload=async(ev)=>{
+        // Excel workbook -> tab-separated text, so it flows through the
+        // exact same parser/preview/confirm path as a pasted or .csv/.txt import.
+        // Loaded on demand (~350KB) so every visitor isn't paying for it upfront.
+        const XLSX=await import("xlsx");
+        const wb=XLSX.read(ev.target.result,{type:"array"});
+        const sheet=wb.Sheets[wb.SheetNames[0]];
+        const text=XLSX.utils.sheet_to_csv(sheet,{FS:"\t",blankrows:false});
+        setImportText(text);
+        runImportPreview(text);
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
     const reader=new FileReader();
     reader.onload=(ev)=>{
       const text=ev.target.result;
@@ -2365,10 +2381,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             {importStep==="input"&&(<>
               {importMode==="upload"?(
                 <div style={{...cardS,padding:20,textAlign:"center",border:"2px dashed #E0E0E0",marginBottom:14}}>
-                  <input type="file" accept=".csv,.txt" onChange={handleImportFile} id="import-file-input" style={{display:"none"}}/>
+                  <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleImportFile} id="import-file-input" style={{display:"none"}}/>
                   <label htmlFor="import-file-input" style={{cursor:"pointer"}}>
                     <div style={{fontSize:30,marginBottom:8}}>📄</div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#5B4FCF"}}>Click to choose a .csv or .txt file</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#5B4FCF"}}>Click to choose a .csv, .txt, .xlsx or .xls file</div>
                     {importFileName&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Selected: {importFileName}</div>}
                   </label>
                 </div>

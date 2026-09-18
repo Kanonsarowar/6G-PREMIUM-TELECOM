@@ -2299,7 +2299,12 @@ Route::get('/v1/prefixes', function() {
         $p = (array)$p;
         $p['number_count'] = ($numberCounts[$p['id']] ?? 0) + ($rangeCounts[$p['id']] ?? 0);
         return $p;
-    });
+    })
+        // Connect IVR only makes sense for a Prefix that actually has numbers
+        // routed under it - suppliers often carry an empty placeholder Prefix
+        // (created for its required test number) with nothing real assigned yet.
+        ->filter(fn($p) => $p['number_count'] > 0)
+        ->values();
     return response()->json(['data'=>$out,'total'=>count($out)]);
 });
 
