@@ -56,7 +56,6 @@ const getNavGroups=(role)=>{
     {id:"ast-trunks",label:"Trunks",icon:"📞"},
     {id:"sipmonitor",label:"SIP Monitor",icon:"◎"},
     {id:"routeprefix",label:"Route Prefix",icon:"⇥"},
-    {id:"ast-sipsettings",label:"SIP Settings",icon:"⚙"},
     {id:"ipwhitelist",label:"IP Whitelist",icon:"🔐"},
   ]}]:[]),
   {key:"testlab",label:"Test Lab",items:[
@@ -5076,7 +5075,7 @@ function ComingSoonPage({icon,title,description}){
 }
 function SystemOperationsPage(){
   return <ComingSoonPage icon="🛠" title="System Operations"
-    description="Operational controls for the platform (outside of Asterisk-specific reload/apply, which live under Asterisk Configuration → SIP Settings) will be managed here."/>;
+    description="Operational controls for the platform will be managed here."/>;
 }
 
 // ── Asterisk Configuration ──────────────────────────────────────────
@@ -6636,14 +6635,14 @@ export default function App(){
       "test-numbers":"testnumbers","test-live-call":"testlivecall",
       "sip-monitor":"sipmonitor",
       "settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","systemhealth":"system-health","sipmonitor":"sip-monitor","testnumbers":"test-numbers","testlivecall":"test-live-call","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","system-health":"systemhealth","audit":"auditlog",
-      "asterisk-config":"ast-sipsettings","asterisk":"ast-sipsettings",
-      "asterisk-general":"ast-sipsettings","asterisk-suppliers":"ast-trunks","asterisk-did":"routeprefix",
-      "asterisk-ivr":"routeprefix","asterisk-rtp":"ast-sipsettings","asterisk-firewall":"ast-sipsettings",
-      "asterisk-preview":"ast-sipsettings","asterisk-apply":"ast-sipsettings","asterisk-reload":"ast-sipsettings",
-      "asterisk-history":"ast-sipsettings",
+      "asterisk-config":"dashboard","asterisk":"dashboard",
+      "asterisk-general":"dashboard","asterisk-suppliers":"ast-trunks","asterisk-did":"routeprefix",
+      "asterisk-ivr":"routeprefix","asterisk-rtp":"dashboard","asterisk-firewall":"dashboard",
+      "asterisk-preview":"dashboard","asterisk-apply":"dashboard","asterisk-reload":"dashboard",
+      "asterisk-history":"dashboard",
       "asterisk-trunks":"ast-trunks","trunks":"ast-trunks",
-      "sip-settings":"ast-sipsettings","sipsettings":"ast-sipsettings",
-      "networking":"ast-sipsettings","network":"ast-sipsettings",
+      "sip-settings":"dashboard","sipsettings":"dashboard",
+      "networking":"dashboard","network":"dashboard",
     };
     return routes[path]||"dashboard";
   };
@@ -6655,7 +6654,7 @@ export default function App(){
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call",
       "sipmonitor":"sip-monitor","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","systemhealth":"system-health","testnumbers":"test-numbers","testlivecall":"test-live-call","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","system-health":"systemhealth","audit":"auditlog",
-      "ast-trunks":"asterisk-trunks","ast-sipsettings":"sip-settings",
+      "ast-trunks":"asterisk-trunks",
     };
     const url="/"+( urlMap[p]||p);
     window.history.pushState({},"",url);
@@ -6843,7 +6842,6 @@ export default function App(){
       case "systemhealth":  return <SystemHealthPage token={token}/>;
       case "settings":     return <SettingsPage user={user} logout={logout}/>;
       case "ast-trunks":     return <AsteriskConfigPage key="ast-trunks" token={token} user={user} initialTab="suppliers" visibleTabIds={["suppliers"]}/>;
-      case "ast-sipsettings":return <AsteriskConfigPage key="ast-sipsettings" token={token} user={user} initialTab="general" visibleTabIds={["general","rtp","firewall","preview","apply","reload","history"]}/>;
       case "sysops":        return <SystemOperationsPage/>;
       default:             return <DashboardPage token={token}/>;
     }
