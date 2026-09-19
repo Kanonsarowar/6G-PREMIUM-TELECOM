@@ -275,8 +275,8 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
   const [time,setTime]=useState(new Date().toLocaleTimeString());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
   return(
-    <div style={{height:64,background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
-      display:"flex",alignItems:"center",padding:"0 16px",gap:10,
+    <div style={{height:84,boxSizing:"border-box",background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
+      display:"flex",alignItems:"center",padding:"20px 16px 0",gap:10,
       flexShrink:0,zIndex:100,boxShadow:"0 2px 12px rgba(75,63,181,0.3)"}}>
       {/* Hamburger */}
       {isMobile&&(
