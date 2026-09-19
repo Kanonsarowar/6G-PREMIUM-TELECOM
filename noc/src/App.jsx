@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { mapCdrRows } from "./cdrParse.js";
+import { readPdfRows } from "./cdrPdf.js";
+import { isSummaryRows, parseSummaryRows, detectWeek, lastWeek, weekOf } from "./cdrSummary.js";
 const API = "https://6g-premium-telecom.com/api/v1";
 // Single operational currency across the entire app - USDT only (see
 // rule 12: one central formatter, never per-component EUR/USD logic).
 // Historical `currency` fields on dids/cdrs/etc. may still hold values
 // like "EUR" from imports (kept for audit traceability), but every
 // operational UI display always renders the numeric amount as USDT.
-const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals)+" USDT";
+const numSupplier=n=>n==="World Premium Telecom"?"WTP":(n||"—");
+// One soft colour (+ stronger accent) per supplier, picked by supplier id so it never changes when the list is sorted
+const SUP_COLORS=[
+  {bg:"#E0F5F3",accent:"#2CADA6"},{bg:"#E3EEFD",accent:"#3B82F6"},{bg:"#FFF1D0",accent:"#F59E0B"},
+  {bg:"#FDE3E3",accent:"#EF4444"},{bg:"#EBE4FB",accent:"#8B5CF6"},{bg:"#DEF5E8",accent:"#10B981"},
+  {bg:"#FFE7D6",accent:"#F97316"},{bg:"#DAF1F7",accent:"#06B6D4"},
+];
+const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals);
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={hasError:false,error:""}; }
   static getDerivedStateFromError(e){ return {hasError:true,error:e.message}; }
@@ -85,7 +95,7 @@ const Card=({children,style={}})=>(
     boxShadow:"0 1px 6px rgba(60,47,143,0.08)",...style}}>{children}</div>
 );
 // ── Mobile Drawer ─────────────────────────────────────────────────
-function MobileDrawer({page,setPage,user,logout,onClose}){
+function MobileDrawer({page,setPage,user,logout,onClose,onHome}){
   return(
     <>
       <div onClick={onClose} style={{position:"fixed",inset:0,
@@ -98,7 +108,7 @@ function MobileDrawer({page,setPage,user,logout,onClose}){
         {/* Header */}
         <div style={{padding:"18px 16px",borderBottom:"1px solid #F0F0F0",
           display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div onClick={()=>{onHome&&onHome();onClose();}} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
             <div style={{width:36,height:36,borderRadius:10,
               background:"linear-gradient(135deg,#2CADA6,#38B7A8)",
               display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
@@ -170,7 +180,7 @@ function MobileDrawer({page,setPage,user,logout,onClose}){
   );
 }
 // ── Desktop Sidebar ───────────────────────────────────────────────
-function DesktopSidebar({page,setPage,open,toggle,user,logout}){
+function DesktopSidebar({page,setPage,open,toggle,user,logout,onHome}){
   return(
     <div style={{width:open?280:64,background:"#FFFFFF",
       borderRight:"1px solid #E8EAF0",
@@ -182,11 +192,11 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
       <div style={{padding:"18px 16px",borderBottom:"1px solid #F0F0F0",
         display:"flex",alignItems:"center",gap:12,minHeight:68,
         background:"#FFFFFF"}}>
-        <div style={{width:36,height:36,borderRadius:10,flexShrink:0,
+        <div onClick={onHome} style={{width:36,height:36,borderRadius:10,flexShrink:0,cursor:"pointer",
           background:"linear-gradient(135deg,#5B4FCF,#4B3FB5)",
           display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
           boxShadow:"0 4px 12px rgba(91,79,207,0.3)"}}>📡</div>
-        {open&&<div style={{flex:1,minWidth:0}}>
+        {open&&<div onClick={onHome} style={{flex:1,minWidth:0,cursor:"pointer"}}>
           <div style={{fontSize:15,fontWeight:900,letterSpacing:"0.3px"}}>
             <span style={{color:"#5B4FCF"}}>6G</span>
             <span style={{color:"#F5A623"}}>STATS</span>
@@ -261,7 +271,7 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout}){
 // ── Mobile Drawer ─────────────────────────────────────────────────
 
 
-function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
+function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
   const [time,setTime]=useState(new Date().toLocaleTimeString());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
   return(
@@ -276,7 +286,7 @@ function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
           display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>☰</button>
       )}
       {/* Brand */}
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div onClick={onHome} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
         {!isMobile&&<div style={{width:38,height:38,borderRadius:10,flexShrink:0,
           background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
           display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📡</div>}
@@ -288,23 +298,33 @@ function TopBar({liveCalls,revenue,onMenuClick,isMobile,user}){
           <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase"}}>NOC Platform</div>
         </div>
       </div>
-      {/* Pills */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",
+      {/* Pills: live calls, then revenue not yet paid out, per supplier (scrolls sideways if it does not fit) */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16,minWidth:0,flex:"1 1 auto",
+        overflowX:"auto",scrollbarWidth:"none"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,
           borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
           <span style={{width:7,height:7,borderRadius:"50%",background:"#10B981",
             display:"inline-block",boxShadow:"0 0 6px #10B981"}}/>
           <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Live</span>
           <span style={{fontSize:13,color:"#10B981",fontWeight:800,fontFamily:"monospace"}}>{liveCalls}</span>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",
-          borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
-          <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Rev</span>
-          <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>${revenue}</span>
-        </div>
+        <span title="Revenue not yet paid out to the supplier" style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:600,flexShrink:0,marginLeft:4}}>Rev</span>
+        {unpaid.length===0
+          ?<div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,
+              borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
+              <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>{fmtUSDT(0)}</span>
+            </div>
+          :unpaid.map(u=>(
+            <div key={u.name} title={`Revenue not yet paid out for ${u.name}: ${u.calls} calls, ${u.minutes} min`}
+              style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,whiteSpace:"nowrap",
+                borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
+              <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>{numSupplier(u.name)}</span>
+              <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>{fmtUSDT(u.amount)}</span>
+            </div>
+          ))}
       </div>
       {/* Right side */}
-      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
         <span style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontFamily:"monospace"}}>{time}</span>
         {!isMobile&&<div style={{display:"flex",alignItems:"center",gap:8,
           padding:"5px 12px",borderRadius:20,background:"rgba(0,0,0,0.2)"}}>
@@ -371,7 +391,7 @@ function StatsCharts({token}){
   };
   const supplierData=()=>{
     const s={};
-    cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:sup,calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
+    cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:numSupplier(sup),calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
     return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
   };
 
@@ -414,16 +434,16 @@ function StatsCharts({token}){
     </div>
 
     {/* Daily Charts */}
-    <Section title="📅 Daily Revenue USDT" color="#10B981"><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📅 Daily Revenue" color="#10B981"><SVGBar data={dailyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📅 Daily Calls" color="#3B82F6"><SVGBar data={dailyData()} vk="calls" color="#3B82F6"/></Section>
     <Section title="📅 Daily Minutes" color="#2CADA6"><SVGBar data={dailyData()} vk="minutes" color="#2CADA6"/></Section>
 
     {/* Weekly Charts */}
-    <Section title="📊 Weekly Revenue USDT" color="#10B981"><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📊 Weekly Revenue" color="#10B981"><SVGBar data={weeklyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📊 Weekly Calls" color="#3B82F6"><SVGBar data={weeklyData()} vk="calls" color="#3B82F6"/></Section>
 
     {/* Monthly Charts */}
-    <Section title="📆 Monthly Revenue USDT" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
+    <Section title="📆 Monthly Revenue" color="#10B981"><SVGBar data={monthlyData()} vk="revenue" color="#10B981"/></Section>
     <Section title="📆 Monthly Calls" color="#3B82F6"><SVGBar data={monthlyData()} vk="calls" color="#3B82F6"/></Section>
 
     {/* Countries - Revenue Donut */}
@@ -767,11 +787,176 @@ function DashboardPage({token}){
     </div>
   );
 }
+// ── Phone Back button ─────────────────────────────────────────────────────
+// Anything that sits on top of a page (mobile menu, supplier screen, pop-up forms) is an
+// "overlay" and takes one browser-history entry while it is open. One shared stack means
+// Back always closes the top-most overlay first (pop-up, then supplier screen, then menu)
+// and only then goes to the previous page.
+const overlayStack=[];
+let ignorePops=0;
+const pushOverlay=(entry)=>{
+  window.history.pushState({...(window.history.state||{}),overlay:true},"");
+  overlayStack.push(entry);
+};
+// closed from the screen (not with Back): drop its history entry too, without treating that as a Back press
+const removeOverlay=(entry)=>{
+  const i=overlayStack.indexOf(entry);
+  if(i<0) return;                       // already closed by Back
+  overlayStack.splice(i,1);
+  if(window.history.state?.overlay){ ignorePops++; window.history.back(); }
+};
+if(typeof window!=="undefined"){
+  window.addEventListener("popstate",()=>{
+    if(ignorePops>0){ ignorePops--; return; }
+    const top=overlayStack.pop();
+    if(top) top.close();
+  });
+}
+function useBackClose(open,close){
+  const closeRef=useRef(close);closeRef.current=close;
+  useEffect(()=>{
+    if(!open) return;
+    const entry={close:()=>closeRef.current()};
+    pushOverlay(entry);
+    return()=>removeOverlay(entry);
+  },[open]);
+  return()=>closeRef.current();          // on-screen close button: closing also removes the history entry
+}
+// Pop-up forms are full-screen backdrops (position:fixed, layer >= 300, click to close).
+// Watch for them so every pop-up, including future ones, closes with the Back button.
+function useModalBackButton(){
+  useEffect(()=>{
+    const tracked=new Map();
+    const isModal=(el)=>el.style.position==="fixed"&&parseInt(el.style.zIndex||"0",10)>=300;
+    let raf=0;
+    const sync=()=>{
+      raf=0;
+      const now=new Set([...document.querySelectorAll('div[style*="fixed"]')].filter(isModal));
+      now.forEach(el=>{ if(!tracked.has(el)){ const e={close:()=>el.click()}; tracked.set(el,e); pushOverlay(e); } });
+      [...tracked.keys()].forEach(el=>{ if(!now.has(el)){ removeOverlay(tracked.get(el)); tracked.delete(el); } });
+    };
+    const schedule=()=>{ if(!raf) raf=requestAnimationFrame(sync); };
+    const mo=new MutationObserver(schedule);
+    mo.observe(document.body,{childList:true,subtree:true});
+    schedule();
+    return()=>{ mo.disconnect(); if(raf) cancelAnimationFrame(raf); };
+  },[]);
+}
+
+// ── Click-a-heading grouping (used by the live call tables) ──────────────
+// Click a heading (☰): rows with the same value are grouped together under a
+// group bar with a count; click again to reverse the order; a third click
+// turns grouping off. Columns in `sortOnly` are only sorted (their values are
+// almost always unique, e.g. duration), without group bars.
+const useGroupBy=()=>{
+  const [grp,setGrp]=useState({key:null,dir:1});
+  const toggle=(key)=>setGrp(g=>g.key!==key?{key,dir:1}:g.dir===1?{key,dir:-1}:{key:null,dir:1});
+  return [grp,toggle];
+};
+const groupDisplay=(items,grp,sortOnly=[])=>{
+  if(!grp.key) return items.map(row=>({row}));
+  const sorted=[...items].sort((a,b)=>{
+    const x=a[grp.key],y=b[grp.key];
+    const r=(typeof x==="number"&&typeof y==="number")?x-y:String(x).localeCompare(String(y),undefined,{numeric:true});
+    return r*grp.dir;
+  });
+  if(sortOnly.includes(grp.key)) return sorted.map(row=>({row}));
+  const counts={};
+  sorted.forEach(it=>{counts[it[grp.key]]=(counts[it[grp.key]]||0)+1;});
+  const out=[];let last;
+  sorted.forEach((it,i)=>{
+    if(i===0||it[grp.key]!==last){out.push({group:it[grp.key],count:counts[it[grp.key]]});last=it[grp.key];}
+    out.push({row:it});
+  });
+  return out;
+};
+const GroupHeading=({label,colKey,grp,toggle,style})=>{
+  const active=grp.key===colKey;
+  return(
+    <th onClick={colKey?()=>toggle(colKey):undefined} title={colKey?`Click to group by ${label}`:undefined}
+      style={{...style,cursor:colKey?"pointer":"default",userSelect:"none"}}>
+      {label}{colKey&&<span style={{marginLeft:6,opacity:active?1:0.7}}>{active?(grp.dir===1?"☰▲":"☰▼"):"☰"}</span>}
+    </th>
+  );
+};
+const groupBarStyle={padding:"7px 12px",background:"#E6F6F5",fontSize:13,fontWeight:800,borderTop:"1px solid #CFEBE9",borderBottom:"1px solid #CFEBE9",whiteSpace:"nowrap"};
+
+// ── GTable: drop-in <table> with click-a-heading grouping ─────────────────
+// Every heading gets a ☰ icon. Click it to group rows that have the same value in
+// that column under a bar with a count; click again to reverse; third click = off.
+// If every value in the column is different (dates, amounts...) it just sorts.
+// Works on the table's React children, so rows that expand into sub-rows (a
+// Fragment) move together, and rows that don't match the heading layout
+// (loading / "no data" / section rows) stay at the end. Tables that manage
+// their own grouping (live calls, using GroupHeading) pass through untouched.
+const textOf=(n)=>n==null||n===false||n===true?"":(typeof n==="string"||typeof n==="number")?String(n):Array.isArray(n)?n.map(textOf).join(""):(n.props?textOf(n.props.children):"");
+const numOf=(v)=>{const t=String(v).replace(/[$,%\s]/g,"");return t!==""&&/^-?\d*\.?\d+$/.test(t)?parseFloat(t):null;};
+const NO_GROUP_HEADING=/^(sl|#|no\.?|actions?|del|delete|edit|select|)$/i;
+function GTable({children,...props}){
+  const [grp,setGrp]=useState({col:null,dir:1});
+  const plain=()=><table {...props}>{children}</table>;
+  const kids=React.Children.toArray(children);
+  const thead=kids.find(k=>k.type==="thead");
+  const tbodies=kids.filter(k=>k.type==="tbody");
+  if(!thead||tbodies.length!==1) return plain();
+  const tbody=tbodies[0];
+  const headRow=React.Children.toArray(thead.props.children).find(k=>k.type==="tr");
+  if(!headRow) return plain();
+  const ths=React.Children.toArray(headRow.props.children);
+  if(ths.length===0||ths.some(t=>t.type!=="th")) return plain();
+  const n=ths.length;
+  const units=React.Children.toArray(tbody.props.children);
+  const firstTr=(u)=>u.type==="tr"?u:(u.type===React.Fragment?React.Children.toArray(u.props.children).find(k=>k.type==="tr"):null);
+  const info=units.map(u=>{
+    const tr=firstTr(u);
+    if(!tr) return {u,special:true};
+    const cells=React.Children.toArray(tr.props.children).filter(c=>c&&(c.type==="td"||c.type==="th"));
+    return cells.length!==n?{u,special:true}:{u,cells:cells.map(c=>textOf(c).trim())};
+  });
+  const regular=info.filter(x=>!x.special),special=info.filter(x=>x.special);
+  const groupable=ths.map((th,i)=>!NO_GROUP_HEADING.test(textOf(th).trim())&&regular.some(x=>x.cells[i]!==""));
+  const toggle=(i)=>setGrp(g=>g.col!==i?{col:i,dir:1}:g.dir===1?{col:i,dir:-1}:{col:null,dir:1});
+
+  const newThs=ths.map((th,i)=>{
+    if(!groupable[i]) return th;
+    const active=grp.col===i;
+    return React.cloneElement(th,{
+      onClick:()=>toggle(i),title:"Click to group by "+textOf(th).trim(),
+      style:{...th.props.style,cursor:"pointer",userSelect:"none"},
+    },<>{th.props.children}<span style={{marginLeft:6,opacity:active?1:0.7}}>{active?(grp.dir===1?"☰▲":"☰▼"):"☰"}</span></>);
+  });
+
+  let bodyKids=units;
+  if(grp.col!==null&&groupable[grp.col]&&regular.length>0){
+    const c=grp.col;
+    const sorted=[...regular].sort((a,b)=>{
+      const x=a.cells[c],y=b.cells[c],nx=numOf(x),ny=numOf(y);
+      const r=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y,undefined,{numeric:true});
+      return r*grp.dir;
+    });
+    const counts={};sorted.forEach(x=>{counts[x.cells[c]]=(counts[x.cells[c]]||0)+1;});
+    const allUnique=Object.keys(counts).length===sorted.length;
+    const out=[];let last;
+    sorted.forEach((x,i)=>{
+      if(!allUnique&&(i===0||x.cells[c]!==last)){
+        out.push(<tr key={"grp-"+i}><td colSpan={n} style={groupBarStyle}>{textOf(ths[c]).trim()}: {x.cells[c]||"—"} · {counts[x.cells[c]]} row{counts[x.cells[c]]>1?"s":""}</td></tr>);
+        last=x.cells[c];
+      }
+      out.push(x.u);
+    });
+    bodyKids=[...out,...special.map(x=>x.u)];
+  }
+  const newHead=React.cloneElement(thead,undefined,React.cloneElement(headRow,undefined,newThs));
+  const newBody=React.cloneElement(tbody,undefined,bodyKids);
+  return <table {...props}>{kids.map(k=>k===thead?newHead:k===tbody?newBody:k)}</table>;
+}
+
 // ── Live Calls ────────────────────────────────────────────────────
 function LiveCallsPage({token}){
   const [calls,setCalls]=useState([]);
   const [loading,setLoading]=useState(false);
   const [tick,setTick]=useState(0);
+  const [grp,toggleGrp]=useGroupBy();
 
   const load=()=>{
     setLoading(true);
@@ -797,9 +982,23 @@ function LiveCallsPage({token}){
                [m,ss].map(v=>String(v).padStart(2,"0")).join(":");
   };
 
-  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
-    padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap",
-    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
+  // Header and cells share the same horizontal padding/alignment so columns line up
+  const items=calls.map(c=>{
+    const did=(c.did||c.exten||"").replace("+","");
+    return {c,did,
+      cli:(c.src||c.callerid||"—"),
+      prefix:c.prefix||(did.slice(0,did.length>10?did.length-4:4))||"—",
+      country:c.country||c.country_name||"—",
+      ivr:(c.ivr||c.ivr_context||"—").replace("custom/",""),
+      supplier:numSupplier(c.supplier||c.trunk_name),
+      secs:Math.min(86400,parseInt(c.seconds||c.billsec||0))||0};
+  });
+  const cols=[{h:"SL"},{h:"CLI",key:"cli"},{h:"PRN",key:"did"},{h:"PREFIX",key:"prefix"},{h:"COUNTRY",key:"country"},{h:"IVR",key:"ivr"},{h:"SUPPLIER",key:"supplier"},{h:"DURATION",key:"secs"}];
+  const display=groupDisplay(items,grp,["secs"]);
+  const grpLabel=cols.find(x=>x.key===grp.key)?.h;
+  const thS={fontSize:12,color:"#FFF",fontWeight:800,letterSpacing:"0.6px",
+    padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",
+    background:"#2CADA6",textTransform:"uppercase"};
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
@@ -834,60 +1033,62 @@ function LiveCallsPage({token}){
           <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
             boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
             <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+              <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
                 <thead>
                   <tr>
-                    {["SL","CLI","PRN","PREFIX","COUNTRY","IVR","SUPPLIER","DURATION"].map((h,i)=>(
-                      <th key={i} style={thS}>{h}</th>
+                    {cols.map((col,i)=>(
+                      <GroupHeading key={i} label={col.h} colKey={col.key} grp={grp} toggle={toggleGrp} style={thS}/>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {calls.map((c,i)=>{
-                    const did=(c.did||c.exten||"").replace("+","");
-                    const prefix=c.prefix||(did.slice(0,did.length>10?did.length-4:4))||"—";
-                    const dur=fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)));
-                    const ivr=(c.ivr||c.ivr_context||"—").replace("custom/","");
-                    const cli=(c.src||c.callerid||"—");
+                  {(()=>{let n=0;return display.map((d,idx)=>{
+                    if(d.group!==undefined) return(
+                      <tr key={"g"+idx}><td colSpan={8} style={groupBarStyle}>
+                        {grpLabel}: {d.group} · {d.count} call{d.count>1?"s":""}</td></tr>
+                    );
+                    const {c,did,cli,prefix,ivr,supplier,secs}=d.row;
+                    const dur=fmt(secs);
+                    n++;
                     return(
-                    <tr key={i} style={{borderBottom:"1px solid #F0F0F0",
-                      background:i%2===0?"#FFF":"#F9FFFE"}}>
-                      <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>
-                        {i+1}
+                    <tr key={"r"+idx} style={{borderBottom:"1px solid #F0F0F0",
+                      background:n%2===1?"#FFF":"#F9FFFE"}}>
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:13,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>
+                        {n}
                       </td>
-                      <td style={{padding:"6px 8px",fontSize:11,fontFamily:"monospace",
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:13,fontFamily:"monospace",
                         fontWeight:600,color:"#1A1A1A",whiteSpace:"nowrap"}}>
                         {cli}
                       </td>
-                      <td style={{padding:"6px 8px",fontSize:11,fontFamily:"monospace",
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:13,fontFamily:"monospace",
                         color:"#2CADA6",fontWeight:700,whiteSpace:"nowrap"}}>
                         {did}
                       </td>
-                      <td style={{padding:"6px 8px",fontSize:11,color:"#555",
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:13,color:"#555",
                         fontFamily:"monospace",whiteSpace:"nowrap"}}>
                         {prefix}
                       </td>
-                      <td style={{padding:"6px 8px",fontSize:11,color:"#333",whiteSpace:"nowrap"}}>
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:13,color:"#333",whiteSpace:"nowrap"}}>
                         {c.country||c.country_name||"—"}
                       </td>
-                      <td style={{padding:"6px 8px",fontSize:10,color:"#555",whiteSpace:"nowrap"}}>
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:12,color:"#555",whiteSpace:"nowrap"}}>
                         {ivr}
                       </td>
-                      <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",
+                      <td style={{padding:"8px 12px",textAlign:"center",fontSize:13,color:"#2CADA6",
                         fontWeight:600,whiteSpace:"nowrap"}}>
-                        {c.supplier||c.trunk_name||"—"}
+                        {supplier}
                       </td>
-                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
-                        <span style={{padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:700,
+                      <td style={{padding:"8px 12px",textAlign:"center",whiteSpace:"nowrap"}}>
+                        <span style={{padding:"2px 8px",borderRadius:20,fontSize:13,fontWeight:700,
                           background:"rgba(16,185,129,0.1)",color:"#10B981",
                           fontFamily:"monospace",whiteSpace:"nowrap"}}>
                           ●{dur}
                         </span>
                       </td>
                     </tr>
-                  );})}
+                  );});})()}
                 </tbody>
-              </table>
+              </GTable>
             </div>
             <div style={{padding:"8px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
               fontSize:11,color:"#999",display:"flex",justifyContent:"space-between"}}>
@@ -995,7 +1196,7 @@ function CDRPage({token}){
               style={{padding:"8px 10px",borderRadius:6,border:"1px solid #E0E0E0",
                 fontSize:12,outline:"none",cursor:"pointer",fontFamily:"inherit"}}>
               <option value="">All Suppliers</option>
-              {suppliers.map(s=><option key={s} value={s}>{s}</option>)}
+              {suppliers.map(s=><option key={s} value={s}>{numSupplier(s)}</option>)}
             </select>
           </div>
         </div>
@@ -1020,7 +1221,7 @@ function CDRPage({token}){
         :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
           boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
               <thead>
                 <tr>
                   {["DATE","CLI","PRN","DURATION","REVENUE","SUPPLIER","STATUS"].map((h,i)=>(
@@ -1049,7 +1250,7 @@ function CDRPage({token}){
                         {fmtUSDT(c.revenue)}
                       </td>
                       <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
-                        {c.trunk_name||"—"}
+                        {numSupplier(c.trunk_name)}
                       </td>
                       <td style={{padding:"6px 10px"}}>
                         <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
@@ -1078,7 +1279,7 @@ function CDRPage({token}){
                   </tr>
                 </tfoot>
               )}
-              </table>
+              </GTable>
               {/* Pagination */}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
                 gap:8,padding:"10px 12px",borderTop:"1px solid #E8E8E8",background:"#FAFAFA",flexWrap:"wrap"}}>
@@ -1195,7 +1396,7 @@ function RevenuePage({token}){
       <div style={{marginBottom:16}}>
         <div style={{background:"linear-gradient(135deg,#10B981,#059669)",borderRadius:14,padding:16,
           boxShadow:"0 4px 16px rgba(16,185,129,0.3)"}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💰 USDT WALLET</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:"1px",marginBottom:8}}>💰 WALLET</div>
           <div style={{fontSize:28,fontWeight:800,color:"#FFFFFF",fontFamily:"monospace",marginBottom:4}}>
             {loading?"...":fmtUSDT(totalRevUsdt)}
           </div>
@@ -1314,7 +1515,7 @@ function RevenuePage({token}){
             <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A"}}>Revenue by Supplier</div>
           </div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse"}}>
               <thead>
                 <tr style={{background:"#F8F9FA"}}>
                   {["Supplier","DIDs","Calls","Minutes","Revenue"].map((h,i)=>(
@@ -1329,7 +1530,7 @@ function RevenuePage({token}){
                   ?<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999"}}>No supplier revenue data</td></tr>
                   :supRevenue.map((s,i)=>(
                     <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                      <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{s.nickname||s.supplier||"—"}</td>
+                      <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>{numSupplier(s.nickname||s.supplier)}</td>
                       <td style={{padding:"10px 14px",fontSize:12,color:"#8B5CF6",fontFamily:"monospace"}}>{s.unique_dids||0}</td>
                       <td style={{padding:"10px 14px",fontSize:12,color:"#3B82F6",fontFamily:"monospace"}}>{s.calls||0}</td>
                       <td style={{padding:"10px 14px",fontSize:12,color:"#555",fontFamily:"monospace"}}>{parseFloat(s.minutes||0).toFixed(2)}</td>
@@ -1341,7 +1542,7 @@ function RevenuePage({token}){
                   ))
                 }
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
       )}
@@ -1364,7 +1565,7 @@ function RevenuePage({token}){
           </div>
           <div style={{background:"#FFFFFF",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
             <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <GTable style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead>
                   <tr style={{background:"#F8F9FA"}}>
                     {["Invoice #","Calls","Amount","Status","Period","PDF"].map((h,i)=>(
@@ -1412,7 +1613,7 @@ function RevenuePage({token}){
                     ))
                   }
                 </tbody>
-              </table>
+              </GTable>
             </div>
           </div>
         </div>
@@ -1466,10 +1667,11 @@ function SupplierAccountsPage({token,user,setPage}){
     load();
   };
 
+  const closeSupplier=useBackClose(selectedId!==null,()=>{setSelectedId(null);load();});
   const selected=suppliers.find(s=>s.id===selectedId);
   if(selected){
     return <SupplierWorkspace token={token} user={user} setPage={setPage} supplier={selected}
-      onBack={()=>{setSelectedId(null);load();}}/>;
+      onBack={closeSupplier}/>;
   }
 
   return(
@@ -1532,43 +1734,41 @@ function SupplierAccountsPage({token,user,setPage}){
           </div>
         )}
 
-        <div style={{...cardS,overflow:"hidden"}}>
+        <div>
           {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
           :suppliers.length===0?<div style={{padding:40,textAlign:"center",color:"#999",fontSize:12}}>
             No suppliers yet. Use "+ Add Supplier" to create one.</div>
-          :<div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:760}}>
-              <thead><tr>{["Supplier","Country","Status","Numbers","Test #","Calls","Minutes","Revenue","Actions"].map((h,i)=>
-                <th key={i} style={thSup}>{h}</th>)}</tr></thead>
-              <tbody>
-                {suppliers.map((s,i)=>(
-                  <tr key={s.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF",cursor:"pointer"}}
-                    onClick={()=>setSelectedId(s.id)}>
-                    <td style={{padding:"10px 10px",fontSize:13,fontWeight:700,color:"#1A1A1A"}}>
-                      {s.name}{s.code?<span style={{color:"#999",fontWeight:500,fontSize:11}}> ({s.code})</span>:null}</td>
-                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.country||"—"}</td>
-                    <td style={{padding:"10px 10px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:s.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
-                        color:s.status==="active"?"#10B981":"#888"}}>{(s.status||"—").toUpperCase()}</span></td>
-                    <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,color:"#1A1A1A"}}>{s.number_count}</td>
-                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.test_number_count}</td>
-                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.calls}</td>
-                    <td style={{padding:"10px 10px",fontSize:12,color:"#555"}}>{s.minutes}</td>
-                    <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
-                      {fmtUSDT(s.revenue)}</td>
-                    <td style={{padding:"10px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
-                      <button onClick={()=>setSelectedId(s.id)}
-                        style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-                          color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Open</button>
-                      {user?.role==='superadmin'&&<button onClick={()=>delSupplier(s)}
-                        style={{padding:"4px 10px",borderRadius:6,border:"1px solid #EF4444",background:"rgba(239,68,68,0.08)",
-                          color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:16}}>
+            {suppliers.map((s,i)=>{
+              const pal=SUP_COLORS[(Number(s.id)||i)%SUP_COLORS.length];
+              const active=s.status==="active";
+              const stat=(label,value)=>(
+                <div style={{background:"rgba(255,255,255,0.6)",borderRadius:10,padding:"8px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"#1A1A1A"}}>{value}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:"#666",letterSpacing:"0.5px",textTransform:"uppercase"}}>{label}</div>
+                </div>);
+              return(
+              <div key={s.id} className="sup-widget" role="button" tabIndex={0} title="Click to open"
+                onClick={()=>setSelectedId(s.id)} onKeyDown={e=>{if(e.key==="Enter")setSelectedId(s.id);}}
+                style={{background:pal.bg,borderRadius:16,padding:16,cursor:"pointer",position:"relative",
+                  borderTop:`6px solid ${pal.accent}`,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:20,fontWeight:800,color:"#1A1A1A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{numSupplier(s.name)}</div>
+                    <div style={{fontSize:12,color:"#555",marginTop:2}}>{s.country||"—"}</div>
+                  </div>
+                  <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:800,flexShrink:0,
+                    background:active?"rgba(16,185,129,0.18)":"rgba(153,153,153,0.25)",color:active?"#10B981":"#888"}}>{(s.status||"—").toUpperCase()}</span>
+                </div>
+                <div style={{margin:"14px 0 10px",fontSize:24,fontWeight:800,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(s.revenue)}</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                  {stat("Numbers",s.number_count)}{stat("Test #",s.test_number_count)}{stat("Calls",s.calls)}{stat("Min",s.minutes)}
+                </div>
+                {user?.role==='superadmin'&&<button onClick={e=>{e.stopPropagation();delSupplier(s);}}
+                  style={{position:"absolute",right:10,bottom:-12,padding:"3px 10px",borderRadius:12,border:"1px solid #EF4444",
+                    background:"#FFF",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>}
+              </div>
+            );})}
           </div>}
         </div>
       </div>
@@ -1582,6 +1782,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [testNumbers,setTestNumbers]=useState([]);
   const [accessHistory,setAccessHistory]=useState([]);
   const [liveCalls,setLiveCalls]=useState([]);
+  const [liveGrp,toggleLiveGrp]=useGroupBy();
   const [loadingLive,setLoadingLive]=useState(false);
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
@@ -1626,6 +1827,17 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [syncNumbersResult,setSyncNumbersResult]=useState(null);
   const [syncingCdr,setSyncingCdr]=useState(false);
   const [syncCdrResult,setSyncCdrResult]=useState(null);
+  const [cdrRows,setCdrRows]=useState([]);
+  const [cdrFileName,setCdrFileName]=useState("");
+  const [cdrMode,setCdrMode]=useState("skip");
+  const [cdrImporting,setCdrImporting]=useState(false);
+  const [cdrImportResult,setCdrImportResult]=useState(null);
+  const [cdrInfo,setCdrInfo]=useState("");
+  const [cdrRaw,setCdrRaw]=useState(null);       // rows as read from the file, before mapping
+  const [cdrDayFirst,setCdrDayFirst]=useState(null); // null = detect, true = DD/MM, false = MM/DD
+  const [cdrDateCertain,setCdrDateCertain]=useState(true);
+  const [cdrPreview,setCdrPreview]=useState("");
+  const [cdrSummary,setCdrSummary]=useState(null); // weekly report (calls / minutes / payout per number), not per-call rows
   const [checkingLive,setCheckingLive]=useState(false);
   const [checkLiveResult,setCheckLiveResult]=useState(null);
   const [supplierCdr,setSupplierCdr]=useState([]);
@@ -1943,6 +2155,97 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     if(d.success){loadNumbers();loadPrefixes();}
   };
 
+  // ── Manual CDR upload (csv/xlsx). New rows are added; rows that match an
+  // existing CDR (same CLI + PRN + call date) are skipped or replaced. ──
+  // Map the rows read from the file; called again when the date order switch is changed
+  const applyCdrRaw=(raw,dayFirst,mode)=>{
+    const res=mapCdrRows(raw,dayFirst);
+    setCdrRows(res.rows);setCdrDateCertain(res.dateCertain);
+    if(res.rows.length===0){
+      const cols=raw.length?Object.keys(raw[0]).join(", "):"(no rows found)";
+      setCdrImportResult({success:false,error:`0 usable rows out of ${res.total}${mode==="text"?" (PDF read as plain text)":""}. Each row needs a date and a CLI or number column. Columns found: ${cols}`});
+      setCdrInfo("");setCdrPreview("");
+    }else{
+      setCdrImportResult(null);
+      setCdrInfo(`${mode?"PDF · ":""}dates read as ${res.dateFormat}${res.dateCertain?"":" (assumed)"}${res.repeats?` · ${res.repeats} repeated row${res.repeats>1?"s":""} inside the file (same date + CLI + number) will count as duplicates`:""}`);
+      const f=res.rows[0];
+      setCdrPreview(`First row: ${f.call_date} · ${f.cli} → ${f.prn} · ${f.billsec}s · ${f.payout}${f.currency_code?" "+f.currency_code:""}`);
+    }
+  };
+  const changeCdrDayFirst=(v)=>{ setCdrDayFirst(v); if(cdrRaw) applyCdrRaw(cdrRaw,v,null); };
+  const handleCdrFile=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    setCdrImportResult(null);setCdrRows([]);setCdrInfo("");setCdrPreview("");setCdrRaw(null);setCdrDayFirst(null);setCdrDateCertain(true);setCdrSummary(null);
+    if(!file) return;
+    setCdrFileName(file.name);
+    if(!/\.(csv|txt|xlsx|xls|pdf)$/i.test(file.name)){ setCdrImportResult({success:false,error:"Please choose a .csv, .xlsx, .xls or .pdf file"}); return; }
+    try{
+      let rows,mode=null,pre=[];
+      if(/\.pdf$/i.test(file.name)){
+        // PDF: text is read page by page and rebuilt into a table (header row if there is one, else line by line)
+        const pdfjs=await import("pdfjs-dist/build/pdf.min.mjs");
+        const workerSrc=(await import("pdfjs-dist/build/pdf.worker.min.mjs?raw")).default;
+        pdfjs.GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([workerSrc],{type:"text/javascript"}));
+        const r=await readPdfRows(await file.arrayBuffer(),pdfjs);
+        rows=r.rows;mode=r.mode;pre=r.pre||[];
+        if(rows.length===0){
+          setCdrImportResult({success:false,error:r.lineCount===0
+            ?"No text found in this PDF - it looks like a scanned image. Please send it as CSV/Excel or a text PDF."
+            :`Could not find call rows in this PDF (${r.lineCount} lines of text). Here is the start of what was read - send this to support to adjust the reader:\n${r.sample}`});
+          return;
+        }
+      }else{
+        const XLSX=await import("xlsx");
+        if(/\.(csv|txt)$/i.test(file.name)){
+          // raw:true keeps every cell as text, so long numbers and dates are not reinterpreted
+          const wb=XLSX.read(await file.text(),{type:"string",raw:true});
+          rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:"",raw:true});
+        }else{
+          const wb=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:true});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          const raw=XLSX.utils.sheet_to_json(ws,{defval:"",raw:true});
+          const fmt=XLSX.utils.sheet_to_json(ws,{defval:"",raw:false,dateNF:"yyyy-mm-dd hh:mm:ss"});
+          rows=raw.map((r,i)=>{const o={};for(const k in r){const v=r[k];o[k]=v instanceof Date?fmt[i][k]:(typeof v==="number"?String(v):v);}return o;});
+        }
+      }
+      if(isSummaryRows(rows)){
+        // Supplier weekly report: becomes one unpaid weekly entry + its lines (week from the file, else last week)
+        const sm=parseSummaryRows(rows);
+        const found=detectWeek(pre);
+        setCdrRaw(null);setCdrRows([]);
+        setCdrSummary({...sm,weekStart:(found||lastWeek()).start,weekFromFile:!!found});
+        return;
+      }
+      setCdrRaw(rows);
+      applyCdrRaw(rows,null,mode);
+    }catch(err){
+      setCdrImportResult({success:false,error:"Could not read the file: "+(err?.message||err)});
+    }
+  };
+  const importCdrRows=async()=>{
+    if(cdrSummary){
+      setCdrImporting(true);setCdrImportResult(null);
+      const d=await apiFetch(`/supplier-accounts/${supplier.id}/weekly-report`,token,{method:"POST",
+        body:JSON.stringify({mode:cdrMode,week_start:cdrSummary.weekStart,lines:cdrSummary.lines})});
+      setCdrImporting(false);
+      if(d.success){setCdrImportResult({success:true,message:d.message});setCdrSummary(null);setCdrFileName("");loadSupplierCdr();}
+      else setCdrImportResult({success:false,error:d.error||d.message||"Upload failed"});
+      return;
+    }
+    if(cdrRows.length===0) return;
+    setCdrImporting(true);setCdrImportResult(null);
+    const tot={success:true,added:0,replaced:0,skipped:0,invalid:0,main_added:0,main_replaced:0,main_skipped:0,weekly_created:0,weekly_updated:0};
+    for(let i=0;i<cdrRows.length;i+=1000){
+      const d=await apiFetch(`/supplier-accounts/${supplier.id}/cdr-import`,token,{method:"POST",
+        body:JSON.stringify({mode:cdrMode,rows:cdrRows.slice(i,i+1000)})});
+      if(!d.success){setCdrImportResult({...tot,success:false,error:d.error||d.message||"Upload failed"});setCdrImporting(false);loadSupplierCdr();return;}
+      tot.added+=d.added;tot.replaced+=d.replaced;tot.skipped+=d.skipped;tot.invalid+=d.invalid;tot.main_added+=d.main_added||0;tot.main_replaced+=d.main_replaced||0;tot.main_skipped+=d.main_skipped||0;tot.weekly_created+=d.weekly_created||0;tot.weekly_updated+=d.weekly_updated||0;
+    }
+    tot.message=`Supplier CDR: ${tot.added} new, ${tot.replaced} replaced, ${tot.skipped} skipped · Main CDR: ${tot.main_added} new, ${tot.main_replaced} replaced, ${tot.main_skipped} skipped · Weekly entries: ${tot.weekly_created} new, ${tot.weekly_updated} updated · ${tot.invalid} invalid`;
+    setCdrImportResult(tot);setCdrImporting(false);setCdrRows([]);setCdrFileName("");setCdrInfo("");loadSupplierCdr();
+  };
+
   const syncApiCdr=async()=>{
     setSyncingCdr(true);setSyncCdrResult(null);
     const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-sync-cdr`,token,{method:"POST"});
@@ -1968,7 +2271,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         <button onClick={onBack} style={{padding:"6px 12px",borderRadius:6,border:"1px solid #E0E0E0",
           background:"#F5F5F5",color:"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>← Suppliers</button>
         <div style={{textAlign:"center",marginTop:6}}>
-          <h1 style={{fontSize:24,fontWeight:800,margin:0,color:"#1A1A1A"}}>{supplier.name}</h1>
+          <h1 style={{fontSize:24,fontWeight:800,margin:0,color:"#1A1A1A"}}>{numSupplier(supplier.name)}</h1>
           <div style={{fontSize:12,color:"#999",marginTop:4}}>
             Code: {supplier.code||"—"} · Country: {supplier.country||"—"} ·{" "}
             <span style={{color:supplier.status==="active"?"#10B981":"#888",fontWeight:700}}>
@@ -2002,30 +2305,44 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
           </div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-              <thead><tr>{["Status","Number","Caller","Start Time","Duration","Prefix","Route/IVR","Source"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+              <thead><tr>{[["SL"],["Prefix","prefix"],["CLI","cli"],["PRN","did"],["Supplier","supplier"],["Start Time","start"],["Duration","secs"]].map(([h,k],i)=>(
+                <GroupHeading key={i} label={h} colKey={k} grp={liveGrp} toggle={toggleLiveGrp}
+                  style={{...thSup,fontSize:12,fontWeight:800,color:"#FFF",background:"#2CADA6",padding:"10px 12px",borderBottom:"none",textAlign:"center"}}/>
+              ))}</tr></thead>
               <tbody>
-                {loadingLive?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
-                liveCalls.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No live calls right now</td></tr>:
-                liveCalls.map((c,i)=>(
-                  <tr key={c.key+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:"rgba(16,185,129,0.1)",color:"#10B981"}}>{c.status}</span></td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{c.number}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.caller}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.start_time}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.duration}s</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{c.prefix}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.route}</td>
-                    <td style={{padding:"8px 10px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:c.source==="API"?"rgba(91,79,207,0.1)":"rgba(44,173,166,0.1)",
-                        color:c.source==="API"?"#5B4FCF":"#2CADA6"}}>{c.source}</span></td>
-                  </tr>
-                ))}
+                {loadingLive?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
+                liveCalls.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No live calls right now</td></tr>:
+                (()=>{
+                  const supName=numSupplier(supplier.name);
+                  const items=liveCalls.map(c=>({c,prefix:c.prefix||"—",cli:c.caller||"—",did:String(c.number||"").replace("+",""),
+                    supplier:supName,start:c.start_time||"",secs:Math.min(86400,Math.max(0,parseInt(c.duration)||0))}));
+                  const display=groupDisplay(items,liveGrp,["start","secs"]);
+                  const label={prefix:"Prefix",cli:"CLI",did:"PRN",supplier:"Supplier"}[liveGrp.key];
+                  let n=0;
+                  return display.map((d,idx)=>{
+                    if(d.group!==undefined) return(
+                      <tr key={"g"+idx}><td colSpan={7} style={groupBarStyle}>{label}: {d.group} · {d.count} call{d.count>1?"s":""}</td></tr>
+                    );
+                    const {c,secs}=d.row; n++;
+                    const cell={padding:"8px 12px",fontSize:13,whiteSpace:"nowrap",textAlign:"center"};
+                    const dur=(secs>=3600?[Math.floor(secs/3600),Math.floor((secs%3600)/60),secs%60]:[Math.floor(secs/60),secs%60]).map(v=>String(v).padStart(2,"0")).join(":");
+                    return(
+                    <tr key={"r"+(c.key||"")+idx} style={{borderBottom:"1px solid #F0F0F0",background:n%2===1?"#FFF":"#F9FFFE"}}>
+                      <td style={{...cell,color:"#999",fontWeight:600}}>{n}</td>
+                      <td style={{...cell,fontFamily:"monospace",color:"#555"}}>{d.row.prefix}</td>
+                      <td style={{...cell,fontFamily:"monospace",color:"#1A1A1A",fontWeight:600}}>{d.row.cli}</td>
+                      <td style={{...cell,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{d.row.did}</td>
+                      <td style={{...cell,color:"#2CADA6",fontWeight:600}}>{d.row.supplier}</td>
+                      <td style={{...cell,color:"#555"}}>{c.start_time}</td>
+                      <td style={cell}>
+                        <span style={{padding:"2px 8px",borderRadius:20,fontSize:13,fontWeight:700,background:"rgba(16,185,129,0.1)",
+                          color:"#10B981",fontFamily:"monospace"}}>●{dur}</span></td>
+                    </tr>
+                  );});
+                })()}
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
 
@@ -2033,7 +2350,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
               <thead><tr>{["Prefix","Country","Code","Price","Payment Term","IVR","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
                 {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
@@ -2055,7 +2372,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
 
@@ -2073,7 +2390,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             </div>
           </div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
               <thead><tr>{["Country","Prefix / Range","Numbers","Price","Term","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
                 {filteredNumberGroups.length===0&&filteredRangesForSearch.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>:<>
@@ -2123,7 +2440,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 ))}
                 </>}
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
 
@@ -2131,7 +2448,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>TEST NUMBERS</div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
               <thead><tr>{["Country","Prefix","Price","Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
                 {testNumbers.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet — use "+ ADD TEST NUMBER" above</td></tr>:
@@ -2147,20 +2464,70 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
 
+        {/* UPLOAD CDR */}
+        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>UPLOAD CDR</div>
+          <div style={{padding:"10px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"center"}}>
+            <label style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              ⬆ Choose file (.csv / .xlsx / .pdf)
+              <input type="file" accept=".csv,.txt,.xlsx,.xls,.pdf" onChange={handleCdrFile} style={{display:"none"}}/>
+            </label>
+            {cdrFileName&&<span style={{fontSize:11,color:"#555"}}>{cdrFileName} — {cdrSummary?"weekly report read":`${cdrRows.length} rows ready`}{cdrInfo?" · "+cdrInfo:""}</span>}
+            {cdrRows.length>0&&!cdrDateCertain&&(
+              <select value={cdrDayFirst===null?"auto":cdrDayFirst?"dmy":"mdy"}
+                onChange={e=>changeCdrDayFirst(e.target.value==="dmy"?true:e.target.value==="mdy"?false:null)}
+                style={{padding:"6px 8px",borderRadius:6,border:"1px solid #F5A623",fontSize:11,fontFamily:"inherit"}}>
+                <option value="auto">Dates: MM/DD/YYYY (assumed)</option>
+                <option value="mdy">Dates are MM/DD/YYYY</option>
+                <option value="dmy">Dates are DD/MM/YYYY</option>
+              </select>)}
+            <select value={cdrMode} onChange={e=>setCdrMode(e.target.value)}
+              style={{padding:"6px 8px",borderRadius:6,border:"1px solid #CCC",fontSize:11,fontFamily:"inherit"}}>
+              <option value="skip">If already recorded: Skip</option>
+              <option value="replace">If already recorded: Replace</option>
+            </select>
+            <button onClick={importCdrRows} disabled={cdrImporting||(cdrRows.length===0&&!cdrSummary)}
+              style={{padding:"7px 14px",borderRadius:20,border:"none",background:(cdrRows.length>0||cdrSummary)&&!cdrImporting?"#2CADA6":"#CCC",color:"#FFF",fontSize:11,fontWeight:700,cursor:(cdrRows.length>0||cdrSummary)&&!cdrImporting?"pointer":"default"}}>
+              {cdrImporting?"Uploading...":"Upload CDR"}</button>
+          </div>
+          {cdrSummary&&(()=>{
+            const wk=weekOf(new Date(cdrSummary.weekStart+"T00:00:00"));
+            return(
+            <div style={{padding:"0 14px 8px",fontSize:12,color:"#333"}}>
+              <div><b>Weekly report</b> · {cdrSummary.total.lines} lines · {cdrSummary.total.calls} calls · {cdrSummary.total.minutes} min · payout <b>{fmtUSDT(cdrSummary.total.payout)}</b>
+                {cdrSummary.currencies.length>1?" · currencies: "+cdrSummary.currencies.join(", ")+" (one entry each)":""}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:6}}>
+                <span>Week:</span>
+                <input type="date" value={cdrSummary.weekStart} onChange={e=>e.target.value&&setCdrSummary({...cdrSummary,weekStart:e.target.value,weekFromFile:true})}
+                  style={{padding:"4px 6px",borderRadius:6,border:"1px solid #CCC",fontSize:12,fontFamily:"inherit"}}/>
+                <span>→ {wk.start} to {wk.end} (Mon–Sun)</span>
+                <span style={{color:cdrSummary.weekFromFile?"#10B981":"#F5A623",fontWeight:700}}>{cdrSummary.weekFromFile?"":"no dates in the file — last week assumed, change if needed"}</span>
+              </div>
+              <div style={{color:"#666",marginTop:4}}>Will be added as one unpaid weekly entry (Supplier Payments → Weekly) and these lines on this supplier's CDR page.</div>
+            </div>);
+          })()}
+          {cdrPreview&&<div style={{fontSize:11,color:"#555",padding:"0 14px 6px"}}>{cdrPreview}</div>}
+          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>Columns: date, cli, prn (number), billsec/duration, payout, country, operator, account. Rows are saved to this supplier's CDR and, when the call was billable, to the main CDR; calls from weeks that have ended are added to unpaid weekly entries (Supplier Payments → Weekly). A row is a duplicate when date + CLI + number match an existing CDR: new rows are added, duplicates are skipped or replaced.</div>
+          {cdrImportResult&&(
+            <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:600,whiteSpace:"pre-wrap",wordBreak:"break-word",userSelect:"text",color:cdrImportResult.success?"#10B981":"#EF4444"}}>
+              {cdrImportResult.success?"✅ "+cdrImportResult.message:"❌ "+cdrImportResult.error+(cdrImportResult.added||cdrImportResult.replaced?` (done before error: ${cdrImportResult.added} new, ${cdrImportResult.replaced} replaced)`:"")}</div>
+          )}
+        </div>
+
         {/* SUPPLIER CDR (API) */}
-        {apiEnabled&&(
+        {(apiEnabled||supplierCdr.length>0)&&(
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>SUPPLIER CDR (API)</div>
-          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>Normalized from the supplier's own /cdr feed via API → Sync CDR — separate from Asterisk call records.</div>
+          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>From the supplier's /cdr API sync or an uploaded file — separate from Asterisk call records.</div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
               <thead><tr>{["Date","CLI","PRN","Country","Duration","Payout","Account"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {supplierCdr.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No synced CDR yet — use "Sync CDR" in the API settings</td></tr>:
+                {supplierCdr.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No CDR yet — upload a file above or use "Sync CDR" in the API settings</td></tr>:
                 supplierCdr.map((c,i)=>(
                   <tr key={c.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(c.call_date||"").replace("T"," ").slice(0,19)||"—"}</td>
@@ -2173,7 +2540,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
         )}
@@ -2183,7 +2550,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
           <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>"Access From" is the caller/operator origin — never the supplier's SIP IP.</div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
               <thead><tr>{["Date","Prefix","Price","Test Number","Access From"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
                 {accessHistory.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
@@ -2197,7 +2564,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
 
@@ -2211,7 +2578,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
           {[["Code",supplier.code||"—"],["Country",supplier.country||"—"],["Contact",supplier.contact_name||"—"],
             ["Email",supplier.email||"—"],["Phone",supplier.phone||"—"],
-            ["SIP Trunk",supplier.linked_trunk?supplier.linked_trunk.nickname:"No trunk linked"]].map(([k,v])=>(
+            ["SIP Trunk",supplier.linked_trunk?numSupplier(supplier.linked_trunk.nickname):"No trunk linked"]].map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",
               borderBottom:"1px solid #F5F5F5",fontSize:12}}>
               <span style={{color:"#888",fontWeight:600}}>{k}</span>
@@ -2244,7 +2611,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 <option value="">— Select —</option>
                 {COUNTRIES.map(c=><option key={c.code} value={c.prefix}>{c.prefix} — {c.name}</option>)}
               </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Price / Min (USDT) *</div>
+            <div style={{marginBottom:10}}><div style={lblS}>Price / Min ($) *</div>
               <input type="number" step="0.001" style={inpS} value={prefixForm.price} onChange={e=>setPrefixForm({...prefixForm,price:e.target.value})} placeholder="0.040"/></div>
             <div style={{marginBottom:10}}><div style={lblS}>Payment Term *</div>
               <select style={inpS} value={prefixForm.payment_term} onChange={e=>setPrefixForm({...prefixForm,payment_term:e.target.value})}>
@@ -2362,7 +2729,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         <div onClick={()=>setShowImport(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:820,maxWidth:"100%",padding:20,maxHeight:"92vh",overflowY:"auto"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <div style={{fontSize:15,fontWeight:800}}>{importMode==="upload"?"Upload Number":"Paste Numbers"} — {supplier.name}</div>
+              <div style={{fontSize:15,fontWeight:800}}>{importMode==="upload"?"Upload Number":"Paste Numbers"} — {numSupplier(supplier.name)}</div>
               <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>{setImportMode("upload");setImportStep("input");}}
                   style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="upload"?"#F5A623":"#E0E0E0"),
@@ -2375,7 +2742,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               </div>
             </div>
             <div style={{fontSize:11,color:"#999",marginBottom:14}}>
-              Same intelligent parser either way — no fixed template required. Prices are always USDT/min; nothing is written until you confirm.
+              Same intelligent parser either way — no fixed template required. Prices are always $/min; nothing is written until you confirm.
             </div>
 
             {importStep==="input"&&(<>
@@ -2414,7 +2781,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 ))}
               </div>
               <div style={{overflowX:"auto",maxHeight:340,overflowY:"auto",marginBottom:14,border:"1px solid #F0F0F0",borderRadius:8}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
                   <thead><tr>{["Status","Number/Range","Country","Prefix","Price","Term","Operator","Note"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
                     {importPreviewData.records.map((rec,i)=>(
@@ -2428,14 +2795,14 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.country||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>
                           {rec.prefix||"—"}{rec.will_create_prefix?" (new)":""}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?parseFloat(rec.price).toFixed(4)+" USDT":"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?"$"+parseFloat(rec.price).toFixed(4):"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.payment_term||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.operator||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:10,color:"#999"}}>{rec.reason||""}</td>
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </GTable>
               </div>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={runImportConfirm} disabled={importing||importPreviewData.summary.new===0}
@@ -2456,8 +2823,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       {showPayment&&(
         <div onClick={()=>setShowPayment(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:560,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Payment — {supplier.name}</div>
-            <div style={{fontSize:11,color:"#999",marginBottom:14}}>All amounts USDT only. Revenue becomes payable only after the payment-term period closes.</div>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>Payment — {numSupplier(supplier.name)}</div>
+            <div style={{fontSize:11,color:"#999",marginBottom:14}}>All amounts in $. Revenue becomes payable only after the payment-term period closes.</div>
             {payLoading?<div style={{padding:30,textAlign:"center",color:"#999"}}>Loading...</div>:(<>
               <div style={{...cardS,padding:14,marginBottom:14,background:"#F9F9F9"}}>
                 <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:8}}>Current Period</div>
@@ -2500,7 +2867,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 </div>
               </div>
               <div style={{overflowX:"auto",marginBottom:16}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
                   <thead><tr>{["Paid Date","Period","Term","Rate","Amount","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
                     {payHistory.length===0?<tr><td colSpan={6} style={{padding:16,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
@@ -2515,7 +2882,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </GTable>
               </div>
             </>)}
             <div style={{marginTop:16,textAlign:"right"}}>
@@ -2561,7 +2928,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       {showApi&&(
         <div onClick={()=>setShowApi(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:480,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>API — {supplier.name}</div>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>API — {numSupplier(supplier.name)}</div>
             <div style={{fontSize:11,color:"#999",marginBottom:14}}>For CDR/number interrogation, balance/status and sync only — never required for normal SIP traffic.</div>
             <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,cursor:"pointer"}}>
               <input type="checkbox" checked={apiForm.api_enabled} onChange={e=>setApiForm({...apiForm,api_enabled:e.target.checked})}/>
@@ -2654,6 +3021,7 @@ function SupplierPaymentsPage({token,user}){
   const [tab,setTab]=useState("pending");
   const [pending,setPending]=useState({Daily:[],Weekly:[],Monthly:[],Other:[]});
   const [history,setHistory]=useState([]);
+  const [weekly,setWeekly]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [msg,setMsg]=useState(null);
@@ -2668,10 +3036,23 @@ function SupplierPaymentsPage({token,user}){
     Object.entries(histFilter).forEach(([k,v])=>{if(v)params.set(k,v);});
     apiFetch("/supplier-payments/history?"+params.toString(),token).then(d=>setHistory(d.data||[]));
   };
+  // Weekly entries: week, amount, Paid / Unpaid. Marking one Paid takes its calls out of the top bar's Rev.
+  const loadWeekly=()=>apiFetch("/supplier-payments/history?status=all",token).then(d=>setWeekly(d.data||[]));
+  const fmtWeek=(start,end)=>{
+    const f=(d,y)=>new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",...(y?{year:"numeric"}:{})});
+    return f(start,false)+" – "+f(end,true);
+  };
+  const fmtAmt=(a,cur)=>(cur==="EUR"?"€":"$")+parseFloat(a||0).toFixed(4);
+  const setWeeklyPaid=async(w,paid)=>{
+    if(!window.confirm((paid?"Mark as PAID: ":"Set back to UNPAID: ")+numSupplier(w.supplier_name)+" · "+fmtWeek(w.period_start,w.period_end)+" · "+fmtAmt(w.total_amount,w.currency)+" ?")) return;
+    const d=await apiFetch(`/supplier-payments/invoices/${w.id}/${paid?"mark-paid":"mark-unpaid"}`,token,{method:"POST",body:JSON.stringify({})});
+    if(d.success){flash(paid?"Marked paid":"Set back to unpaid");loadWeekly();loadPending();}
+    else alert(d.error||"Failed");
+  };
   const loadSuppliers=()=>apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));
 
   useEffect(()=>{setLoading(true);Promise.all([loadPending(),loadSuppliers()]).then(()=>setLoading(false));},[token]);
-  useEffect(()=>{if(tab==="history")loadHistory();},[tab]);
+  useEffect(()=>{if(tab==="history")loadHistory();if(tab==="weekly")loadWeekly();},[tab]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
 
@@ -2688,19 +3069,19 @@ function SupplierPaymentsPage({token,user}){
     })});
     setSaving(false);
     if(d.success){
-      flash("Marked paid: "+payModal.supplier_name);
+      flash("Marked paid: "+numSupplier(payModal.supplier_name));
       setPayModal(null); loadPending(); if(tab==="history") loadHistory();
     } else alert(d.error||"Failed to mark paid");
   };
 
-  const TABS=[["pending","Pending"],["history","History"]];
+  const TABS=[["pending","Pending"],["weekly","Weekly"],["history","History"]];
   const BUCKET_ORDER=["Daily","Weekly","Monthly","Other"];
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px"}}>
         <div style={{fontSize:18,fontWeight:700}}>💰 Supplier Payments</div>
-        <div style={{fontSize:11,color:"#999",marginTop:2}}>All supplier pricing and payments are in USDT only.</div>
+        <div style={{fontSize:11,color:"#999",marginTop:2}}>All supplier pricing and payments are in $.</div>
       </div>
       <div style={{padding:"0 16px",background:"#FFF",borderBottom:"1px solid #E0E0E0",display:"flex",gap:4}}>
         {TABS.map(([id,label])=>(
@@ -2723,14 +3104,14 @@ function SupplierPaymentsPage({token,user}){
                 </div>
                 {rows.length===0?<div style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Nothing pending</div>:
                 <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
+                  <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
                     <thead><tr>{["Supplier","Settlement Period","Calls","Billable Minutes","Amount Due","Payment Term","Due Date","Status","Action"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                     <tbody>
                       {rows.map((r,i)=>{
                         const overdue=new Date(r.due_date)<new Date(new Date().toDateString());
                         return(
                         <tr key={r.supplier_id+r.payment_term+i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{r.supplier_name}</td>
+                          <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{numSupplier(r.supplier_name)}</td>
                           <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.period_start} → {r.period_end}</td>
                           <td style={{padding:"8px 10px",fontSize:12}}>{r.calls}</td>
                           <td style={{padding:"8px 10px",fontSize:12}}>{r.minutes}</td>
@@ -2748,11 +3129,51 @@ function SupplierPaymentsPage({token,user}){
                         </tr>
                       );})}
                     </tbody>
-                  </table>
+                  </GTable>
                 </div>}
               </div>
             );
           })
+        )}
+
+
+        {tab==="weekly"&&(
+          <div>
+            {(()=>{
+              const unpaidTotal=weekly.filter(w=>w.status!=="paid").reduce((t,w)=>t+Number(w.total_amount||0),0);
+              return <div style={{fontSize:12,color:"#555",marginBottom:10}}>Unpaid: <b style={{color:"#F5A623"}}>{fmtUSDT(unpaidTotal)}</b> · click <b>Paid</b> after you pay a week — it comes off Rev in the top bar.</div>;
+            })()}
+            <div style={{...cardS,overflow:"hidden"}}>
+              <div style={{overflowX:"auto"}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
+                  <thead><tr>{["Week","Supplier","Amount","Status","Action"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {weekly.length===0?<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No weekly entries yet</td></tr>:
+                    weekly.map((w,i)=>{
+                      const paid=w.status==="paid";
+                      const weeklyEntry=!String(w.invoice_number||"").startsWith("SPAY-");
+                      return(
+                      <tr key={w.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{padding:"8px 10px",fontSize:12}}>{fmtWeek(w.period_start,w.period_end)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{numSupplier(w.supplier_name)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"monospace"}}>{fmtAmt(w.total_amount,w.currency)}</td>
+                        <td style={{padding:"8px 10px"}}>
+                          <span style={{padding:"2px 10px",borderRadius:10,fontSize:11,fontWeight:700,
+                            background:paid?"rgba(16,185,129,0.1)":"rgba(245,166,35,0.12)",color:paid?"#10B981":"#F5A623"}}>{paid?"Paid":"Unpaid"}</span></td>
+                        <td style={{padding:"8px 10px"}}>
+                          {!paid
+                            ?<button onClick={()=>setWeeklyPaid(w,true)}
+                                style={{padding:"5px 14px",borderRadius:6,border:"none",background:"#2CADA6",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>✔ Paid</button>
+                            :weeklyEntry&&<button onClick={()=>setWeeklyPaid(w,false)}
+                                style={{padding:"5px 12px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",color:"#666",fontSize:11,fontWeight:700,cursor:"pointer"}}>↺ Unpaid</button>}
+                        </td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </GTable>
+              </div>
+            </div>
+          </div>
         )}
 
         {tab==="history"&&(
@@ -2760,7 +3181,7 @@ function SupplierPaymentsPage({token,user}){
             <div style={{...cardS,padding:12,marginBottom:12,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
               <div><div style={lblS}>Supplier</div>
                 <select style={{...inpS,width:160}} value={histFilter.supplier_id} onChange={e=>setHistFilter({...histFilter,supplier_id:e.target.value})}>
-                  <option value="">All</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                  <option value="">All</option>{suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
                 </select></div>
               <div><div style={lblS}>From</div>
                 <input type="date" style={{...inpS,width:140}} value={histFilter.date_from} onChange={e=>setHistFilter({...histFilter,date_from:e.target.value})}/></div>
@@ -2770,14 +3191,14 @@ function SupplierPaymentsPage({token,user}){
             </div>
             <div style={{...cardS,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:1000}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:1000}}>
                   <thead><tr>{["Paid Date","Supplier","Settlement Period","Calls","Billable Minutes","Supplier Rate","Amount Paid","Payment Method","Reference","Status"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
                   <tbody>
                     {history.length===0?<tr><td colSpan={10} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No payments yet</td></tr>:
                     history.map((h,i)=>(
                       <tr key={h.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                         <td style={{padding:"8px 10px",fontSize:11}}>{(h.paid_at||"").slice(0,10)}</td>
-                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{h.supplier_name}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}>{numSupplier(h.supplier_name)}</td>
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
                         <td style={{padding:"8px 10px",fontSize:12}}>{h.total_calls}</td>
                         <td style={{padding:"8px 10px",fontSize:12}}>{h.total_minutes}</td>
@@ -2790,7 +3211,7 @@ function SupplierPaymentsPage({token,user}){
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </GTable>
               </div>
             </div>
           </div>
@@ -2801,7 +3222,7 @@ function SupplierPaymentsPage({token,user}){
         <div onClick={()=>setPayModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
             <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Mark as Paid</div>
-            {[["Supplier",payModal.supplier_name],["Settlement Period",payModal.period_start+" → "+payModal.period_end],
+            {[["Supplier",numSupplier(payModal.supplier_name)],["Settlement Period",payModal.period_start+" → "+payModal.period_end],
               ["Amount",fmtUSDT(payModal.amount)],["Payment Method","USDT"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
                 <span style={{color:"#888",fontWeight:600}}>{k}</span><span style={{fontWeight:700}}>{v}</span>
@@ -2985,6 +3406,7 @@ const COUNTRIES=[
 function NumberInventoryPage({token}){
   const [dids,setDids]=useState([]);
   const [ranges,setRanges]=useState([]);
+  const [ivrList,setIvrList]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState("numbers");
@@ -3011,7 +3433,9 @@ function NumberInventoryPage({token}){
       apiFetch("/dids",token),
       apiFetch("/did-ranges",token),
       apiFetch("/suppliers",token),
-    ]).then(([d,r,s,res])=>{
+      apiFetch("/ivr-lib/audio",token),
+    ]).then(([d,r,s,iv])=>{
+      setIvrList(iv.data||[]);
       setDids(d.data||[]);
       setRanges(r.data||[]);
       setSuppliers(s.data||[]);
@@ -3025,6 +3449,31 @@ function NumberInventoryPage({token}){
   const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
   const clearSel=()=>setSelected(new Set());
 
+
+  // Change the IVR of one number, or of every number in a prefix block
+  const setDidIvr=async(id,ctx)=>{
+    setDids(ds=>ds.map(x=>x.id===id?{...x,ivr_context:ctx}:x));
+    const d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids:[id],ivr_context:ctx})});
+    setResult(d.success?{success:true,message:"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
+    if(!d.success) load();
+  };
+  const setRangeIvr=async(r,ctx)=>{
+    const n=getNumbers(r).length;
+    if(!window.confirm("Apply this IVR to all "+n+" numbers in "+(r.prefix||r.range_start)+"?")) return;
+    // Prefix-level IVR lives on supplier_prefixes; the block route re-applies it to every number under it
+    if(r.supplier_id&&r.prefix_id) await apiFetch("/supplier-accounts/"+r.supplier_id+"/prefixes/"+r.prefix_id,token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
+    const d=await apiFetch("/did-ranges/"+r.id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
+    setResult(d.success?{success:true,message:d.message||"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
+    load();
+  };
+  const ivrSelect=(value,onChange)=>(
+    <select value={value||""} onClick={e=>e.stopPropagation()} onChange={e=>onChange(e.target.value)}
+      style={{padding:"3px 6px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",color:"#333",fontSize:11,fontFamily:"inherit",maxWidth:150}}>
+      {value&&!ivrList.some(i=>"custom/"+i.name===value)&&<option value={value}>{value.replace("custom/","")} (missing)</option>}
+      {!value&&<option value="">— select —</option>}
+      {ivrList.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
+    </select>
+  );
 
   const getNumbers=(r)=>dids.filter(d=>{
     const n=(d.number||"").replace("+","");
@@ -3099,9 +3548,6 @@ function NumberInventoryPage({token}){
     borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
   const tabs=[
     {id:"numbers",label:"📋 Numbers"},
-    {id:"add",label:"➕ Add Number"},
-    {id:"delete",label:"🗑 Delete"},
-    {id:"upload",label:"⬆ Upload CSV"},
   ];
 
   return(
@@ -3113,16 +3559,12 @@ function NumberInventoryPage({token}){
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
           <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
         </div>
-        <button onClick={downloadExcel}
-          style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",
-            background:"#FFF",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          ⬇ Export
-        </button>
+        
       </div>
 
       <div style={{padding:"12px 16px"}}>
-        {/* Tabs */}
-        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+        {/* Tabs (Numbers is read-only; numbers come from the Suppliers page) */}
+        <div style={{display:"none"}}>
           {tabs.map(t=>(
             <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
               style={{padding:"8px 12px",borderRadius:20,border:"none",fontSize:11,
@@ -3158,9 +3600,9 @@ function NumberInventoryPage({token}){
             {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
             :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:500,whiteSpace:"nowrap"}}>
                   <thead>
-                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","IVR","DEL"].map((h,i)=>(
+                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","IVR"].map((h,i)=>(
                       <th key={i} style={thS}>{h}</th>
                     ))}</tr>
                   </thead>
@@ -3184,16 +3626,11 @@ function NumberInventoryPage({token}){
                               </div>
                             </td>
                             <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(r.rate,3)}</td>
+                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(r.rate||0)}</td>
                             <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{r.supplier_name||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:10,color:"#888",whiteSpace:"nowrap"}}>
-                              {(r.ivr_context||"—").replace("custom/","")}
-                            </td>
-                            <td style={{padding:"6px 10px",textAlign:"center"}}>
-                              <button onClick={e=>deleteRange(r.id,e)}
-                                style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#EF4444",padding:"2px 6px"}}>🗑</button>
+                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(r.supplier_name)}</td>
+                            <td style={{padding:"6px 10px"}}>
+                              {ivrSelect(r.ivr_context||r.default_ivr,ctx=>setRangeIvr(r,ctx))}
                             </td>
                           </tr>
                           {isExp&&(nums.length===0
@@ -3205,10 +3642,8 @@ function NumberInventoryPage({token}){
                                   <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
                                 </td>
                                 <td colSpan={4}/>
-                                <td style={{padding:"4px 10px",textAlign:"center"}}>
-                                  <button onClick={e=>deleteDid(d.id,e)}
-                                    style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                      cursor:"pointer",fontSize:11,color:"#EF4444",padding:"1px 5px"}}>🗑</button>
+                                <td style={{padding:"4px 10px"}}>
+                                  {ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}
                                 </td>
                               </tr>
                             ))
@@ -3227,14 +3662,10 @@ function NumberInventoryPage({token}){
                           <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
                             <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff,3)}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(d.tariff||0)}</td>
                             <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
-                            <td style={{padding:"5px 10px",textAlign:"center"}}>
-                              <button onClick={e=>deleteDid(d.id,e)}
-                                style={{background:"none",border:"1px solid #CCC",borderRadius:3,
-                                  cursor:"pointer",fontSize:12,color:"#EF4444",padding:"2px 6px"}}>🗑</button>
-                            </td>
+                            <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
+                            <td style={{padding:"5px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
                           </tr>
                         ))}
                       </React.Fragment>
@@ -3243,7 +3674,7 @@ function NumberInventoryPage({token}){
                       <tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>
                     )}
                   </tbody>
-                </table>
+                </GTable>
               </div>
             </div>}
           </>
@@ -3264,7 +3695,7 @@ function NumberInventoryPage({token}){
                 <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Supplier *</div>
                 <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
                   <option value="">— Select Supplier —</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
                 </select>
               </div>
 
@@ -3296,7 +3727,7 @@ function NumberInventoryPage({token}){
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>USDT</div>
+                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>$</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
@@ -3476,7 +3907,7 @@ function NumberInventoryPage({token}){
             {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
             :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse"}}>
                   <thead>
                     <tr style={{background:"#FFF5F5"}}>
                       <th style={{...thS,width:36,textAlign:"center"}}>
@@ -3499,11 +3930,11 @@ function NumberInventoryPage({token}){
                         <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                         <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
                         <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff,3)}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{d.supplier_name||"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </GTable>
               </div>
             </div>}
           </>
@@ -3523,7 +3954,7 @@ function NumberInventoryPage({token}){
                 </div>
                 <select style={inp} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
                   <option value="">— Choose Supplier —</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
                 </select>
               </div>
               <div style={{marginBottom:20}}>
@@ -3851,7 +4282,7 @@ function ConnectIVRPage({token}){
               <select style={sel} value={prefixId} onChange={e=>setPrefixId(e.target.value)}>
                 <option value="ALL">ALL PREFIXES ({prefixes.length} prefixes)</option>
                 {prefixes.map(p=>(
-                  <option key={p.id} value={p.id}>{p.country} — {p.prefix}{p.supplier_name?` (${p.supplier_name})`:""} ({p.number_count||0} numbers)</option>
+                  <option key={p.id} value={p.id}>{p.country} — {p.prefix}{p.supplier_name?` (${numSupplier(p.supplier_name)})`:""} ({p.number_count||0} numbers)</option>
                 ))}
               </select>
             </div>
@@ -4044,7 +4475,7 @@ function ResellerPortalPage({token}){
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <Field label="Credit Limit (USDT)" k="credit_limit" ph="1000"/>
+            <Field label="Credit Limit ($)" k="credit_limit" ph="1000"/>
             <Field label="Markup (%)" k="markup" ph="10"/>
           </div>
           <Field label="Notes" k="notes" ph="Additional notes..."/>
@@ -4090,7 +4521,7 @@ function ResellerPortalPage({token}){
           {/* Top Up */}
           <div style={{display:"flex",gap:8,marginBottom:14}}>
             <input value={topupAmount} onChange={e=>setTopupAmount(e.target.value)}
-              placeholder="Top up amount (USDT)" style={{...inp,flex:1}}/>
+              placeholder="Top up amount ($)" style={{...inp,flex:1}}/>
             <button onClick={topup}
               style={{padding:"9px 18px",borderRadius:10,border:"none",background:"#10B981",
                 color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>Top Up</button>
@@ -4100,7 +4531,7 @@ function ResellerPortalPage({token}){
             Recent CDR ({resellerCdr.length} records)
           </div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse"}}>
               <thead>
                 <tr style={{background:"#F8F9FA"}}>
                   {["Date","Caller","DID","Duration","Revenue"].map((h,i)=>(
@@ -4123,7 +4554,7 @@ function ResellerPortalPage({token}){
                   ))
                 }
               </tbody>
-            </table>
+            </GTable>
           </div>
         </div>
       )}
@@ -4374,7 +4805,7 @@ function AuditLogPage({token}){
       :<div style={{background:"#FFF",borderRadius:14,overflow:"hidden",
         boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
         <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <GTable style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr style={{background:"#F8F9FA"}}>
                 {["Time","User","Role","Action","Module","Details","IP"].map((h,i)=>(
@@ -4424,7 +4855,7 @@ function AuditLogPage({token}){
                 ))
               }
             </tbody>
-          </table>
+          </GTable>
         </div>
         <div style={{padding:"10px 14px",borderTop:"1px solid #EEE",background:"#F8F9FA",
           fontSize:12,color:"#999",display:"flex",justifyContent:"space-between"}}>
@@ -4571,7 +5002,7 @@ function IPWhitelistPage({token}){
               Active Firewall Rules ({(data?.firewall_rules||[]).length})
             </div>
             <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <GTable style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead>
                   <tr style={{background:"#F8F9FA"}}>
                     {["#","Port/Service","Action","From","Remove"].map((h,i)=>(
@@ -4604,7 +5035,7 @@ function IPWhitelistPage({token}){
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </GTable>
             </div>
           </div>
         </div>
@@ -4740,7 +5171,7 @@ function TestLabsPage({token}){
       apiFetch("/suppliers",token),
     ]).then(([r,d,s])=>{
       const trunks={};
-      (s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});
+      (s.data||[]).forEach(t=>{trunks[t.id]=numSupplier(t.nickname);});
       setRanges(r.data||[]);
       setDids((d.data||[]).map(x=>({...x,supplier_name:trunks[x.trunk_id]||"—"})));
       setLoading(false);
@@ -4820,7 +5251,7 @@ function TestLabsPage({token}){
             boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
             {loading?<div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>
             :<div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+              <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
                 <thead>
                   <tr>{["SL","PREFIX/RANGE","COUNTRY","PRICE","SUPPLIER","IVR","TEST NUMBER"].map((h,i)=>(
                     <th key={i} style={thS}>{h}</th>
@@ -4844,7 +5275,7 @@ function TestLabsPage({token}){
                           {fmtUSDT(r.rate,3)}/min
                         </td>
                         <td style={{padding:"10px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>
-                          {r.supplier_name||"—"}
+                          {numSupplier(r.supplier_name)}
                         </td>
                         <td style={{padding:"10px 10px",fontSize:10,color:"#555"}}>{ivr}</td>
                         <td style={{padding:"10px 10px"}}>
@@ -4864,7 +5295,7 @@ function TestLabsPage({token}){
                     );
                   })}
                 </tbody>
-              </table>
+              </GTable>
             </div>}
           </div>
         )}
@@ -4895,7 +5326,7 @@ function TestLabsPage({token}){
               </div>
               :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",
                 boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse"}}>
                   <thead>
                     <tr>{["SL","CLI","DID","PREFIX","COUNTRY","SUPPLIER","IVR","DURATION"].map((h,i)=>(
                       <th key={i} style={thS}>{h}</th>
@@ -4913,14 +5344,14 @@ function TestLabsPage({token}){
                           <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{did}</td>
                           <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{c.prefix||did.slice(0,7)||"—"}</td>
                           <td style={{padding:"8px 10px",fontSize:11}}>{c.country||"—"}</td>
-                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{c.supplier||c.trunk_name||"—"}</td>
+                          <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{numSupplier(c.supplier||c.trunk_name)}</td>
                           <td style={{padding:"8px 10px",fontSize:10,color:"#555"}}>{(c.ivr||c.ivr_context||"—").replace("custom/","")}</td>
                           <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{dur}</td>
                         </tr>
                       );
                     })}
                   </tbody>
-                </table>
+                </GTable>
               </div>
             }
           </div>
@@ -4982,7 +5413,7 @@ function TestLabsPage({token}){
                 No entries. Add CLIs to allow or block callers.
               </div>
               :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse"}}>
                   <thead><tr>{["CLI","NAME","COMPANY","TYPE","NOTE","ADDED",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
                   <tbody>{accessList.map((e,i)=>(
                     <tr key={e.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
@@ -5007,7 +5438,7 @@ function TestLabsPage({token}){
                       </td>
                     </tr>
                   ))}</tbody>
-                </table>
+                </GTable>
               </div>
             }
           </>
@@ -5230,11 +5661,11 @@ function AsteriskConfigPage({token,user}){
             {suppliers.map(s=>(
               <div key={s.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:14,background:"#FAFAFA"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                  <div style={{fontSize:13,fontWeight:700}}>{s.nickname||s.name}</div>
+                  <div style={{fontSize:13,fontWeight:700}}>{numSupplier(s.nickname||s.name)}</div>
                   <div style={{fontSize:11}}>{statusDot(!!s.is_active)}{s.is_active?"Enabled":"Disabled"}</div>
                 </div>
                 <div style={{fontSize:11,color:s.supplier_name?C.muted:C.red,marginBottom:10}}>
-                  {s.supplier_name?`Supplier: ${s.supplier_name}`:"Not linked to a supplier"}
+                  {s.supplier_name?`Supplier: ${numSupplier(s.supplier_name)}`:"Not linked to a supplier"}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:11,marginBottom:12}}>
                   {[["PJSIP Name",s.pjsip_name||"—",true],["SIP IP",s.host||"—",true],
@@ -5265,7 +5696,7 @@ function AsteriskConfigPage({token,user}){
           {field("Select Supplier *",
             <select style={sel} value={supplierModal.form.supplier_id} onChange={e=>setSupplierModal(m=>({...m,form:{...m.form,supplier_id:e.target.value}}))}>
               <option value="">— Select —</option>
-              {commercialSuppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+              {commercialSuppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
             </select>)}
           {!commercialSuppliers.length&&<div style={{fontSize:11,color:C.orange,marginTop:-6,marginBottom:10}}>
             No suppliers yet — add one under Partners → Suppliers first.</div>}
@@ -5427,7 +5858,7 @@ function RoutePrefixPage({token}){
               <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Supplier</div>
               <select style={sel} value={form.trunk_id}
                 onChange={e=>setForm(f=>({...f,trunk_id:e.target.value}))}>
-                {suppliers.map(s=><option key={s.id} value={s.id}>{s.nickname||s.name}</option>)}
+                {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
               </select>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -5499,7 +5930,7 @@ function RoutePrefixPage({token}){
               </div>
             </div>
             <div style={{display:"flex",gap:12,fontSize:10,color:C.muted}}>
-              <span>Supplier: <span style={{color:C.text}}>{p.supplier_name||"—"}</span></span>
+              <span>Supplier: <span style={{color:C.text}}>{numSupplier(p.supplier_name)}</span></span>
               <span>Country: <span style={{color:C.text}}>{p.country_name||"—"}</span></span>
               {p.notes&&<span>Note: <span style={{color:C.text}}>{p.notes}</span></span>}
             </div>
@@ -5635,7 +6066,7 @@ function SIPMonitorPage({token}){
               :sipFiltered.length===0
                 ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No events found</div>
                 :<div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+                  <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
                     <thead>
                       <tr style={{background:"#2CADA6"}}>
                         {["TIME","CALLER","DID/PRN","SUPPLIER","DURATION","STATUS"].map((h,i)=>(
@@ -5670,7 +6101,7 @@ function SIPMonitorPage({token}){
                         </td>
                       </tr>
                     ))}</tbody>
-                  </table>
+                  </GTable>
                 </div>}
             </div>
           </div>
@@ -5678,7 +6109,7 @@ function SIPMonitorPage({token}){
 
         {tab==="endpoints"&&(
           <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse"}}>
               <thead><tr>{["ENDPOINT","STATUS","RTT"].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
               <tbody>{eps.map((ep,i)=>(
                 <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
@@ -5692,7 +6123,7 @@ function SIPMonitorPage({token}){
                     color:ep.rtt!=="—"&&parseFloat(ep.rtt)<20?"#10B981":"#F59E0B"}}>{ep.rtt}</td>
                 </tr>
               ))}</tbody>
-            </table>
+            </GTable>
           </div>
         )}
 
@@ -5830,7 +6261,7 @@ function TestNumbersPage({token}){
     Promise.all([apiFetch("/did-ranges",token),apiFetch("/dids",token),apiFetch("/suppliers",token)])
     .then(([r,d,s])=>{
       const trunks={};
-      (s.data||[]).forEach(t=>{trunks[t.id]=t.nickname;});
+      (s.data||[]).forEach(t=>{trunks[t.id]=numSupplier(t.nickname);});
       setRanges(r.data||[]);
       setDids((d.data||[]).map(x=>({...x,supplier_name:trunks[x.trunk_id]||"—"})));
       setLoading(false);
@@ -5920,7 +6351,7 @@ function TestNumbersPage({token}){
                   value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
                 <div style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,
-                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>USDT</div></div>
+                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>$</div></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier</div>
                 <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
                   value={newTest.supplier} onChange={e=>setNewTest({...newTest,supplier:e.target.value})} placeholder="e.g. WTP"/></div>
@@ -5992,7 +6423,7 @@ function TestNumbersPage({token}){
             {filtered.length===0
               ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No ranges for this country</div>
               :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:450}}>
                   <thead>
                     <tr style={{background:"#F5F5F5"}}>
                       {["SL","PREFIX","PRICE","SUPPLIER","TEST NUMBER"].map((h,i)=>(
@@ -6010,7 +6441,7 @@ function TestNumbersPage({token}){
                           <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>{i+1}</td>
                           <td style={{padding:"6px 8px",fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",whiteSpace:"nowrap"}}>{r.prefix}</td>
                           <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtUSDT(r.rate,3)}</td>
-                          <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",fontWeight:600,whiteSpace:"nowrap"}}>{r.supplier_name||"—"}</td>
+                          <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",fontWeight:600,whiteSpace:"nowrap"}}>{numSupplier(r.supplier_name)}</td>
                           <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
                             <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginRight:6}}>{testNum}</span>
                             <button onClick={()=>{navigator.clipboard?.writeText(testNum);setMsg("Copied: "+testNum);setTimeout(()=>setMsg(null),2000);}}
@@ -6020,7 +6451,7 @@ function TestNumbersPage({token}){
                       );
                     })}
                   </tbody>
-                </table>
+                </GTable>
               </div>
             }
           </div>
@@ -6074,7 +6505,7 @@ function TestLiveCallPage({token}){
             <div style={{fontSize:12,color:"#999"}}>Make a test call to one of your numbers to see it here</div>
           </div>
           :<div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse"}}>
               <thead>
                 <tr>{["SL","CLI","DID","PREFIX","COUNTRY","SUPPLIER","IVR","DURATION"].map((h,i)=>(
                   <th key={i} style={thS}>{h}</th>
@@ -6090,7 +6521,7 @@ function TestLiveCallPage({token}){
                       <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{did}</td>
                       <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{c.prefix||did.slice(0,7)||"—"}</td>
                       <td style={{padding:"8px 10px",fontSize:11}}>{c.country||"—"}</td>
-                      <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{c.supplier||c.trunk_name||"—"}</td>
+                      <td style={{padding:"8px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>{numSupplier(c.supplier||c.trunk_name)}</td>
                       <td style={{padding:"8px 10px",fontSize:10,color:"#555"}}>{(c.ivr||c.ivr_context||"—").replace("custom/","")}</td>
                       <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>
                         {fmt(Math.min(86400,parseInt(c.seconds||c.billsec||0)))}
@@ -6099,7 +6530,7 @@ function TestLiveCallPage({token}){
                   );
                 })}
               </tbody>
-            </table>
+            </GTable>
           </div>
         }
       </div>
@@ -6137,6 +6568,12 @@ export default function App(){
     return routes[path]||"dashboard";
   };
   const [page,setPage]=useState(getPageFromUrl());
+  useEffect(()=>{
+    window.history.replaceState({...(window.history.state||{}),page},"");
+    const onPop=(e)=>{ setPage(e.state?.page||getPageFromUrl()); };
+    window.addEventListener("popstate",onPop);
+    return()=>window.removeEventListener("popstate",onPop);
+  },[]);
   const navigateTo=(p)=>{
     const urlMap={
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
@@ -6147,7 +6584,10 @@ export default function App(){
       "ast-trunks":"asterisk-trunks",
     };
     const url="/"+( urlMap[p]||p);
-    window.history.pushState({},"",url);
+    if(p===page) return;
+    // an open overlay (mobile menu / supplier screen) is replaced, so Back goes straight to the previous page
+    if(window.history.state?.overlay) window.history.replaceState({page:p},"",url);
+    else window.history.pushState({page:p},"",url);
     setPage(p);
   };
   const [username,setUsername]=useState("");
@@ -6156,11 +6596,47 @@ export default function App(){
   const [loading,setLoading]=useState(false);
   const [sideOpen,setSideOpen]=useState(true);
   const [drawerOpen,setDrawerOpen]=useState(false);
+  // Bumping refreshKey remounts the current page so it re-fetches its data (logo re-click / pull-to-refresh)
+  const [refreshKey,setRefreshKey]=useState(0);
+  const [pull,setPull]=useState(0);
+  const mainRef=useRef(null);
+  const pullStart=useRef(null);
+  const goHome=()=>{
+    if(page==="dashboard") setRefreshKey(k=>k+1); else navigateTo("dashboard");
+    mainRef.current?.scrollTo({top:0});
+  };
+  useEffect(()=>{mainRef.current?.scrollTo({top:0});},[page]);
+  const onTouchStart=(e)=>{pullStart.current=(mainRef.current?.scrollTop||0)<=0?e.touches[0].clientY:null;};
+  const onTouchMove=(e)=>{
+    if(pullStart.current==null) return;
+    if((mainRef.current?.scrollTop||0)>0){pullStart.current=null;setPull(0);return;}
+    const d=e.touches[0].clientY-pullStart.current;
+    setPull(d>0?Math.min(d*0.5,90):0);
+  };
+  const onTouchEnd=()=>{
+    if(pull>=60) setRefreshKey(k=>k+1);
+    pullStart.current=null;setPull(0);
+  };
   const [ready,setReady]=useState(false);
   const [showPass,setShowPass]=useState(false);
   const [liveCalls,setLiveCalls]=useState(0);
-  const [revenue,setRevenue]=useState("0.0000");
+  const [unpaid,setUnpaid]=useState([]);
+  // An open tab keeps running the old code after a new build is deployed: check for a newer build every minute
+  const [newVersion,setNewVersion]=useState(false);
+  useEffect(()=>{
+    const cur=[...document.scripts].map(x=>x.src).find(u=>/\/assets\/index-[^/]+\.js/.test(u));
+    if(!cur) return;
+    const curName=cur.split("/").pop();
+    const check=()=>fetch("/?_="+Date.now(),{cache:"no-store"}).then(r=>r.text()).then(html=>{
+      const m=html.match(/\/assets\/(index-[^"']+\.js)/);
+      if(m&&m[1]!==curName) setNewVersion(true);
+    }).catch(()=>{});
+    const t=setInterval(check,60000);
+    return()=>clearInterval(t);
+  },[]);
   const [isMobile,setIsMobile]=useState(window.innerWidth<768);
+  const closeDrawer=useBackClose(isMobile&&drawerOpen,()=>setDrawerOpen(false));
+  useModalBackButton();
 
   useEffect(()=>{
     const check=()=>setIsMobile(window.innerWidth<768);
@@ -6187,7 +6663,10 @@ export default function App(){
     if(!token)return;
     const loadStats=()=>{
       apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
-      apiFetch("/billing/current-revenue",token).then(d=>setRevenue(parseFloat((d.data||{}).week_revenue||0).toFixed(4)));
+      // Revenue not yet paid out, per supplier (everything since that supplier's last paid payout)
+      apiFetch("/billing/unpaid-revenue",token).then(d=>{
+        setUnpaid((d.data||[]).map(r=>({name:r.supplier_name,amount:Number(r.amount)||0,calls:r.calls,minutes:r.minutes})).filter(x=>x.amount>0));
+      });
     };
     loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
   },[token]);
@@ -6316,11 +6795,11 @@ export default function App(){
       case "cdr":          return <CDRPage token={token}/>;
       case "revenue":      return <RevenuePage token={token}/>;
       case "numbers": return <NumberInventoryPage token={token}/>;
-      case "ivr":          return <IVRPage token={token} setPage={setPage}/>;
+      case "ivr":          return <IVRPage token={token} setPage={navigateTo}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
       case "customers":    return <CustomersPage token={token}/>;
-      case "suppliers":    return <SupplierAccountsPage token={token} user={user} setPage={setPage}/>;
+      case "suppliers":    return <SupplierAccountsPage token={token} user={user} setPage={navigateTo}/>;
       case "supplierpayments": return <SupplierPaymentsPage token={token} user={user}/>;
       case "resellers":     return <ResellerPortalPage token={token}/>;
       case "testlabs":     return <TestLabsPage token={token}/>;
@@ -6345,23 +6824,29 @@ export default function App(){
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}`}
       </style>
 
-      <TopBar liveCalls={liveCalls} revenue={revenue} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)} user={user}/>
+      {newVersion&&<div onClick={()=>window.location.reload()}
+        style={{background:"#F5A623",color:"#1A1A1A",textAlign:"center",padding:"8px 12px",fontSize:13,fontWeight:800,cursor:"pointer",flexShrink:0}}>
+        🔄 A new version is ready — tap here to reload</div>}
+      <TopBar liveCalls={liveCalls} unpaid={unpaid} isMobile={isMobile} onMenuClick={()=>setDrawerOpen(true)} user={user} onHome={goHome}/>
 
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         {/* Mobile Drawer */}
         {isMobile&&drawerOpen&&(
-          <MobileDrawer page={page} setPage={setPage} user={user} logout={logout} onClose={()=>setDrawerOpen(false)}/>
+          <MobileDrawer page={page} setPage={navigateTo} user={user} logout={logout} onClose={closeDrawer} onHome={goHome}/>
         )}
 
         {/* Desktop Sidebar */}
         {!isMobile&&(
-          <DesktopSidebar page={page} setPage={setPage} open={sideOpen}
-            toggle={()=>setSideOpen(o=>!o)} user={user} logout={logout}/>
+          <DesktopSidebar page={page} setPage={navigateTo} open={sideOpen}
+            toggle={()=>setSideOpen(o=>!o)} user={user} logout={logout} onHome={goHome}/>
         )}
 
         {/* Main Content */}
-        <div style={{flex:1,overflowY:"auto",width:"100%",minWidth:0,display:"flex",flexDirection:"column"}}>
-          <div style={{flex:1}}><ErrorBoundary>{renderPage()}</ErrorBoundary></div>
+        <div ref={mainRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+          style={{flex:1,overflowY:"auto",width:"100%",minWidth:0,display:"flex",flexDirection:"column",overscrollBehaviorY:"contain"}}>
+          {pull>0&&<div style={{height:pull,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:12,color:"#2CADA6",fontWeight:700}}>{pull>=60?"↻ Release to refresh":"↓ Pull to refresh"}</div>}
+          <div key={refreshKey} style={{flex:1}}><ErrorBoundary>{renderPage()}</ErrorBoundary></div>
           <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`,
             background:C.surface,textAlign:"center",flexShrink:0}}>
             <span style={{fontSize:10,color:C.muted}}>

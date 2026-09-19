@@ -109,3 +109,71 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* ── Brand table headings: every table in the panel ──────────────────────
+   Teal heading row with bold white text; headings and cells share the same
+   left/right padding so each heading sits directly above its data.
+   !important is needed because the tables set their own inline styles. */
+table thead th {
+  background: #2CADA6 !important;
+  color: #FFF !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.6px !important;
+  padding: 10px 12px !important;
+  border-bottom: none !important;
+  text-align: center !important;
+}
+table tbody td {
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  text-align: center !important;
+}
+
+/* Table data text on every table: Montserrat 14px, weight 600, colour #333.
+   Badges/pills (anything with a border-radius), buttons and form fields keep
+   their own look. */
+table tbody td,
+table tbody td *:not(button):not(input):not(select):not(textarea):not([style*="border-radius"]) {
+  font-family: 'Montserrat', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+}
+/* Text colour #333, except amounts: anything coloured the panel's green
+   (#10B981, which browsers report as rgb(16, 185, 129)) keeps its green. */
+table tbody td:not([style*="rgb(16, 185, 129)"]),
+table tbody td *:not(button):not(input):not(select):not(textarea):not([style*="border-radius"]):not([style*="rgb(16, 185, 129)"]) {
+  color: #333333 !important;
+}
+table tbody [style*="rgb(16, 185, 129)"] *:not([style*="color"]) {
+  color: inherit !important;
+}
+table thead th {
+  font-family: 'Montserrat', sans-serif !important;
+}
+
+/* Numbers elsewhere in the panel (cards, totals, counters) were set in a
+   monospace font: show them in Montserrat too, with equal-width digits so
+   figures still line up. */
+[style*="monospace"]:not(button):not(input):not(select):not(textarea) {
+  font-family: 'Montserrat', sans-serif !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Teal numbers (the panel's teal #2CADA6, reported by browsers as
+   rgb(44, 173, 166)) outside tables: same dark colour as every other number.
+   Text labels such as supplier names, and pills/badges, keep their colour. */
+[style*="rgb(44, 173, 166)"][style*="monospace"]:not(button):not(input):not(select):not(textarea):not([style*="border-radius"]) {
+  color: #333333 !important;
+}
+
+/* Supplier rows: the whole row is one button */
+tr.sup-row td { transition: filter .12s; }
+tr.sup-row:hover td { filter: brightness(0.95); }
+tr.sup-row:active td { filter: brightness(0.9); }
+
+/* Supplier widgets: whole card is the button */
+.sup-widget { transition: transform .12s, box-shadow .12s; }
+.sup-widget:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.14) !important; }
+.sup-widget:active { transform: translateY(0); }
