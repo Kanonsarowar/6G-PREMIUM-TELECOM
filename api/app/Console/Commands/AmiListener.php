@@ -42,8 +42,6 @@ class AmiListener extends Command
 
     public function handle()
     {
-        $trunks = DB::table('trunks')->get();
-
         while (true) {
             $socket = @fsockopen(env('ASTERISK_AMI_HOST', '127.0.0.1'), env('ASTERISK_AMI_PORT', 5038), $errno, $errstr, 5);
 
@@ -63,7 +61,8 @@ class AmiListener extends Command
                 $line = trim($line);
 
                 if (str_starts_with($line, "Event: Newchannel")) {
-                    $this->handleNewChannel($this->readEvent($socket), $trunks);
+                    // Read the supplier list fresh for every new call so a renamed supplier applies immediately
+                    $this->handleNewChannel($this->readEvent($socket), DB::table('trunks')->get());
                 } elseif (str_starts_with($line, "Event: DialBegin")) {
                     $this->handleDialBegin($this->readEvent($socket));
                 } elseif (str_starts_with($line, "Event: DialEnd")) {

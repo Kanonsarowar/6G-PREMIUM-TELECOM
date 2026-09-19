@@ -32,7 +32,7 @@ if ($billsec > 0) $billsec++;
 // channel name (see AsteriskConfigGenerator::pjsipManagedBlock).
 $trunk_name = 'PROFESSOR';
 $endpointMap = [
-    'WORLD-PREMIUM-TELECOM' => 'WTP',
+    'WTP'=>'WTP',
     'MEDIATEL'   => 'Tokyo',
     'PHONEGROUP' => 'Berlin',
     'GAMA'       => 'Nairobi',

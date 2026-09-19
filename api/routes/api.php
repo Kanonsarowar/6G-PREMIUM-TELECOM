@@ -524,6 +524,41 @@ Route::middleware('auth:sanctum')->group(function() {
     });
 
     // ── Revenue ───────────────────────────────────────────────
+    // Revenue we have not yet paid out, per supplier: every CDR of the supplier's
+    // numbers since its last PAID supplier payment (all of it if never paid).
+    // Marking a period paid on the Payments page moves that supplier's cut-off.
+    Route::get('/v1/billing/unpaid-revenue', function() {
+        $out = [];
+        foreach (DB::table('suppliers')->where('status','active')->get() as $sup) {
+            $names = [$sup->name];
+            if ($sup->name === 'World Premium Telecom') $names[] = 'WTP';   // legacy CDR label
+            $trunks = DB::table('did_ranges')->join('trunks','trunks.id','=','did_ranges.trunk_id')
+                ->where('did_ranges.supplier_id',$sup->id)->select('trunks.name','trunks.nickname')->distinct()->get();
+            foreach ($trunks as $t) { $names[] = $t->name; if ($t->nickname) $names[] = $t->nickname; }
+            $names = array_values(array_unique(array_filter($names)));
+
+            $lastPaid = DB::table('invoices')->where('supplier_id',$sup->id)
+                ->where('invoice_type','supplier_payment')->where('status','paid')
+                ->where('invoice_number','like','SPAY-%')->max('paid_at');
+            $paidRefs = DB::table('invoices')->where('supplier_id',$sup->id)
+                ->where('invoice_type','supplier_payment')->where('status','paid')->pluck('invoice_number')->all();
+            $q = DB::table('cdrs')->whereIn('trunk_name',$names);
+            if ($lastPaid) $q->where('call_start','>',$lastPaid);
+            if ($paidRefs) $q->where(fn($w)=>$w->whereNull('invoice_ref')->orWhereNotIn('invoice_ref',$paidRefs));
+            $row = $q->selectRaw('COUNT(*) as calls, COALESCE(SUM(billsec),0)/60 as minutes, COALESCE(SUM(revenue),0) as amount')->first();
+            // unpaid bills entered from a supplier's own report (no per-call rows behind them)
+            $manual = DB::table('invoices')->where('supplier_id',$sup->id)->where('invoice_type','supplier_payment')
+                ->where('status','unpaid')->where('invoice_number','like','M%')
+                ->selectRaw('COALESCE(SUM(total_calls),0) c, COALESCE(SUM(total_minutes),0) m, COALESCE(SUM(total_amount),0) a')->first();
+            $amount = (float)$row->amount + (float)$manual->a;
+            if ($amount <= 0) continue;
+            $out[] = ['supplier_id'=>$sup->id,'supplier_name'=>$sup->name,'calls'=>(int)$row->calls + (int)$manual->c,
+                      'minutes'=>round($row->minutes + (float)$manual->m,2),'amount'=>round($amount,4)];
+        }
+        usort($out, fn($a,$b) => $b['amount'] <=> $a['amount']);
+        return response()->json(['data'=>$out,'total'=>round(array_sum(array_column($out,'amount')),4)]);
+    });
+
     Route::get('/v1/billing/current-revenue', function() {
         $today = date('Y-m-d');
         // Current week: Monday 00:00 -> now (same boundary as invoices)
@@ -1041,6 +1076,162 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['data'=>$rows,'page'=>$page,'pageSize'=>$perPage,'total'=>$total]);
     });
 
+    // Manual CDR upload (rows parsed from csv/xlsx in the dashboard).
+    // Each row goes to two places:
+    //  1. supplier_cdrs (the supplier's own record; duplicate = same supplier + CLI + PRN + call date)
+    //  2. cdrs, the main CDR list, for billable rows only (billsec > 0). A row matches an
+    //     existing main CDR when caller + number agree and the start times fall in the same minute.
+    // New rows are added; for rows that already exist, mode 'skip' leaves them alone and
+    // mode 'replace' overwrites them.
+    Route::post('/v1/supplier-accounts/{id}/cdr-import', function(Request $r, $id) {
+        $supplier = DB::table('suppliers')->find($id);
+        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
+        $mode = $r->input('mode','skip');
+        if (!in_array($mode,['skip','replace'],true)) return response()->json(['error'=>'mode must be skip or replace'],422);
+        $rows = $r->input('rows',[]);
+        if (!is_array($rows) || count($rows) === 0) return response()->json(['error'=>'No rows to import'],422);
+        if (count($rows) > 2000) return response()->json(['error'=>'Send at most 2000 rows per request'],422);
+
+        $c = ['added'=>0,'replaced'=>0,'skipped'=>0,'invalid'=>0,'main_added'=>0,'main_replaced'=>0,'main_skipped'=>0];
+        DB::transaction(function() use ($rows,$id,$mode,$supplier,&$c) {
+            foreach ($rows as $item) {
+                $ts = strtotime($item['call_date'] ?? '');
+                if (!$ts) { $c['invalid']++; continue; }
+                $callDate = date('Y-m-d H:i:s',$ts);
+                $cli = trim((string)($item['cli'] ?? ''));
+                $prn = trim((string)($item['prn'] ?? ''));
+                if ($cli === '' && $prn === '') { $c['invalid']++; continue; }
+
+                $values = [
+                    'operator'       => $item['operator'] ?? null,
+                    'country'        => $item['country'] ?? null,
+                    'billsec'        => (int)($item['billsec'] ?? 0),
+                    'payout'         => (float)($item['payout'] ?? 0),
+                    'payout_per_min' => (float)($item['payout_per_min'] ?? 0),
+                    'currency_code'  => substr($item['currency_code'] ?? 'EUR',0,5),
+                    'account'        => $item['account'] ?? null,
+                    'sub_account'    => $item['sub_account'] ?? null,
+                ];
+                $match = DB::table('supplier_cdrs')->where('supplier_id',$id)
+                    ->where('cli',$cli)->where('prn',$prn)->where('call_date',$callDate);
+                if ($match->exists()) {
+                    if ($mode === 'replace') { $match->update($values + ['updated_at'=>now()]); $c['replaced']++; }
+                    else { $c['skipped']++; }
+                } else {
+                    DB::table('supplier_cdrs')->insert($values + [
+                        'supplier_id'=>$id,'cli'=>$cli,'prn'=>$prn,'call_date'=>$callDate,
+                        'created_at'=>now(),'updated_at'=>now(),
+                    ]);
+                    $c['added']++;
+                }
+
+                // ── main CDR (billable calls only) ──
+                if ($values['billsec'] <= 0) continue;
+                $revenue = $values['payout'] > 0 ? $values['payout'] : round(($values['billsec']/60)*$values['payout_per_min'],6);
+                $currency = substr($item['currency_code'] ?? 'USD',0,5);
+                $mainMatch = DB::table('cdrs')->where('src',$cli)
+                    ->whereRaw("REPLACE(did,'+','') = ?",[ltrim($prn,'+')]);
+                // Supplier files often list start times to the minute only (seconds = 00):
+                // match anything inside that same minute, so two calls a minute apart stay
+                // separate. Otherwise allow a few seconds of clock difference.
+                if (date('s',$ts) === '00') {
+                    $mainMatch->whereRaw('call_start >= ? AND call_start < DATE_ADD(?, INTERVAL 60 SECOND)',[$callDate,$callDate]);
+                } else {
+                    $mainMatch->whereRaw('ABS(TIMESTAMPDIFF(SECOND, call_start, ?)) <= 10',[$callDate]);
+                }
+                if ($mainMatch->exists()) {
+                    if ($mode === 'replace') {
+                        $mainMatch->update(['billsec'=>$values['billsec'],'duration'=>$values['billsec'],'revenue'=>$revenue,'revenue_eur'=>$revenue,
+                            'currency'=>$currency,'disposition'=>'ANSWERED','updated_at'=>now()]);
+                        $c['main_replaced']++;
+                    } else { $c['main_skipped']++; }
+                    continue;
+                }
+                $did = DB::table('dids')->where('number',$prn)->orWhere('number','+'.$prn)->first();
+                DB::table('cdrs')->insert([
+                    'src'=>$cli,'dst'=>$prn,'did'=>$prn,'caller'=>$cli,'callee'=>$prn,
+                    'billsec'=>$values['billsec'],'duration'=>$values['billsec'],'disposition'=>'ANSWERED',
+                    'revenue'=>$revenue,'revenue_eur'=>$revenue,'ivr_context'=>$did->ivr_context ?? null,
+                    'trunk_name'=>$supplier->name,'call_start'=>$callDate,'currency'=>$currency,
+                    'created_at'=>now(),'updated_at'=>now(),
+                ]);
+                $c['main_added']++;
+            }
+        });
+        // Weeks that have ended get their unpaid weekly entries (Weekly tab on Supplier Payments)
+        $wk = \App\Support\WeeklyEntries::sync((int)$id);
+        return response()->json([
+            'success'=>true,'added'=>$c['added'],'replaced'=>$c['replaced'],'skipped'=>$c['skipped'],'invalid'=>$c['invalid'],
+            'main_added'=>$c['main_added'],'main_replaced'=>$c['main_replaced'],'main_skipped'=>$c['main_skipped'],
+            'weekly_created'=>$wk['created'],'weekly_updated'=>$wk['updated'],
+            'message'=>"Supplier CDR: {$c['added']} new, {$c['replaced']} replaced, {$c['skipped']} skipped. Main CDR: {$c['main_added']} new, {$c['main_replaced']} replaced, {$c['main_skipped']} skipped. Weekly entries: {$wk['created']} new, {$wk['updated']} updated. {$c['invalid']} invalid",
+        ]);
+    });
+
+    // Supplier weekly report (CLIENT / TERMINATION / NUMBER / CALLS / MINUTES / ACD / RATE / PAYOUT):
+    // one line per number, no dates or callers. It becomes ONE unpaid weekly entry per currency (shown on
+    // Supplier Payments -> Weekly and counted in Rev) plus its lines on the supplier's CDR page. Uploading the
+    // same week again is skipped, or replaced (mode 'replace') while the entry is still unpaid.
+    Route::post('/v1/supplier-accounts/{id}/weekly-report', function(Request $r, $id) {
+        $sup = DB::table('suppliers')->find($id);
+        if (!$sup) return response()->json(['error'=>'Supplier not found'],404);
+        $mode = $r->input('mode','skip');
+        if (!in_array($mode,['skip','replace'],true)) return response()->json(['error'=>'mode must be skip or replace'],422);
+        $lines = $r->input('lines',[]);
+        if (!is_array($lines) || count($lines) === 0) return response()->json(['error'=>'No lines to import'],422);
+        if (count($lines) > 5000) return response()->json(['error'=>'Too many lines'],422);
+        $ts = strtotime($r->input('week_start',''));
+        if (!$ts) return response()->json(['error'=>'A valid week is required'],422);
+        $start = \Carbon\Carbon::createFromTimestamp($ts)->startOfWeek();          // Monday
+        $end = $start->copy()->addDays(6);
+        $callDate = $start->toDateString().' 00:00:00';
+
+        $byCur = [];
+        foreach ($lines as $l) $byCur[strtoupper(substr($l['currency'] ?? 'USD',0,5))][] = $l;
+
+        $res = ['created'=>[],'replaced'=>[],'skipped'=>[],'blocked'=>[]];
+        DB::transaction(function() use ($byCur,$sup,$id,$mode,$start,$end,$callDate,&$res) {
+            $n = 0;
+            foreach ($byCur as $cur => $ls) {
+                $ref = "M{$id}-".$start->toDateString()."-{$cur}";
+                $entry = DB::table('invoices')->where('invoice_number',$ref)->first();
+                if ($entry && $entry->status === 'paid') { $res['blocked'][] = $cur; continue; }   // never change a paid week
+                if ($entry && $mode === 'skip') { $res['skipped'][] = $cur; continue; }
+                DB::table('supplier_cdrs')->where('supplier_id',$id)->where('call_date',$callDate)
+                    ->where('cli','like','SUMMARY-%')->where('currency_code',$cur)->delete();
+                $calls = 0; $min = 0.0; $pay = 0.0;
+                foreach ($ls as $l) {
+                    $n++;
+                    $calls += (int)($l['calls'] ?? 0); $min += (float)($l['minutes'] ?? 0); $pay += (float)($l['payout'] ?? 0);
+                    DB::table('supplier_cdrs')->insert([
+                        'supplier_id'=>$id,'cli'=>'SUMMARY-'.str_pad($n,2,'0',STR_PAD_LEFT),'prn'=>substr((string)($l['number'] ?? ''),0,255),
+                        'operator'=>$l['operator'] ?? null,'country'=>$l['country'] ?? null,
+                        'billsec'=>(int)round(((float)($l['minutes'] ?? 0))*60),'call_date'=>$callDate,
+                        'payout'=>(float)($l['payout'] ?? 0),'payout_per_min'=>(float)($l['rate'] ?? 0),'currency_code'=>$cur,
+                        'account'=>$l['client'] ?? null,'sub_account'=>((int)($l['calls'] ?? 0)).' calls · ACD '.((float)($l['acd'] ?? 0)),
+                        'created_at'=>now(),'updated_at'=>now(),
+                    ]);
+                }
+                $vals = ['total_calls'=>$calls,'total_minutes'=>round($min,4),'total_amount'=>round($pay,4),
+                         'rate'=>$min > 0 ? round($pay/$min,6) : 0,'updated_at'=>now()];
+                if ($entry) { DB::table('invoices')->where('id',$entry->id)->update($vals); $res['replaced'][] = $cur; }
+                else {
+                    DB::table('invoices')->insert($vals + [
+                        'invoice_number'=>$ref,'supplier_id'=>$id,'supplier_name'=>$sup->name,'period_start'=>$start->toDateString(),
+                        'period_end'=>$end->toDateString(),'currency'=>$cur,'status'=>'unpaid','invoice_type'=>'supplier_payment',
+                        'payment_term'=>'Weekly','notes'=>'Weekly report upload','created_at'=>now(),
+                    ]);
+                    $res['created'][] = $cur;
+                }
+            }
+        });
+        $tot = collect($lines)->sum(fn($l)=>(float)($l['payout'] ?? 0));
+        $msg = 'Weekly report '.$start->format('d M').' – '.$end->format('d M Y').': '.count($lines).' lines, payout '.number_format($tot,4).'. ';
+        $msg .= count($res['created']).' new unpaid weekly entr'.(count($res['created'])===1?'y':'ies').', '.count($res['replaced']).' replaced, '.count($res['skipped']).' skipped (already recorded)';
+        if ($res['blocked']) $msg .= ', '.count($res['blocked']).' not changed because that week is already PAID';
+        return response()->json(['success'=>true,'week_start'=>$start->toDateString(),'week_end'=>$end->toDateString()] + $res + ['message'=>$msg]);
+    });
+
     // ── Supplier Prefixes (master inventory record) ─────────────
     // Prefix is the master record: Numbers/Ranges and Test Numbers both
     // belong to a Prefix (prefix_id) and inherit country/price/payment_term
@@ -1483,6 +1674,7 @@ Route::middleware('auth:sanctum')->group(function() {
             // already paid.
             $lastPaid = DB::table('invoices')
                 ->where('supplier_id', $s->id)->where('invoice_type','supplier_payment')->where('status','paid')
+                ->where('invoice_number','like','SPAY-%')
                 ->max('paid_at');
             $from = $lastPaid ? \Carbon\Carbon::parse($lastPaid)->addSecond() : \Carbon\Carbon::parse($s->created_at);
             $to = now();
@@ -1508,6 +1700,38 @@ Route::middleware('auth:sanctum')->group(function() {
             }
         }
         return response()->json(['data'=>$buckets]);
+    });
+
+    // Weekly entries (old supplier invoices): click Paid -> its calls stop counting as unpaid revenue.
+    Route::post('/v1/supplier-payments/invoices/{id}/mark-paid', function(Request $r, $id) {
+        $inv = DB::table('invoices')->where('id',$id)->where('invoice_type','supplier_payment')->first();
+        if (!$inv) return response()->json(['error'=>'Entry not found'],404);
+        if ($inv->status === 'paid') return response()->json(['error'=>'Already marked paid'],422);
+        $usdtMethodId = DB::table('payment_methods')->where('name','USDT')->value('id');
+        DB::table('invoices')->where('id',$id)->update([
+            'status'=>'paid','paid_at'=>$r->paid_at ? \Carbon\Carbon::parse($r->paid_at) : now(),
+            'payment_method_id'=>$usdtMethodId,'reference'=>$r->reference,'notes'=>$r->notes,'updated_at'=>now(),
+        ]);
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'MARK_PAID',
+            'module'=>'Supplier Payments','details'=>"Marked paid: {$inv->supplier_name} week {$inv->period_start}–{$inv->period_end}, {$inv->total_amount} {$inv->currency}",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>"/api/v1/supplier-payments/invoices/{$id}/mark-paid",
+            'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true]);
+    });
+    Route::post('/v1/supplier-payments/invoices/{id}/mark-unpaid', function(Request $r, $id) {
+        $inv = DB::table('invoices')->where('id',$id)->where('invoice_type','supplier_payment')->first();
+        if (!$inv) return response()->json(['error'=>'Entry not found'],404);
+        if (str_starts_with((string)$inv->invoice_number,'SPAY-')) return response()->json(['error'=>'Only weekly entries can be set back to unpaid'],422);
+        DB::table('invoices')->where('id',$id)->update(['status'=>'unpaid','paid_at'=>null,'updated_at'=>now()]);
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'MARK_UNPAID',
+            'module'=>'Supplier Payments','details'=>"Set back to unpaid: {$inv->supplier_name} week {$inv->period_start}–{$inv->period_end}, {$inv->total_amount} {$inv->currency}",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>"/api/v1/supplier-payments/invoices/{$id}/mark-unpaid",
+            'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true]);
     });
 
     Route::post('/v1/supplier-payments/mark-paid', function(Request $r) {
@@ -1563,15 +1787,17 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::get('/v1/supplier-payments/history', function(Request $r) {
         $q = DB::table('invoices')
             ->leftJoin('payment_methods','invoices.payment_method_id','=','payment_methods.id')
-            ->where('invoice_type','supplier_payment')->where('invoices.status','paid')
+            ->where('invoice_type','supplier_payment')
             ->select('invoices.*','payment_methods.name as payment_method_name');
+        if ($r->status === 'all') { /* paid and unpaid weekly entries */ }
+        else $q->where('invoices.status', $r->status ?: 'paid');
         if ($r->supplier_id) $q->where('invoices.supplier_id', $r->supplier_id);
         if ($r->payment_method_id) $q->where('invoices.payment_method_id', $r->payment_method_id);
         if ($r->currency) $q->where('invoices.currency', $r->currency);
         if ($r->payment_term) $q->where('invoices.payment_term', $r->payment_term);
         if ($r->date_from) $q->whereDate('invoices.paid_at', '>=', $r->date_from);
         if ($r->date_to) $q->whereDate('invoices.paid_at', '<=', $r->date_to);
-        $data = $q->orderByDesc('invoices.paid_at')->get();
+        $data = $q->orderByDesc('invoices.period_end')->orderByDesc('invoices.paid_at')->orderByDesc('invoices.id')->get();
         return response()->json(['data'=>$data]);
     });
 
@@ -1984,7 +2210,8 @@ Route::put('/v1/route-prefixes/{id}', function(Request $r, $id) {
 
 // IVR Upload
 Route::post('/v1/ivr-lib/upload', function(Request $r) {
-    $r->validate(['audio'=>'required|file|mimes:wav,mp3,ogg,slin','name'=>'required']);
+    $r->headers->set('Accept','application/json');
+    $r->validate(['audio'=>'required|file|extensions:wav,mp3,ogg,slin,m4a,aac,flac,mp4','name'=>'required']);
     
     $file = $r->file('audio');
     $name = preg_replace('/[^a-zA-Z0-9_-]/','-',$r->name);
@@ -2189,7 +2416,8 @@ Route::get('/v1/live-calls', function() {
         if($duration > 86400) $duration = 0;
         
         // Only show from-carrier context
-        if($context !== 'from-carrier' && !str_contains($channel,'from-carrier')) continue;
+        // (from-carrier, from-carrier-purple, ...)
+        if(!str_starts_with($context,'from-carrier') && !str_contains($channel,'from-carrier')) continue;
         
         // Get DID info from DB
         $did = \Illuminate\Support\Facades\DB::table('dids')
