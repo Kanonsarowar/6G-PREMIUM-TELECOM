@@ -43,10 +43,14 @@ foreach($rows as $t){
         fn($c)=>in_array($c,$INSTALLED))));
     if(!$codecs) $codecs = ['ulaw','alaw','g722','gsm','slin'];
 
+    // Purple's spec requires 180 Ringing instead of the 183 Session Progress
+    // that [from-carrier] sends via Progress() - see from-carrier-purple.
+    $context = ($name === 'PURPLE') ? 'from-carrier-purple' : 'from-carrier';
+
     $out[] = "; ── {$t->nickname} ──";
     $out[] = "[{$name}]";
     $out[] = "type=endpoint";
-    $out[] = "context=from-carrier";
+    $out[] = "context={$context}";
     $out[] = "disallow=all";
     foreach($codecs as $c) $out[] = "allow={$c}";
     $out[] = "direct_media=no";
