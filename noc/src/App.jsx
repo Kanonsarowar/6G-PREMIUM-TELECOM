@@ -416,18 +416,18 @@ function StatsCharts({token}){
     </svg></div>);
   };
 
-  const Section=({title,color,children})=>(<div style={{background:"#FFF",borderRadius:10,padding:14,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12}}>
+  const Section=({title,color,children})=>(<div style={{background:"#FFF",borderRadius:10,width:"100%",padding:16,boxSizing:"border-box",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
     <div style={{fontSize:13,fontWeight:700,color,marginBottom:10}}>{title}</div>
     {children}
   </div>);
 
   if(loading) return(<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading analytics...</div>);
 
-  return(<div style={{padding:"0 16px 16px"}}>
-    <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A",marginBottom:12,marginTop:4}}>📊 Analytics</div>
+  return(<div style={{display:"flex",flexDirection:"column",gap:14,width:"100%",padding:0,boxSizing:"border-box"}}>
+    <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>📊 Analytics</div>
 
     {/* Month selector */}
-    <div style={{background:"#FFF",borderRadius:8,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+    <div style={{background:"#FFF",borderRadius:8,width:"100%",padding:16,boxSizing:"border-box",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:10}}>
       <span style={{fontSize:11,fontWeight:600,color:"#555"}}>📅 Daily Chart Month:</span>
       <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{padding:"5px 8px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:11,outline:"none"}}/>
       <span style={{fontSize:10,color:"#999"}}>{dailyData().reduce((a,d)=>a+d.calls,0)} calls · {fmtUSDT(dailyData().reduce((a,d)=>a+d.revenue,0),2)}</span>
@@ -698,9 +698,9 @@ function DashboardPage({token}){
   const now=new Date();
   const barMax=Math.max(parseFloat(stats.today_calls||1),parseFloat(stats.calls||1));
   return(
-    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+    <div style={{display:"flex",flexDirection:"column",gap:14,width:"100%",padding:16,boxSizing:"border-box",fontFamily:"'Poppins',sans-serif"}}>
       {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
         <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Dashboard</div>
         <div style={{fontSize:12,color:"#999",background:"#F0F0F0",padding:"4px 12px",borderRadius:20}}>
           {now.toLocaleDateString()}
@@ -708,7 +708,7 @@ function DashboardPage({token}){
       </div>
       {/* Live Bar */}
       <div style={{background:"linear-gradient(135deg,#2CADA6,#38B7A8)",borderRadius:14,
-        padding:"14px 16px",marginBottom:16,
+        width:"100%",padding:16,boxSizing:"border-box",
         boxShadow:"0 4px 16px rgba(44,173,166,0.25)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -731,9 +731,9 @@ function DashboardPage({token}){
         </div>
       </div>
       {/* Today Row */}
-      <div style={{background:"linear-gradient(135deg,#1e3a5f,#2d5a8e)",borderRadius:12,padding:"14px 16px",marginBottom:10,boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+      <div style={{background:"linear-gradient(135deg,#1e3a5f,#2d5a8e)",borderRadius:12,width:"100%",padding:16,boxSizing:"border-box",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
         <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:10}}>📅 Today</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,width:"100%"}}>
           {[
             {label:"Calls",value:loading?"...":stats.today_calls,color:"#60A5FA"},
             {label:"Minutes",value:loading?"...":Math.round(stats.today_minutes||0),color:"#34D399"},
@@ -748,11 +748,11 @@ function DashboardPage({token}){
       </div>
 
       {/* This Week Row */}
-      <div style={{background:"linear-gradient(135deg,#3a2a5f,#5a3d8e)",borderRadius:12,padding:"14px 16px",marginBottom:10,boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+      <div style={{background:"linear-gradient(135deg,#3a2a5f,#5a3d8e)",borderRadius:12,width:"100%",padding:16,boxSizing:"border-box",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
         <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:10}}>
           📆 This Week {stats.week_start?"("+stats.week_start.slice(5)+" → "+(stats.week_end||"").slice(5)+")":""}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,width:"100%"}}>
           {[
             {label:"Calls",value:loading?"...":stats.week_calls,color:"#A78BFA"},
             {label:"Minutes",value:loading?"...":Math.round(stats.week_minutes||0),color:"#34D399"},
@@ -767,9 +767,9 @@ function DashboardPage({token}){
       </div>
 
       {/* All Time Row */}
-      <div style={{background:"linear-gradient(135deg,#1a3a2a,#2d5a3a)",borderRadius:12,padding:"14px 16px",marginBottom:16,boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+      <div style={{background:"linear-gradient(135deg,#1a3a2a,#2d5a3a)",borderRadius:12,width:"100%",padding:16,boxSizing:"border-box",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
         <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:10}}>📊 All Time</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,width:"100%"}}>
           {[
             {label:"Total Calls",value:loading?"...":stats.calls,color:"#60A5FA"},
             {label:"Total Min",value:loading?"...":Math.round(stats.minutes||0),color:"#34D399"},
@@ -1448,8 +1448,8 @@ function RevenuePage({token}){
             ["Failed Calls",cdrs.filter(c=>c.disposition!=="ANSWERED").length,"#EF4444"],
             ["ASR",cdrs.length>0?Math.round(cdrs.filter(c=>c.disposition==="ANSWERED").length/cdrs.length*100)+"%":"0%","#F5A623"],
           ].map(([k,v,col])=>(
-            <div key={k} style={{display:"flex",justifyContent:"space-between",
-              padding:"9px 0",borderBottom:"1px solid #F5F5F5"}}>
+            <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              width:"100%",padding:"9px 0",borderBottom:"1px solid #F5F5F5"}}>
               <span style={{fontSize:13,color:"#666"}}>{k}</span>
               <span style={{fontSize:13,color:col,fontWeight:700,fontFamily:"monospace"}}>{v}</span>
             </div>
