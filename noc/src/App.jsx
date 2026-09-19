@@ -710,13 +710,13 @@ function DashboardPage({token}){
       <div style={{background:"linear-gradient(135deg,#2CADA6,#38B7A8)",borderRadius:14,
         width:"100%",padding:16,boxSizing:"border-box",
         boxShadow:"0 4px 16px rgba(44,173,166,0.25)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:12,width:"100%"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:"#FFFFFF",
+            <span style={{width:8,height:8,borderRadius:"50%",background:"#FFFFFF",flexShrink:0,
               display:"inline-block",boxShadow:"0 0 8px rgba(255,255,255,0.8)"}}/>
             <span style={{fontSize:12,color:"#FFFFFF",fontWeight:700,letterSpacing:"1px"}}>LIVE NOW</span>
           </div>
-          <div style={{display:"flex",gap:20}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,width:"100%"}}>
             {[
               {label:"Active Calls",value:stats.live,color:"#FFFFFF"},
               {label:"ASR",value:stats.asr+"%",color:"#F5A623"},
