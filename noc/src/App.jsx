@@ -3418,7 +3418,7 @@ const numTh={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",paddin
   whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
 const numBtn=(kind)=>({padding:"10px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
   border:kind==="primary"?"none":"1px solid #DDD",
-  background:kind==="primary"?"#2CADA6":kind==="danger"?"#FFF5F5":"#FFF",
+  background:kind==="primary"?"#6A2B9A":kind==="danger"?"#FFF5F5":"#FFF",
   color:kind==="primary"?"#FFF":kind==="danger"?"#EF4444":"#555"});
 const ivrName=v=>(v||"").replace("custom/","")||"—";
 
@@ -3459,6 +3459,7 @@ const Banner=({ok,children})=>(
 // Numbers that have taken a call (a CDR exists for the DID) are tinted light
 // green; numbers with a call up right now also show a pulsing LIVE badge.
 const HIT_BG="#E3F6E8";
+const NUM_PURPLE="#6A2B9A",NUM_LIVE="#4CAF50";
 const groupKey=g=>(g.supplier_id??"")+"|"+g.prefix;
 function NumbersListPage({token,setPage}){
   const [groups,setGroups]=useState([]);
@@ -3472,6 +3473,11 @@ function NumbersListPage({token,setPage}){
   const [loading,setLoading]=useState(true);
   const [openId,setOpenId]=useState(null);
   const [live,setLive]=useState(new Set());
+  const [pending,setPending]=useState({});   // id -> ivr_context chosen but not saved yet
+  const [saving,setSaving]=useState(false);
+  const [exporting,setExporting]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const ivrs=useIvrList(token);
   const PER=200;
 
   useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
@@ -3555,6 +3561,39 @@ function NumbersListPage({token,setPage}){
   },[token]);
 
   const toggle=(g)=>setExpanded(e=>{const n=new Set(e),k=groupKey(g);if(n.has(k)) n.delete(k); else n.add(k);return n;});
+  const pendingCount=Object.keys(pending).length;
+  const saveChanges=async()=>{
+    setSaving(true);setMsg(null);
+    const results=await Promise.all(Object.entries(pending).map(([id,ivr])=>
+      apiFetch("/numbers/"+id,token,{method:"PUT",body:JSON.stringify({ivr_context:ivr})}).then(d=>({id,ok:!!d.success,err:d.error||d.message}))));
+    const failed=results.filter(r=>!r.ok);
+    setPending(Object.fromEntries(failed.map(f=>[f.id,pending[f.id]])));
+    await refreshAll();
+    setSaving(false);
+    setMsg(failed.length?{ok:false,text:`${failed.length} of ${results.length} failed: ${failed[0].err||"update failed"}`}
+      :{ok:true,text:`Saved IVR for ${results.length} number${results.length===1?"":"s"}`});
+  };
+  // export every number matching the current filters (not just the expanded groups)
+  const downloadExcel=async()=>{
+    setExporting(true);setMsg(null);
+    try{
+      const all=[];
+      for(let page=1;;page++){
+        const p=filterParams();p.set("per_page",200);p.set("page",page);
+        const d=await apiFetch("/numbers?"+p,token);
+        all.push(...(d.data||[]));
+        if(!d.last_page||page>=d.last_page) break;
+      }
+      const XLSX=await import("xlsx");
+      const ws=XLSX.utils.json_to_sheet(all.map(n=>({
+        Number:(n.number||"").replace("+",""),Prefix:n.prefix||"",Supplier:numSupplier(n.supplier_name),
+        Country:n.country_name||"",IVR:ivrName(n.ivr_context),Status:n.status==="disabled"?"Disabled":"Available",
+        Test:n.is_test?"Yes":"",Calls:n.hits||0,"Last call":n.last_hit||""})));
+      const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Numbers");
+      XLSX.writeFile(wb,`numbers-${new Date().toISOString().slice(0,10)}.xlsx`);
+    }catch(e){setMsg({ok:false,text:"Export failed: "+(e.message||e)});}
+    setExporting(false);
+  };
   const totalNumbers=groups.reduce((a,g)=>a+Number(g.total),0);
   const isLive=d=>live.has((d.number||"").replace("+",""));
 
@@ -3574,67 +3613,80 @@ function NumbersListPage({token,setPage}){
           <option value="disabled">Disabled</option>
         </select>
       </div>
-      <div style={{fontSize:11,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-        <span style={{width:12,height:12,borderRadius:3,background:HIT_BG,border:"1px solid #B7E4C4",display:"inline-block"}}/>
-        Number has received a call
+      <div style={{fontSize:11,color:"#666",marginBottom:8}}>
+        <span style={{color:NUM_LIVE,fontWeight:700}}>Green</span> = number has received a call
       </div>
       <style>{`@keyframes numLivePulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
-      <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
-        <div style={{overflowX:"auto"}}>
-          <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560,whiteSpace:"nowrap"}}>
-            <thead><tr>{["Number","Supplier","Country","IVR","Status"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
-            <tbody>
-              {loading&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
-              {!loading&&groups.length===0&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>}
-              {!loading&&groups.map(g=>{
-                const k=groupKey(g),open=expanded.has(k),data=rowsBy[k];
-                const hit=Number(g.hit_count);
+      {msg&&<Banner ok={msg.ok}>{msg.text}</Banner>}
+      <div style={{background:"#FFF",borderRadius:8,overflow:"hidden"}}>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"10px 14px",fontSize:11,fontWeight:700,
+          letterSpacing:"0.8px",color:"#888",borderBottom:"2px solid #E8E8E8"}}>
+          <span>NUMBERS</span><span>COUNTRY</span>
+        </div>
+        {loading&&<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</div>}
+        {!loading&&groups.length===0&&<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</div>}
+        {!loading&&groups.map(g=>{
+          const k=groupKey(g),open=expanded.has(k),data=rowsBy[k];
+          const hit=Number(g.hit_count),total=Number(g.total);
+          return(
+            <div key={k} style={{borderBottom:"1px solid #E8E8E8"}}>
+              <div onClick={()=>toggle(g)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer"}}>
+                <span style={{flex:"none",width:22,height:22,borderRadius:"50%",border:"2px solid "+NUM_PURPLE,color:NUM_PURPLE,
+                  display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,lineHeight:1}}>{open?"−":"+"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <span style={{fontSize:14,fontWeight:800,fontFamily:"monospace",color:"#1A1A1A"}}>{g.prefix||"No prefix"}</span>
+                  <span style={{fontSize:13,color:"#555",marginLeft:6}}>({total.toLocaleString()} number{total===1?"":"s"})</span>
+                  <span style={{fontSize:11,color:"#999",marginLeft:8}}>{numSupplier(g.supplier_name)}</span>
+                  {hit>0&&<span style={{marginLeft:8,fontSize:10,fontWeight:700,color:NUM_LIVE}}>{hit} hit</span>}
+                </div>
+                <span style={{flex:"none",fontSize:13,color:"#333",fontWeight:600,textAlign:"right"}}>{g.country_name||"—"}</span>
+              </div>
+              {open&&(!data||data.loading)&&<div style={{padding:"8px 14px 12px 46px",fontSize:11,color:"#999"}}>Loading...</div>}
+              {open&&data&&!data.loading&&data.rows.map(d=>{
+                const lv=isLive(d),active=lv||d.hits>0;
+                const cur=pending[d.id]??d.ivr_context??"";
+                const dirty=pending[d.id]!==undefined;
                 return(
-                  <React.Fragment key={k}>
-                    <tr onClick={()=>toggle(g)} style={{background:open?"#F0FAFA":"#F7F7F7",borderBottom:"1px solid #E8E8E8",cursor:"pointer"}}>
-                      <td colSpan={5} style={{padding:"8px 10px"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                          <span style={{width:20,height:20,borderRadius:"50%",background:"#2CADA6",color:"#FFF",display:"inline-flex",
-                            alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700}}>{open?"−":"+"}</span>
-                          <span style={{fontSize:13,fontWeight:800,fontFamily:"monospace",color:"#1A1A1A"}}>{g.prefix||"No prefix"}</span>
-                          <span style={{fontSize:12,color:"#333",fontWeight:600}}>{g.country_name||"—"}</span>
-                          <span style={{fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(g.supplier_name)}</span>
-                          <span style={{fontSize:11,color:"#999"}}>{Number(g.total).toLocaleString()} numbers</span>
-                          {hit>0&&<span style={{fontSize:10,fontWeight:800,color:"#1E7B3A",background:HIT_BG,border:"1px solid #B7E4C4",borderRadius:10,padding:"1px 8px"}}>{hit} hit</span>}
-                        </div>
-                      </td>
-                    </tr>
-                    {open&&(!data||data.loading)&&<tr><td colSpan={5} style={{padding:"8px 10px 8px 37px",fontSize:11,color:"#999"}}>Loading...</td></tr>}
-                    {open&&data&&!data.loading&&data.rows.map(d=>{
-                      const lv=isLive(d),hitRow=lv||d.hits>0;
-                      return(
-                        <tr key={d.id} onClick={()=>setOpenId(d.id)}
-                          title={d.hits>0?`${d.hits} call${d.hits>1?"s":""} · last ${d.last_hit}`:undefined}
-                          style={{borderBottom:"1px solid #F0F0F0",background:hitRow?HIT_BG:"#FFF",cursor:"pointer"}}>
-                          <td style={{padding:"7px 10px 7px 37px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
-                            {(d.number||"").replace("+","")}
-                            {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#8B5CF6",background:"#EBE4FB",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
-                            {lv&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#1E7B3A",animation:"numLivePulse 1.2s infinite"}}>● LIVE</span>}
-                          </td>
-                          <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
-                          <td style={{padding:"7px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                          <td style={{padding:"7px 10px",fontSize:12,color:"#555"}}>{ivrName(d.ivr_context)}</td>
-                          <td style={{padding:"7px 10px",fontSize:12,fontWeight:600,color:d.status==="disabled"?"#EF4444":"#10B981"}}>
-                            {d.status==="disabled"?"Disabled":"Available"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {open&&data&&!data.loading&&data.rows.length<data.total&&(
-                      <tr><td colSpan={5} style={{padding:"8px 10px",textAlign:"center"}}>
-                        <button onClick={()=>loadMore(g)} style={numBtn()}>Load more ({data.rows.length} of {data.total})</button></td></tr>
-                    )}
-                  </React.Fragment>
+                  <div key={d.id} onClick={()=>setOpenId(d.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px 8px 46px",cursor:"pointer"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontFamily:"monospace",fontWeight:700,color:active?NUM_LIVE:"#1A1A1A"}}>
+                        {(d.number||"").replace("+","")}
+                        {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:NUM_PURPLE,background:"#F0E6F7",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
+                        {lv&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:NUM_LIVE,animation:"numLivePulse 1.2s infinite"}}>● LIVE</span>}
+                        {d.status==="disabled"&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#EF4444"}}>DISABLED</span>}
+                      </div>
+                      <div style={{fontSize:11,color:"#999",marginTop:2}}>
+                        {d.last_hit?`Last call ${d.last_hit}${d.hits>1?` · ${d.hits} calls`:""}`:"No calls yet"}
+                      </div>
+                    </div>
+                    <select value={cur} onClick={e=>e.stopPropagation()}
+                      onChange={e=>{const v=e.target.value,orig=d.ivr_context||"";
+                        setPending(p=>{const n={...p};if(!v||v===orig) delete n[d.id]; else n[d.id]=v;return n;});}}
+                      title="Select IVR"
+                      style={{flex:"none",maxWidth:160,padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:600,cursor:"pointer",
+                        fontFamily:"inherit",background:dirty?NUM_PURPLE:"#FFF",color:dirty?"#FFF":NUM_PURPLE,border:"1px solid "+NUM_PURPLE}}>
+                      <IvrOptions ivrs={ivrs} value={cur}/>
+                    </select>
+                  </div>
                 );
               })}
-            </tbody>
-          </GTable>
-        </div>
+              {open&&data&&!data.loading&&data.rows.length<data.total&&(
+                <div style={{padding:"8px 14px 12px",textAlign:"center"}}>
+                  <button onClick={()=>loadMore(g)} style={numBtn()}>Load more ({data.rows.length} of {data.total})</button></div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:50,display:"flex",gap:10,justifyContent:"flex-end",alignItems:"center",
+        padding:"10px 16px",background:"#FFF",borderTop:"1px solid #E0E0E0"}}>
+        {pendingCount>0&&<span style={{fontSize:12,color:"#666",marginRight:"auto"}}>{pendingCount} unsaved change{pendingCount===1?"":"s"}</span>}
+        <button onClick={downloadExcel} disabled={exporting}
+          style={{...numBtn(),background:"#FFF",color:NUM_PURPLE,border:"2px solid "+NUM_PURPLE,textTransform:"uppercase",opacity:exporting?0.6:1}}>
+          {exporting?"Exporting...":"Download Excel"}</button>
+        <button onClick={saveChanges} disabled={!pendingCount||saving}
+          style={{...numBtn("primary"),textTransform:"uppercase",opacity:pendingCount&&!saving?1:0.5,cursor:pendingCount&&!saving?"pointer":"not-allowed"}}>
+          {saving?"Saving...":"Save Changes"}</button>
       </div>
       {openId&&<NumberDetailsModal token={token} id={openId} setPage={setPage} onClose={()=>setOpenId(null)} onChanged={()=>refreshRef.current()}/>}
     </NumbersPageShell>
