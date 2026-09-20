@@ -4087,15 +4087,16 @@ function IVRPage({token,setPage}){
         body:fd
       });
       const d=await r.json();
-      if(d.success){setUploadMsg("✅ Uploaded: "+d.name);load();setShowUpload(false);setFile(null);setUploadForm({name:"",display_name:""});}
-      else setUploadMsg("❌ "+(d.message||"Failed"));
+      if(d.success){setUploadMsg((d.replaced?"✅ Replaced: ":"✅ Uploaded: ")+d.name);load();setShowUpload(false);setFile(null);setUploadForm({name:"",display_name:""});}
+      else setUploadMsg("❌ "+(d.error||d.message||"Failed"));
     }catch(e){setUploadMsg("❌ "+e.message);}
     setUploading(false);
   };
 
   const del=async(id)=>{
     if(!window.confirm("Delete this IVR?")) return;
-    await apiFetch(`/ivr-lib/${id}`,token,{method:"DELETE"});
+    const d=await apiFetch(`/ivr-lib/${id}`,token,{method:"DELETE"});
+    if(!d.success) alert(d.error||d.message||"Delete failed");
     load();
   };
 

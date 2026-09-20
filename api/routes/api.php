@@ -2499,61 +2499,79 @@ Route::put('/v1/route-prefixes/{id}', function(Request $r, $id) {
     return response()->json(['success'=>true]);
 });
 
-// IVR Upload
+// IVR Library <-> Asterisk custom sounds.
+// Every file for an IVR lives at <sounds>/custom/<name>.<ext> (the original upload
+// plus the .slin/.ul/.wav Asterisk plays). Replace and delete must keep that set
+// in step with the ivrs row, so stale formats never linger and get played/previewed.
+if (!function_exists('ivrSoundsDir')) {
+    function ivrSoundsDir() { return rtrim(config('asterisk.sounds_dir', '/usr/share/asterisk/sounds/custom'), '/').'/'; }
+    function ivrPurgeSounds($name) {
+        // name is [a-zA-Z0-9_-] only (sanitised on upload), so the glob cannot match other IVRs
+        foreach (['/usr/share/asterisk/sounds/custom/', '/var/lib/asterisk/sounds/custom/', ivrSoundsDir()] as $d)
+            foreach (glob($d.$name.'.*') ?: [] as $f) @unlink($f);
+    }
+}
+
+// IVR Upload (a same-name upload replaces the existing IVR in place)
 Route::post('/v1/ivr-lib/upload', function(Request $r) {
     $r->headers->set('Accept','application/json');
     $r->validate(['audio'=>'required|file|extensions:wav,mp3,ogg,slin,m4a,aac,flac,mp4','name'=>'required']);
-    
+
     $file = $r->file('audio');
     $name = preg_replace('/[^a-zA-Z0-9_-]/','-',$r->name);
     $displayName = $r->display_name ?? $r->name;
-    
-    // Save to asterisk custom sounds
-    $path = '/usr/share/asterisk/sounds/custom/';
+    $ext = strtolower($file->getClientOriginalExtension());
+    $path = ivrSoundsDir();
     if(!is_dir($path)) mkdir($path,0755,true);
-    
-    $filename = $name.'.'.$file->getClientOriginalExtension();
-    $file->move($path,$filename);
-    
-    // Convert to multiple formats for Asterisk compatibility
-    $slinFile = $path.$name.'.slin';
-    $ulFile   = $path.$name.'.ul';
-    $wavFile  = $path.$name.'.wav';
-    if($file->getClientOriginalExtension() !== 'slin'){
-        // Convert to slin (raw signed 16-bit 8kHz)
-        $src = escapeshellarg($path.$filename);
-        $dst_slin = escapeshellarg($slinFile);
-        $dst_ul = escapeshellarg($ulFile);
-        $dst_wav = escapeshellarg($wavFile);
-        exec("ffmpeg -i {$src} -ar 8000 -ac 1 -acodec pcm_s16le -f s16le {$dst_slin} -y 2>&1", $out1);
-        exec("ffmpeg -i {$src} -ar 8000 -ac 1 -acodec pcm_mulaw -f mulaw {$dst_ul} -y 2>&1", $out2);
-        exec("ffmpeg -i {$src} -ar 8000 -ac 1 {$dst_wav} -y 2>&1", $out3);
-        exec("chown asterisk:asterisk {$dst_slin} {$dst_ul} {$dst_wav} 2>&1");
-        exec("chmod 644 {$dst_slin} {$dst_ul} {$dst_wav} 2>&1");
+
+    // Stage and convert first: the IVR's current audio is only removed once
+    // every new format converted, so a failed upload never leaves it silent.
+    $stage = '.stage-'.uniqid();
+    $file->move($path,$stage.'-in.'.$ext);   // own name: the input may share an extension with an output (wav, slin)
+    $in = escapeshellarg($path.$stage.'-in.'.$ext);
+    $raw = $ext === 'slin' ? '-f s16le -ar 8000 -ac 1 ' : '';
+    $outs = ['slin'=>'-ar 8000 -ac 1 -acodec pcm_s16le -f s16le', 'ul'=>'-ar 8000 -ac 1 -acodec pcm_mulaw -f mulaw', 'wav'=>'-ar 8000 -ac 1 -f wav'];
+    $failed = null;
+    foreach($outs as $e=>$args){
+        exec("ffmpeg {$raw}-i {$in} {$args} ".escapeshellarg($path.$stage.'.'.$e)." -y 2>&1", $o, $rc);
+        if($rc !== 0 || !is_file($path.$stage.'.'.$e) || filesize($path.$stage.'.'.$e) === 0){ $failed = $e; break; }
     }
-    
-    // Save to DB
-    $id = DB::table('ivrs')->insertGetId([
-        'name'         => $name,
-        'title'        => $displayName,
-        'audio_file'   => $filename,
-        'display_name' => $displayName,
-        'is_active'    => 1,
-        'created_at'   => now(),
-        'updated_at'   => now(),
-    ]);
-    
-    return response()->json(['success'=>true,'id'=>$id,'name'=>$name,'display_name'=>$displayName]);
+    if($failed){
+        foreach(array_merge(glob($path.$stage.'.*') ?: [], glob($path.$stage.'-in.*') ?: []) as $f) @unlink($f);
+        return response()->json(['success'=>false,'error'=>"Could not convert audio to .{$failed} - existing IVR audio was left unchanged"],422);
+    }
+
+    ivrPurgeSounds($name);                       // drop every old format of this IVR
+    $filename = $name.'.'.$ext;
+    rename($path.$stage.'-in.'.$ext, $path.$filename);
+    foreach(array_keys($outs) as $e) rename($path.$stage.'.'.$e, $path.$name.'.'.$e);
+    foreach(glob($path.$name.'.*') ?: [] as $f){ @chown($f,'asterisk'); @chgrp($f,'asterisk'); @chmod($f,0644); }
+
+    $row = ['title'=>$displayName,'audio_file'=>$filename,'display_name'=>$displayName,'updated_at'=>now()];
+    $existing = DB::table('ivrs')->where('name',$name)->first();
+    if($existing){ DB::table('ivrs')->where('id',$existing->id)->update($row); $id = $existing->id; }
+    else $id = DB::table('ivrs')->insertGetId($row + ['name'=>$name,'is_active'=>1,'created_at'=>now()]);
+
+    return response()->json(['success'=>true,'id'=>$id,'name'=>$name,'display_name'=>$displayName,'replaced'=>(bool)$existing]);
 });
 
-// Delete IVR
+// Delete IVR: refused while numbers/ranges/routes still point at it; otherwise the row and all its sound files go
 Route::delete('/v1/ivr-lib/{id}', function($id) {
     $ivr = DB::table('ivrs')->find($id);
-    if($ivr){
-        @unlink('/var/lib/asterisk/sounds/custom/'.$ivr->audio_file);
-        @unlink('/var/lib/asterisk/sounds/custom/'.$ivr->name.'.slin');
-        DB::table('ivrs')->delete($id);
+    if(!$ivr) return response()->json(['success'=>true]);
+    $ctx = 'custom/'.$ivr->name;
+    $usage = array_filter([
+        'numbers'  => DB::table('dids')->where('ivr_context',$ctx)->count(),
+        'ranges'   => DB::table('did_ranges')->where('default_ivr',$ctx)->count(),
+        'routes'   => DB::table('route_prefixes')->where('ivr_context',$ctx)->count(),
+        'prefixes' => DB::table('supplier_prefixes')->where('ivr_context',$ctx)->count(),
+    ]);
+    if($usage){
+        $txt = implode(', ', array_map(fn($k,$v)=>"$v $k", array_keys($usage), $usage));
+        return response()->json(['success'=>false,'error'=>"IVR \"{$ivr->name}\" is still used by $txt - assign them another IVR first",'usage'=>$usage],409);
     }
+    ivrPurgeSounds($ivr->name);
+    DB::table('ivrs')->delete($id);
     return response()->json(['success'=>true]);
 });
 
