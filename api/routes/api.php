@@ -1645,6 +1645,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 DB::raw('MAX(dids.country_name) as country_name'),
                 DB::raw('MAX(COALESCE(suppliers.name, trunks.nickname)) as supplier_name'),
                 DB::raw('COUNT(*) as total'),
+                DB::raw('MIN(dids.tariff) as min_tariff'), DB::raw('MAX(dids.tariff) as max_tariff'),
                 DB::raw('SUM(EXISTS(SELECT 1 FROM cdrs WHERE cdrs.did IN (dids.number, SUBSTRING(dids.number,2)))) as hit_count'))
             ->groupBy(DB::raw("COALESCE(dids.prefix,'')"), 'dids.supplier_id')
             ->orderBy(DB::raw("COALESCE(dids.prefix,'')"))->get();
@@ -1654,7 +1655,7 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::get('/v1/numbers', function(Request $r) use ($numbersBase) {
         $q = $numbersBase($r)
             ->select('dids.id', 'dids.number', 'dids.country_name', 'dids.prefix', 'dids.ivr_context',
-                'dids.status', 'dids.is_test', 'dids.supplier_id',
+                'dids.status', 'dids.is_test', 'dids.supplier_id', 'dids.tariff',
                 DB::raw('COALESCE(suppliers.name, trunks.nickname) as supplier_name'));
         if ($r->has('prefix')) $q->where(DB::raw("COALESCE(dids.prefix,'')"), (string)$r->prefix);
         $total = (clone $q)->count();

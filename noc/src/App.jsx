@@ -3459,6 +3459,8 @@ const Banner=({ok,children})=>(
 // Numbers that have taken a call (a CDR exists for the DID) are tinted light
 // green; numbers with a call up right now also show a pulsing LIVE badge.
 const HIT_BG="#E3F6E8";
+// one grid for the header, prefix rows and number rows so every column lines up from the left
+const NUM_ROW={display:"grid",gridTemplateColumns:"minmax(220px,2.4fr) minmax(70px,1fr) 110px minmax(80px,1fr) 160px 60px",columnGap:12,alignItems:"center",justifyItems:"start"};
 const NUM_PURPLE="#6A2B9A",NUM_LIVE="#4CAF50";
 const groupKey=g=>(g.supplier_id??"")+"|"+g.prefix;
 function NumbersListPage({token,setPage}){
@@ -3561,6 +3563,14 @@ function NumbersListPage({token,setPage}){
   },[token]);
 
   const toggle=(g)=>setExpanded(e=>{const n=new Set(e),k=groupKey(g);if(n.has(k)) n.delete(k); else n.add(k);return n;});
+  const delNumberRow=async(d)=>{
+    if(!window.confirm("Delete number "+(d.number||"").replace("+","")+"?")) return;
+    const r=await apiFetch("/dids/"+d.id,token,{method:"DELETE"});
+    if(!r.success){setMsg({ok:false,text:r.error||r.message||"Delete failed"});return;}
+    setPending(p=>{const n={...p};delete n[d.id];return n;});
+    setMsg({ok:true,text:"Deleted "+(d.number||"").replace("+","")});
+    refreshAll();
+  };
   const pendingCount=Object.keys(pending).length;
   const saveChanges=async()=>{
     setSaving(true);setMsg(null);
@@ -3619,27 +3629,33 @@ function NumbersListPage({token,setPage}){
       <style>{`@keyframes numLivePulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
       {msg&&<Banner ok={msg.ok}>{msg.text}</Banner>}
       <div style={{background:"#FFF",borderRadius:8,overflow:"hidden"}}>
-        <div style={{display:"flex",justifyContent:"space-between",padding:"10px 14px",fontSize:11,fontWeight:700,
-          letterSpacing:"0.8px",color:"#888",borderBottom:"2px solid #E8E8E8"}}>
-          <span>NUMBERS</span><span>COUNTRY</span>
+        <div style={{overflowX:"auto"}}>
+        <div style={{minWidth:780}}>
+        <div style={{...NUM_ROW,padding:"10px 14px",fontSize:11,fontWeight:700,letterSpacing:"0.8px",color:"#888",borderBottom:"2px solid #E8E8E8"}}>
+          <span>NUMBERS</span><span>SUPPLIER</span><span>PAYOUT</span><span>COUNTRY</span><span/><span>DELETE</span>
         </div>
         {loading&&<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</div>}
         {!loading&&groups.length===0&&<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</div>}
         {!loading&&groups.map(g=>{
           const k=groupKey(g),open=expanded.has(k),data=rowsBy[k];
           const hit=Number(g.hit_count),total=Number(g.total);
+          const lo=Number(g.min_tariff),hi=Number(g.max_tariff);
           return(
             <div key={k} style={{borderBottom:"1px solid #E8E8E8"}}>
-              <div onClick={()=>toggle(g)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer"}}>
-                <span style={{flex:"none",width:22,height:22,borderRadius:"50%",border:"2px solid "+NUM_PURPLE,color:NUM_PURPLE,
-                  display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,lineHeight:1}}>{open?"−":"+"}</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <span style={{fontSize:14,fontWeight:800,fontFamily:"monospace",color:"#1A1A1A"}}>{g.prefix||"No prefix"}</span>
-                  <span style={{fontSize:13,color:"#555",marginLeft:6}}>({total.toLocaleString()} number{total===1?"":"s"})</span>
-                  <span style={{fontSize:11,color:"#999",marginLeft:8}}>{numSupplier(g.supplier_name)}</span>
-                  {hit>0&&<span style={{marginLeft:8,fontSize:10,fontWeight:700,color:NUM_LIVE}}>{hit} hit</span>}
+              <div onClick={()=>toggle(g)} style={{...NUM_ROW,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  <span style={{flex:"none",width:22,height:22,borderRadius:"50%",border:"2px solid "+NUM_PURPLE,color:NUM_PURPLE,
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,lineHeight:1}}>{open?"−":"+"}</span>
+                  <div style={{minWidth:0}}>
+                    <span style={{fontSize:14,fontWeight:800,fontFamily:"monospace",color:"#1A1A1A"}}>{g.prefix||"No prefix"}</span>
+                    <span style={{fontSize:13,color:"#555",marginLeft:6}}>({total.toLocaleString()} number{total===1?"":"s"})</span>
+                    {hit>0&&<span style={{marginLeft:8,fontSize:10,fontWeight:700,color:NUM_LIVE}}>{hit} hit</span>}
+                  </div>
                 </div>
-                <span style={{flex:"none",fontSize:13,color:"#333",fontWeight:600,textAlign:"right"}}>{g.country_name||"—"}</span>
+                <span style={{fontSize:11,color:"#999"}}>{numSupplier(g.supplier_name)}</span>
+                <span style={{fontSize:12,fontFamily:"monospace",color:"#333"}}>{lo===hi?fmtUSDT(lo):fmtUSDT(lo)+" – "+fmtUSDT(hi)}</span>
+                <span style={{fontSize:13,color:"#333",fontWeight:600}}>{g.country_name||"—"}</span>
+                <span/><span/>
               </div>
               {open&&(!data||data.loading)&&<div style={{padding:"8px 14px 12px 46px",fontSize:11,color:"#999"}}>Loading...</div>}
               {open&&data&&!data.loading&&data.rows.map(d=>{
@@ -3647,8 +3663,8 @@ function NumbersListPage({token,setPage}){
                 const cur=pending[d.id]??d.ivr_context??"";
                 const dirty=pending[d.id]!==undefined;
                 return(
-                  <div key={d.id} onClick={()=>setOpenId(d.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px 8px 46px",cursor:"pointer"}}>
-                    <div style={{flex:1,minWidth:0}}>
+                  <div key={d.id} onClick={()=>setOpenId(d.id)} style={{...NUM_ROW,padding:"8px 14px",cursor:"pointer"}}>
+                    <div style={{paddingLeft:32,minWidth:0}}>
                       <div style={{fontSize:13,fontFamily:"monospace",fontWeight:700,color:active?NUM_LIVE:"#1A1A1A"}}>
                         {(d.number||"").replace("+","")}
                         {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:NUM_PURPLE,background:"#F0E6F7",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
@@ -3659,14 +3675,19 @@ function NumbersListPage({token,setPage}){
                         {d.last_hit?`Last call ${d.last_hit}${d.hits>1?` · ${d.hits} calls`:""}`:"No calls yet"}
                       </div>
                     </div>
+                    <span style={{fontSize:11,color:"#999"}}>{numSupplier(d.supplier_name)}</span>
+                    <span style={{fontSize:12,fontFamily:"monospace",color:"#333"}}>{fmtUSDT(d.tariff)}</span>
+                    <span style={{fontSize:12,color:"#333"}}>{d.country_name||"—"}</span>
                     <select value={cur} onClick={e=>e.stopPropagation()}
                       onChange={e=>{const v=e.target.value,orig=d.ivr_context||"";
                         setPending(p=>{const n={...p};if(!v||v===orig) delete n[d.id]; else n[d.id]=v;return n;});}}
                       title="Select IVR"
-                      style={{flex:"none",maxWidth:160,padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:600,cursor:"pointer",
+                      style={{width:"100%",maxWidth:160,padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:600,cursor:"pointer",
                         fontFamily:"inherit",background:dirty?NUM_PURPLE:"#FFF",color:dirty?"#FFF":NUM_PURPLE,border:"1px solid "+NUM_PURPLE}}>
                       <IvrOptions ivrs={ivrs} value={cur}/>
                     </select>
+                    <span><button onClick={e=>{e.stopPropagation();delNumberRow(d);}}
+                      style={{background:"none",border:"1px solid #EF4444",borderRadius:4,cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 8px"}}>Del</button></span>
                   </div>
                 );
               })}
@@ -3677,6 +3698,8 @@ function NumbersListPage({token,setPage}){
             </div>
           );
         })}
+        </div>
+        </div>
       </div>
       <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:50,display:"flex",gap:10,justifyContent:"flex-end",alignItems:"center",
         padding:"10px 16px",background:"#FFF",borderTop:"1px solid #E0E0E0"}}>
