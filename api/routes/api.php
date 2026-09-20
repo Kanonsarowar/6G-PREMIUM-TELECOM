@@ -764,6 +764,7 @@ Route::middleware('auth:sanctum')->group(function() {
         $numberCounts = DB::table('dids')->where('is_test',0)->whereNotNull('supplier_id')
             ->select('supplier_id', DB::raw('COUNT(*) as c'))->groupBy('supplier_id')->pluck('c','supplier_id');
         $rangeCounts = DB::table('did_ranges')->whereNotNull('supplier_id')
+            ->whereNotExists(fn($q)=>$q->select(DB::raw(1))->from('dids')->whereColumn('dids.batch_id','did_ranges.id'))
             ->select('supplier_id', DB::raw('COALESCE(SUM(total_count),0) as c'))->groupBy('supplier_id')->pluck('c','supplier_id');
         $testCounts = DB::table('dids')->where('is_test',1)->whereNotNull('supplier_id')
             ->select('supplier_id', DB::raw('COUNT(*) as c'))->groupBy('supplier_id')->pluck('c','supplier_id');
@@ -1244,8 +1245,11 @@ Route::middleware('auth:sanctum')->group(function() {
         $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->orderBy('prefix')->get();
         $numberCounts = DB::table('dids')->where('supplier_id',$id)->where('is_test',0)
             ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+        // A range that has been materialised into dids rows (dids.batch_id) is
+        // already counted above - only bare ranges add their total_count.
         $rangeCounts = DB::table('did_ranges')->where('supplier_id',$id)
-            ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
+            ->whereNotExists(fn($q)=>$q->select(DB::raw(1))->from('dids')->whereColumn('dids.batch_id','did_ranges.id'))
+            ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COALESCE(SUM(total_count),0) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
         $testCounts = DB::table('dids')->where('supplier_id',$id)->where('is_test',1)
             ->whereNotNull('prefix_id')->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
         $out = $prefixes->map(function($p) use ($numberCounts,$rangeCounts,$testCounts) {
@@ -1447,6 +1451,248 @@ Route::middleware('auth:sanctum')->group(function() {
         ]);
         if ($r->notes) DB::table('dids')->where('id',$id2)->update(['route'=>$r->notes]);
         return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id2)],201);
+    });
+
+    // ── Numbers & IVR: Add Range (preview -> import) ─────────────────
+    // Supplier -> Trunk + Prefix -> Range -> individual DIDs -> IVR.
+    // Both endpoints share one planner so the preview is exactly what the
+    // import will do; preview never writes. Import materialises one dids
+    // row per number (did_router.php looks DIDs up by exact number) plus a
+    // did_ranges row that ties them together via dids.batch_id.
+    $rangePlan = function(Request $r) {
+        $errors = []; $warnings = [];
+        $digits = fn($v) => preg_replace('/[^0-9]/', '', (string)$v);
+        $supplier = DB::table('suppliers')->find($r->supplier_id);
+        if (!$supplier) $errors[] = 'Select a supplier';
+        $prefix = $digits($r->prefix);
+        $start  = $digits($r->range_start);
+        $end    = $digits($r->range_end);
+        $test   = $digits($r->test_number);
+        $country = trim((string)$r->country);
+        $tariff = $r->tariff; $selling = $r->selling_price;
+        if ($country === '') $errors[] = 'Country is required';
+        if ($prefix === '') $errors[] = 'Prefix is required';
+        if ($start === '' || $end === '') $errors[] = 'Range start and end are required';
+        if (!is_numeric($tariff) || $tariff < 0) $errors[] = 'Tariff must be a number';
+        if (!is_numeric($selling) || $selling < 0) $errors[] = 'Selling price must be a number';
+        if (trim((string)$r->payment_term) === '') $errors[] = 'Payment term is required';
+
+        $count = 0;
+        if ($prefix !== '' && $start !== '' && $end !== '') {
+            if (strlen($start) !== strlen($end)) $errors[] = 'Range start and end must have the same number of digits';
+            elseif (strlen($start) > 15) $errors[] = 'Numbers cannot be longer than 15 digits';
+            elseif (!str_starts_with($start, $prefix) || !str_starts_with($end, $prefix))
+                $errors[] = "Range start and end must both begin with the prefix $prefix";
+            elseif ((int)$end < (int)$start) $errors[] = 'Range end must not be before range start';
+            else {
+                $count = (int)$end - (int)$start + 1;
+                if ($count > 100000) { $errors[] = 'Range too large (max 100,000 numbers)'; }
+            }
+        }
+        if ($test !== '' && $count > 0 && ((int)$test < (int)$start || (int)$test > (int)$end || strlen($test) !== strlen($start)))
+            $errors[] = 'Test number must be inside the range';
+
+        $existing = []; $trunk = null; $prefixRow = null;
+        if ($supplier) {
+            $trunk = DB::table('trunks')->where('supplier_id', $supplier->id)->first();
+            if (!$trunk) $warnings[] = 'This supplier has no trunk yet - numbers will be created without one';
+            if ($prefix !== '') {
+                $prefixRow = DB::table('supplier_prefixes')->where('supplier_id', $supplier->id)->where('prefix', $prefix)->first();
+                if ($prefixRow && is_numeric($tariff) && abs((float)$prefixRow->price - (float)$tariff) > 0.0000001)
+                    $errors[] = "Prefix $prefix already exists for {$supplier->name} at tariff "
+                        . rtrim(rtrim(number_format((float)$prefixRow->price, 6, '.', ''), '0'), '.')
+                        . ' - use the same tariff or edit the prefix first';
+            }
+        }
+        if ($count > 0 && !$errors) {
+            $overlap = DB::table('did_ranges')->where('range_start', '<=', $end)->where('range_end', '>=', $start)
+                ->whereRaw('LENGTH(range_start) = ?', [strlen($start)])->first();
+            if ($overlap) $errors[] = "Overlaps existing range {$overlap->range_start} - {$overlap->range_end}";
+            DB::table('dids')->whereBetween('number', ['+'.$start, '+'.$end])->orWhereBetween('number', [$start, $end])
+                ->select('number', 'supplier_id')->orderBy('number')->get()
+                ->each(function($d) use (&$existing) { $existing[ltrim($d->number, '+')] = $d->supplier_id; });
+            if ($existing) $warnings[] = count($existing) . ' number(s) already exist and will be skipped';
+        }
+
+        $ivr = trim((string)$r->ivr_context);
+        if ($ivr === '') $ivr = $prefixRow->ivr_context ?? 'custom/6g-premium-telecom';
+        elseif (!str_starts_with($ivr, 'custom/')) $ivr = 'custom/'.$ivr;
+
+        return compact('errors', 'warnings', 'supplier', 'trunk', 'prefixRow', 'prefix', 'start', 'end', 'test',
+            'count', 'existing', 'country', 'tariff', 'selling', 'ivr');
+    };
+
+    Route::post('/v1/number-ranges/preview', function(Request $r) use ($rangePlan) {
+        $p = $rangePlan($r);
+        $numbers = [];
+        if ($p['count'] > 0 && !$p['errors']) {
+            $start = (int)$p['start']; $len = strlen($p['start']);
+            $shown = $p['count'] <= 50 ? range(0, $p['count'] - 1)
+                : array_merge(range(0, 9), range($p['count'] - 3, $p['count'] - 1));
+            foreach ($shown as $i) {
+                $n = str_pad((string)($start + $i), $len, '0', STR_PAD_LEFT);
+                $numbers[] = ['number' => $n, 'exists' => array_key_exists($n, $p['existing']), 'test' => $n === $p['test']];
+            }
+        }
+        return response()->json(['data' => [
+            'valid'        => !$p['errors'],
+            'errors'       => $p['errors'],
+            'warnings'     => $p['warnings'],
+            'total'        => $p['count'],
+            'new_count'    => $p['count'] - count($p['existing']),
+            'existing_count' => count($p['existing']),
+            'prefix_exists' => (bool)$p['prefixRow'],
+            'truncated'    => $p['count'] > 50,
+            'numbers'      => $numbers,
+            'supplier'     => $p['supplier']->name ?? null,
+            'trunk'        => $p['trunk']->pjsip_name ?? $p['trunk']->name ?? null,
+            'ivr_context'  => $p['ivr'],
+        ]]);
+    });
+
+    Route::post('/v1/number-ranges/import', function(Request $r) use ($rangePlan) {
+        $p = $rangePlan($r);
+        if ($p['errors']) return response()->json(['error' => implode('; ', $p['errors'])], 422);
+        $supplier = $p['supplier']; $trunk = $p['trunk'];
+        $len = strlen($p['start']); $start = (int)$p['start'];
+
+        $created = 0;
+        $rangeId = null;
+        DB::transaction(function() use ($p, $r, $supplier, $trunk, $len, $start, &$created, &$rangeId) {
+            $prefixRow = $p['prefixRow'];
+            if (!$prefixRow) {
+                $prefixId = DB::table('supplier_prefixes')->insertGetId([
+                    'supplier_id' => $supplier->id, 'prefix' => $p['prefix'], 'country' => $p['country'],
+                    'price' => $p['tariff'], 'payment_term' => $r->payment_term,
+                    'test_number' => $p['test'] !== '' ? '+'.$p['test'] : null,
+                    'ivr_context' => $p['ivr'], 'status' => 'active',
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            } else {
+                $prefixId = $prefixRow->id;
+            }
+            $rangeId = DB::table('did_ranges')->insertGetId([
+                'batch_name'    => $p['country'].' '.$p['prefix'],
+                'country_code'  => 'XX', 'country_name' => $p['country'],
+                'prefix'        => $p['prefix'], 'prefix_id' => $prefixId,
+                'range_start'   => $p['start'], 'range_end' => $p['end'],
+                'rate'          => $p['tariff'], 'selling_price' => $p['selling'],
+                'currency'      => 'USDT', 'payment_terms' => $r->payment_term,
+                'supplier_name' => $supplier->name, 'supplier_id' => $supplier->id,
+                'trunk_id'      => $trunk->id ?? null, 'default_ivr' => $p['ivr'],
+                'total_count'   => $p['count'], 'is_active' => 1,
+                'created_at'    => now(), 'updated_at' => now(),
+            ]);
+            $batch = [];
+            for ($i = 0; $i < $p['count']; $i++) {
+                $n = str_pad((string)($start + $i), $len, '0', STR_PAD_LEFT);
+                if (array_key_exists($n, $p['existing'])) continue;
+                $batch[] = [
+                    'number' => '+'.$n, 'e164_number' => '+'.$n,
+                    'trunk_id' => $trunk->id ?? null, 'supplier_id' => $supplier->id,
+                    'prefix_id' => $prefixId, 'batch_id' => $rangeId,
+                    'is_test' => $n === $p['test'] ? 1 : 0,
+                    'prefix' => $p['prefix'], 'country_name' => $p['country'], 'country_code' => 'XX',
+                    'tariff' => $p['tariff'], 'selling_price' => $p['selling'],
+                    'currency' => 'USDT', 'payment_terms' => $r->payment_term,
+                    'lifecycle_status' => 'available', 'status' => 'active',
+                    'ivr_context' => $p['ivr'],
+                    'created_at' => now(), 'updated_at' => now(),
+                ];
+                if (count($batch) >= 1000) { DB::table('dids')->insert($batch); $created += count($batch); $batch = []; }
+            }
+            if ($batch) { DB::table('dids')->insert($batch); $created += count($batch); }
+        });
+
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'ADD_RANGE',
+            'module'=>'Numbers',
+            'details'=>"Range {$p['start']}-{$p['end']} for {$supplier->name}: {$created} of {$p['count']} numbers created (prefix {$p['prefix']}, IVR {$p['ivr']})",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>'/api/v1/number-ranges/import',
+            'status_code'=>201,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true,'range_id'=>$rangeId,'created'=>$created,
+            'skipped'=>$p['count']-$created,'total'=>$p['count']], 201);
+    });
+
+    // ── Numbers & IVR: flat Numbers list + Number Details ────────────
+    // Paginated server-side because a single Add Range can create tens of
+    // thousands of dids rows. "disabled" is a dids.status value; everything
+    // else (incl. NULL from older rows) reads as Available.
+    Route::get('/v1/numbers', function(Request $r) {
+        $q = DB::table('dids')
+            ->leftJoin('suppliers', 'dids.supplier_id', '=', 'suppliers.id')
+            ->leftJoin('trunks', 'dids.trunk_id', '=', 'trunks.id')
+            ->select('dids.id', 'dids.number', 'dids.country_name', 'dids.prefix', 'dids.ivr_context',
+                'dids.status', 'dids.is_test', 'dids.supplier_id',
+                DB::raw('COALESCE(suppliers.name, trunks.nickname) as supplier_name'));
+        if ($r->filled('supplier_id')) $q->where('dids.supplier_id', $r->supplier_id);
+        if ($r->status === 'disabled') $q->where('dids.status', 'disabled');
+        elseif ($r->status === 'available') $q->where(fn($w) => $w->whereNull('dids.status')->orWhere('dids.status', '!=', 'disabled'));
+        if ($r->filled('search')) {
+            $s = trim($r->search); $d = preg_replace('/[^0-9]/', '', $s);
+            $q->where(function($w) use ($s, $d) {
+                if ($d !== '') $w->where('dids.number', 'like', "%$d%");
+                $w->orWhere('dids.country_name', 'like', "%$s%")->orWhere('dids.prefix', 'like', "%$s%");
+            });
+        }
+        $total = (clone $q)->count();
+        $per = min(max((int)($r->per_page ?: 50), 1), 200);
+        $page = max((int)($r->page ?: 1), 1);
+        $rows = $q->orderBy('dids.number')->offset(($page - 1) * $per)->limit($per)->get();
+        return response()->json(['data' => $rows, 'total' => $total, 'page' => $page,
+            'last_page' => max((int)ceil($total / $per), 1)]);
+    });
+
+    Route::get('/v1/numbers/{id}', function($id) {
+        $d = DB::table('dids')->find($id);
+        if (!$d) return response()->json(['error' => 'Number not found'], 404);
+        $supplier = $d->supplier_id ? DB::table('suppliers')->find($d->supplier_id) : null;
+        $trunk = $d->trunk_id ? DB::table('trunks')->find($d->trunk_id) : null;
+        $prefix = $d->prefix_id ? DB::table('supplier_prefixes')->find($d->prefix_id) : null;
+        $range = $d->batch_id ? DB::table('did_ranges')->find($d->batch_id) : null;
+        return response()->json(['data' => [
+            'id' => $d->id, 'number' => ltrim($d->number, '+'),
+            'supplier' => $supplier->name ?? ($trunk->nickname ?? null),
+            'trunk' => $trunk->pjsip_name ?? $trunk->name ?? null,
+            'country' => $d->country_name, 'prefix' => $d->prefix,
+            'tariff' => $d->tariff, 'selling_price' => $d->selling_price,
+            'payment_term' => $prefix->payment_term ?? $d->payment_terms,
+            'ivr_context' => $d->ivr_context, 'is_test' => (bool)$d->is_test,
+            'status' => $d->status === 'disabled' ? 'disabled' : 'available',
+            'range' => $range ? "{$range->range_start} - {$range->range_end}" : null,
+            'created_at' => $d->created_at,
+        ]]);
+    });
+
+    Route::put('/v1/numbers/{id}', function(Request $r, $id) {
+        $d = DB::table('dids')->find($id);
+        if (!$d) return response()->json(['error' => 'Number not found'], 404);
+        $upd = [];
+        if ($r->has('ivr_context')) {
+            $ivr = trim((string)$r->ivr_context);
+            if ($ivr === '') return response()->json(['error' => 'Select an IVR'], 422);
+            $upd['ivr_context'] = str_starts_with($ivr, 'custom/') ? $ivr : 'custom/'.$ivr;
+        }
+        if ($r->has('selling_price')) {
+            if (!is_numeric($r->selling_price) || $r->selling_price < 0) return response()->json(['error' => 'Selling price must be a number'], 422);
+            $upd['selling_price'] = $r->selling_price;
+        }
+        if ($r->has('is_test')) $upd['is_test'] = $r->boolean('is_test') ? 1 : 0;
+        if ($r->has('status')) {
+            if (!in_array($r->status, ['available', 'disabled'], true)) return response()->json(['error' => 'Invalid status'], 422);
+            $upd['status'] = $r->status === 'disabled' ? 'disabled' : 'active';
+        }
+        if (!$upd) return response()->json(['error' => 'Nothing to update'], 422);
+        $upd['updated_at'] = now();
+        DB::table('dids')->where('id', $id)->update($upd);
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'UPDATE_NUMBER',
+            'module'=>'Numbers','details'=>"Number {$d->number}: ".json_encode(array_diff_key($upd, ['updated_at'=>1])),
+            'ip_address'=>$r->ip(),'method'=>'PUT','url'=>"/api/v1/numbers/{$id}",
+            'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success' => true]);
     });
 
     // ── Number Import (Upload + Paste share this exact same engine) ──
@@ -2518,7 +2764,7 @@ Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
 
 // ── Prefixes (IVR is assigned here, not on ranges - see
 // 2026_09_15_000011_add_ivr_context_to_supplier_prefixes migration) ──
-Route::get('/v1/prefixes', function() {
+Route::get('/v1/prefixes', function(Request $r) {
     $prefixes = DB::table('supplier_prefixes')
         ->leftJoin('suppliers','supplier_prefixes.supplier_id','=','suppliers.id')
         ->select('supplier_prefixes.*','suppliers.name as supplier_name')
@@ -2527,6 +2773,7 @@ Route::get('/v1/prefixes', function() {
     $numberCounts = DB::table('dids')->whereNotNull('prefix_id')
         ->select('prefix_id',DB::raw('COUNT(*) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
     $rangeCounts = DB::table('did_ranges')->whereNotNull('prefix_id')
+        ->whereNotExists(fn($q)=>$q->select(DB::raw(1))->from('dids')->whereColumn('dids.batch_id','did_ranges.id'))
         ->select('prefix_id',DB::raw('SUM(total_count) as c'))->groupBy('prefix_id')->pluck('c','prefix_id');
     $out = $prefixes->map(function($p) use ($numberCounts,$rangeCounts) {
         $p = (array)$p;
@@ -2536,7 +2783,8 @@ Route::get('/v1/prefixes', function() {
         // Connect IVR only makes sense for a Prefix that actually has numbers
         // routed under it - suppliers often carry an empty placeholder Prefix
         // (created for its required test number) with nothing real assigned yet.
-        ->filter(fn($p) => $p['number_count'] > 0)
+        // (?all=1 keeps the empty ones - the Prefix / Routes screen lists every route)
+        ->filter(fn($p) => $r->boolean('all') || $p['number_count'] > 0)
         ->values();
     return response()->json(['data'=>$out,'total'=>count($out)]);
 });

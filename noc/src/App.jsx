@@ -15,6 +15,7 @@ const SUP_COLORS=[
   {bg:"#FDE3E3",accent:"#EF4444"},{bg:"#EBE4FB",accent:"#8B5CF6"},{bg:"#DEF5E8",accent:"#10B981"},
   {bg:"#FFE7D6",accent:"#F97316"},{bg:"#DAF1F7",accent:"#06B6D4"},
 ];
+const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
 const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals);
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={hasError:false,error:""}; }
@@ -52,9 +53,12 @@ const getNavGroups=(role)=>{
     {id:"revenue",label:"Revenue",icon:"◈"},
   ]},
   {key:"numbers",label:"Numbers & IVR",items:[
-    {id:"numbers",label:"Numbers",icon:"▤"},
-    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
+    {id:"numbers",label:"All Numbers",icon:"▤"},
+    {id:"addnumber",label:"Add Number",icon:"＋"},
+    {id:"addrange",label:"Add Range",icon:"⇔"},
+    {id:"prefixroutes",label:"Prefix / Routes",icon:"⇥"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
+    {id:"connectivr",label:"Connect IVR",icon:"⇌"},
   ]},
   {key:"partners",label:"Partners",items:[
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
@@ -1843,7 +1847,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [supplierCdr,setSupplierCdr]=useState([]);
 
   const liveCallRef=useRef(null);
-  const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
   const SAUDI_OPERATORS=["STC","Mobily","Zain KSA","Virgin Mobile","Lebara","Friendi Mobile","Red Bull MOBILE","Other"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
@@ -3403,638 +3406,480 @@ const COUNTRIES=[
   {name:"Zambia",code:"ZM",prefix:"260"},
   {name:"Zimbabwe",code:"ZW",prefix:"263"},
 ];
-function NumberInventoryPage({token}){
-  const [dids,setDids]=useState([]);
-  const [ranges,setRanges]=useState([]);
-  const [ivrList,setIvrList]=useState([]);
-  const [suppliers,setSuppliers]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState("numbers");
-  const [expanded,setExpanded]=useState({});
-  const [search,setSearch]=useState("");
-  const [selected,setSelected]=useState(new Set());
-  const [result,setResult]=useState(null);
-  const [saving,setSaving]=useState(false);
-  const [uploading,setUploading]=useState(false);
-  const [uploadFile,setUploadFile]=useState(null);
-  const [uploadTrunk,setUploadTrunk]=useState("");
-  const [uploadRate,setUploadRate]=useState("0.07");
-  const [uploadCurrency,setUploadCurrency]=useState("USDT");
-  // Add number form
-  const [addForm,setAddForm]=useState({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"USDT",trunk_id:""});
-  // Test number
-  const [testNum,setTestNum]=useState("");
-  const [testResult,setTestResult]=useState(null);
-  const [testing,setTesting]=useState(false);
+// ── Numbers & IVR ─────────────────────────────────────────────────
+// Data model: Supplier → Trunk + Prefix → Range → individual DIDs → IVR.
+// The screens below (All Numbers, Add Number, Add Range, Prefix / Routes)
+// all talk to that one hierarchy; Purple's from-carrier-purple route and
+// did_router.php are not touched by any of them.
+const numInp={padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",background:"#FFF",color:"#333",
+  fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
+const numLbl={fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"};
+const numTh={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",padding:"8px 10px",textAlign:"left",
+  whiteSpace:"nowrap",borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
+const numBtn=(kind)=>({padding:"10px 18px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+  border:kind==="primary"?"none":"1px solid #DDD",
+  background:kind==="primary"?"#2CADA6":kind==="danger"?"#FFF5F5":"#FFF",
+  color:kind==="primary"?"#FFF":kind==="danger"?"#EF4444":"#555"});
+const ivrName=v=>(v||"").replace("custom/","")||"—";
 
-  const load=()=>{
-    setLoading(true);
-    Promise.all([
-      apiFetch("/dids",token),
-      apiFetch("/did-ranges",token),
-      apiFetch("/suppliers",token),
-      apiFetch("/ivr-lib/audio",token),
-    ]).then(([d,r,s,iv])=>{
-      setIvrList(iv.data||[]);
-      setDids(d.data||[]);
-      setRanges(r.data||[]);
-      setSuppliers(s.data||[]);
-      setLoading(false);
-    });
-  };
-  useEffect(()=>{load();},[token]);
-
-  const toggleRow=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
-  const toggleSelect=(id)=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
-  const selectAll=()=>setSelected(new Set(dids.map(d=>d.id)));
-  const clearSel=()=>setSelected(new Set());
-
-
-  // Change the IVR of one number, or of every number in a prefix block
-  const setDidIvr=async(id,ctx)=>{
-    setDids(ds=>ds.map(x=>x.id===id?{...x,ivr_context:ctx}:x));
-    const d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids:[id],ivr_context:ctx})});
-    setResult(d.success?{success:true,message:"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
-    if(!d.success) load();
-  };
-  const setRangeIvr=async(r,ctx)=>{
-    const n=getNumbers(r).length;
-    if(!window.confirm("Apply this IVR to all "+n+" numbers in "+(r.prefix||r.range_start)+"?")) return;
-    // Prefix-level IVR lives on supplier_prefixes; the block route re-applies it to every number under it
-    if(r.supplier_id&&r.prefix_id) await apiFetch("/supplier-accounts/"+r.supplier_id+"/prefixes/"+r.prefix_id,token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
-    const d=await apiFetch("/did-ranges/"+r.id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
-    setResult(d.success?{success:true,message:d.message||"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
-    load();
-  };
-  const ivrSelect=(value,onChange)=>(
-    <select value={value||""} onClick={e=>e.stopPropagation()} onChange={e=>onChange(e.target.value)}
-      style={{padding:"3px 6px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",color:"#333",fontSize:11,fontFamily:"inherit",maxWidth:150}}>
-      {value&&!ivrList.some(i=>"custom/"+i.name===value)&&<option value={value}>{value.replace("custom/","")} (missing)</option>}
-      {!value&&<option value="">— select —</option>}
-      {ivrList.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
-    </select>
-  );
-
-  const getNumbers=(r)=>dids.filter(d=>{
-    const n=(d.number||"").replace("+","");
-    return n.startsWith(r.prefix?.replace(/\s/g,"")||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
-  });
-
-  const filteredRanges=search?ranges.filter(r=>(r.prefix||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase())):ranges;
-  const ungroupedDids=dids.filter(d=>{
-    const n=(d.number||"").replace("+","");
-    return !ranges.some(r=>n.startsWith(r.prefix?.replace(/\s/g,"")||""));
-  });
-
-  const deleteRange=async(id,e)=>{
-    e.stopPropagation();
-    if(!window.confirm("Delete this number block?")) return;
-    await apiFetch("/did-ranges/"+id,token,{method:"DELETE"});
-    load();
-  };
-  const deleteDid=async(id,e)=>{
-    e.stopPropagation();
-    if(!window.confirm("Delete this number?")) return;
-    await apiFetch("/dids/"+id,token,{method:"DELETE"});
-    load();
-  };
-
-  const addNumber=async()=>{
-    if(!addForm.number){alert("Enter a number");return;}
-    if(!addForm.trunk_id){alert("Select a supplier");return;}
-    setSaving(true);
-    const num = "+"+addForm.number.replace(/[^0-9]/g,"");
-    const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
-      number:num,trunk_id:addForm.trunk_id,
-      country_name:addForm.country_name,country_code:addForm.country_code,
-      prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
-      currency:addForm.currency,payment_terms:addForm.payment_terms||"Weekly",status:"active",
-      ivr_context:"custom/6g-premium-telecom"
-    })});
-    setResult(d);setSaving(false);
-    if(d.success||d.data){setAddForm({number:"",country_name:"",country_code:"",prefix:"",tariff:"0.07",currency:"USDT",trunk_id:""});load();}
-  };
-;
-
-  const deleteSelected=async()=>{
-    if(selected.size===0){alert("Select numbers first");return;}
-    if(!window.confirm("Delete "+selected.size+" numbers permanently?")) return;
-    setSaving(true);
-    const d=await apiFetch("/dids/bulk-delete",token,{method:"POST",
-      body:JSON.stringify({ids:[...selected]})});
-    setResult(d);setSaving(false);clearSel();load();
-  };
-
-  const testNumber=async()=>{
-    if(!testNum){alert("Enter a number to test");return;}
-    setTesting(true);setTestResult(null);
-    const num=testNum.replace(/[^0-9+]/g,"");
-    const d=await apiFetch("/dids/test?number="+encodeURIComponent(num),token);
-    setTestResult(d);setTesting(false);
-  };
-
-  const downloadExcel=()=>{
-    const rows=[["Number","Country","Tariff","Currency","Payment Terms","Supplier"]];
-    dids.forEach(d=>rows.push([d.number,d.country_name||"",d.tariff||"",d.currency||"",d.payment_terms||"",d.supplier_name||""]));
-    const csv=rows.map(r=>r.join(",")).join("\n");
-    const blob=new Blob([csv],{type:"text/csv"});
-    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="numbers.csv";a.click();
-  };
-
-  const inp={padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
-    background:"#FFF",color:"#333",fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
-  const thS={fontSize:9,color:"#888",fontWeight:600,letterSpacing:"0.8px",
-    padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap",
-    borderBottom:"2px solid #E8E8E8",background:"#F5F5F5",textTransform:"uppercase"};
-  const tabs=[
-    {id:"numbers",label:"📋 Numbers"},
-  ];
-
+function useIvrList(token){
+  const [ivrs,setIvrs]=useState([]);
+  useEffect(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
+  return ivrs;
+}
+function IvrOptions({ivrs,value}){
+  return(<>
+    <option value="">— Select IVR —</option>
+    {value&&!ivrs.some(i=>"custom/"+i.name===value)&&<option value={value}>{ivrName(value)} (missing)</option>}
+    {ivrs.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
+  </>);
+}
+function NumbersPageShell({title,subtitle,action,children}){
   return(
     <div style={{paddingBottom:70,minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
-      {/* Header */}
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
-        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
         <div>
-          <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
+          <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>{title}</div>
+          {subtitle&&<div style={{fontSize:11,color:"#999",marginTop:2}}>{subtitle}</div>}
         </div>
-        
+        {action}
       </div>
+      <div style={{padding:"12px 16px"}}>{children}</div>
+    </div>
+  );
+}
+const Banner=({ok,children})=>(
+  <div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:12,fontWeight:600,
+    background:ok?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+    border:"1px solid "+(ok?"#10B981":"#EF4444"),color:ok?"#10B981":"#EF4444"}}>{children}</div>
+);
 
-      <div style={{padding:"12px 16px"}}>
-        {/* Tabs (Numbers is read-only; numbers come from the Suppliers page) */}
-        <div style={{display:"none"}}>
-          {tabs.map(t=>(
-            <button key={t.id} onClick={()=>{setTab(t.id);setResult(null);}}
-              style={{padding:"8px 12px",borderRadius:20,border:"none",fontSize:11,
-                background:tab===t.id?"#2CADA6":"#F0F0F0",
-                color:tab===t.id?"#FFF":"#555",fontWeight:tab===t.id?700:400,
-                cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>
-              {t.label}
-            </button>
-          ))}
+// ── All Numbers ───────────────────────────────────────────────────
+function NumbersListPage({token,setPage}){
+  const [rows,setRows]=useState([]);
+  const [total,setTotal]=useState(0);
+  const [pg,setPg]=useState(1);
+  const [lastPage,setLastPage]=useState(1);
+  const [search,setSearch]=useState("");
+  const [q,setQ]=useState("");
+  const [supplierId,setSupplierId]=useState("");
+  const [status,setStatus]=useState("");
+  const [suppliers,setSuppliers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [openId,setOpenId]=useState(null);
+
+  useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
+  useEffect(()=>{const t=setTimeout(()=>{setQ(search);setPg(1);},300);return()=>clearTimeout(t);},[search]);
+
+  const load=useCallback(()=>{
+    setLoading(true);
+    const p=new URLSearchParams({page:pg,per_page:50});
+    if(q) p.set("search",q);
+    if(supplierId) p.set("supplier_id",supplierId);
+    if(status) p.set("status",status);
+    apiFetch("/numbers?"+p,token).then(d=>{
+      setRows(d.data||[]);setTotal(d.total||0);setLastPage(d.last_page||1);setLoading(false);
+    });
+  },[token,pg,q,supplierId,status]);
+  useEffect(()=>{load();},[load]);
+
+  return(
+    <NumbersPageShell title="Numbers" subtitle={`${total.toLocaleString()} numbers`}
+      action={<button onClick={()=>setPage("addrange")} style={numBtn("primary")}>+ Add Range</button>}>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search number, country or prefix..."
+          style={{...numInp,flex:"2 1 200px",width:"auto"}}/>
+        <select value={supplierId} onChange={e=>{setSupplierId(e.target.value);setPg(1);}} style={{...numInp,flex:"1 1 140px",width:"auto"}}>
+          <option value="">All suppliers</option>
+          {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
+        </select>
+        <select value={status} onChange={e=>{setStatus(e.target.value);setPg(1);}} style={{...numInp,flex:"1 1 120px",width:"auto"}}>
+          <option value="">All statuses</option>
+          <option value="available">Available</option>
+          <option value="disabled">Disabled</option>
+        </select>
+      </div>
+      <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560,whiteSpace:"nowrap"}}>
+            <thead><tr>{["Number","Supplier","Country","IVR","Status"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
+            <tbody>
+              {loading&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
+              {!loading&&rows.length===0&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>}
+              {!loading&&rows.map((d,i)=>(
+                <tr key={d.id} onClick={()=>setOpenId(d.id)}
+                  style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA",cursor:"pointer"}}>
+                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
+                    {(d.number||"").replace("+","")}
+                    {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#8B5CF6",background:"#EBE4FB",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
+                  </td>
+                  <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,color:"#555"}}>{ivrName(d.ivr_context)}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,fontWeight:600,color:d.status==="disabled"?"#EF4444":"#10B981"}}>
+                    {d.status==="disabled"?"Disabled":"Available"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </GTable>
         </div>
-
-        {/* Result Banner */}
-        {result&&(
-          <div style={{padding:"10px 14px",borderRadius:8,marginBottom:12,
-            background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
-            border:"1px solid "+(result.success?"#10B981":"#EF4444"),
-            fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
-            {result.success?"✅ ":"❌ "}{result.message||result.error||JSON.stringify(result)}
-          </div>
-        )}
-
-        {/* ── NUMBERS TAB ── */}
-        {tab==="numbers"&&(
-          <>
-            <div style={{display:"flex",gap:6,marginBottom:10}}>
-              <input value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder="Search by number, country or prefix..."
-                style={{...inp,flex:1}}/>
-              {search&&<button onClick={()=>setSearch("")}
-                style={{padding:"9px 12px",borderRadius:8,border:"1px solid #DDD",
-                  background:"#FFF",color:"#666",fontSize:12,cursor:"pointer"}}>Clear</button>}
-            </div>
-            {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading...</div>
-            :<div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
-              <div style={{overflowX:"auto"}}>
-                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:500,whiteSpace:"nowrap"}}>
-                  <thead>
-                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","IVR"].map((h,i)=>(
-                      <th key={i} style={thS}>{h}</th>
-                    ))}</tr>
-                  </thead>
-                  <tbody>
-                    {filteredRanges.map(r=>{
-                      const nums=getNumbers(r);
-                      const isExp=expanded[r.id];
-                      return(
-                        <React.Fragment key={"r"+r.id}>
-                          <tr style={{borderBottom:"1px solid #E8E8E8",background:isExp?"#F0FAFA":"#FFF",cursor:"pointer"}}
-                            onClick={()=>toggleRow(r.id)}>
-                            <td style={{padding:"6px 10px"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                                <div style={{width:20,height:20,borderRadius:"50%",background:"#2CADA6",
-                                  color:"#FFF",display:"flex",alignItems:"center",justifyContent:"center",
-                                  fontSize:13,fontWeight:700,flexShrink:0}}>{isExp?"−":"+"}</div>
-                                <span style={{fontSize:12,fontWeight:800,color:"#1A1A1A",fontFamily:"monospace",whiteSpace:"nowrap"}}>
-                                  {r.prefix||r.range_start}
-                                </span>
-                                <span style={{fontSize:11,color:"#AAA"}}>({r.total_count||nums.length})</span>
-                              </div>
-                            </td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(r.rate||0)}</td>
-                            <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(r.supplier_name)}</td>
-                            <td style={{padding:"6px 10px"}}>
-                              {ivrSelect(r.ivr_context||r.default_ivr,ctx=>setRangeIvr(r,ctx))}
-                            </td>
-                          </tr>
-                          {isExp&&(nums.length===0
-                            ?<tr><td colSpan={6} style={{padding:"6px 10px 6px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#F9F9F9"}}>No numbers</td></tr>
-                            :nums.map((d,di)=>(
-                              <tr key={d.id} style={{background:di%2===0?"#F5FFFE":"#EFFFFE",borderBottom:"1px solid #E0F5F5"}}>
-                                <td style={{padding:"4px 10px 4px 37px",whiteSpace:"nowrap"}}>
-                                  <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
-                                  <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
-                                </td>
-                                <td colSpan={4}/>
-                                <td style={{padding:"4px 10px"}}>
-                                  {ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                    {ungroupedDids.length>0&&(
-                      <React.Fragment>
-                        <tr style={{background:"#F0F0F0"}}>
-                          <td colSpan={6} style={{padding:"5px 10px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase"}}>
-                            Individual Numbers ({ungroupedDids.length})
-                          </td>
-                        </tr>
-                        {ungroupedDids.map((d,i)=>(
-                          <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
-                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(d.tariff||0)}</td>
-                            <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
-                            <td style={{padding:"5px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
-                    )}
-                    {filteredRanges.length===0&&ungroupedDids.length===0&&(
-                      <tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>
-                    )}
-                  </tbody>
-                </GTable>
-              </div>
-            </div>}
-          </>
-        )}
-
-        {/* ── ADD NUMBER TAB ── */}
-        {tab==="add"&&(
-          <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Add Numbers</div>
-
-            {/* Form Fields */}
-            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
-
-              {/* Supplier + Country */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {/* Supplier */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Supplier *</div>
-                <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
-                  <option value="">— Select Supplier —</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Country</div>
-                <select style={inp} value={addForm.country_name}
-                  onChange={e=>{
-                    const c=COUNTRIES.find(x=>x.name===e.target.value);
-                    setAddForm({...addForm,
-                      country_name:e.target.value,
-                      country_code:c?.code||"",
-                      prefix:addForm.prefix||c?.prefix||""
-                    });
-                  }}>
-                  <option value="">— Select Country —</option>
-                  {COUNTRIES.map(c=>(
-                    <option key={c.code+c.name} value={c.name}>{c.name} (+{c.prefix})</option>
-                  ))}
-                </select>
-              </div>
-
-              </div>
-              {/* Tariff + Currency + Terms */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Tariff / min</div>
-                  <input style={inp} placeholder="0.070" value={addForm.tariff}
-                    onChange={e=>setAddForm({...addForm,tariff:e.target.value})}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>$</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
-                  <select style={inp} value={addForm.payment_terms||"Weekly"} onChange={e=>setAddForm({...addForm,payment_terms:e.target.value})}>
-                    <option value="Daily">Daily</option>
-                    <option value="Weekly">Weekly</option>
-                    <option value="Monthly">Monthly</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Prefix */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Prefix</div>
-                <input style={inp} placeholder="e.g. 39" value={addForm.prefix}
-                  onChange={e=>setAddForm({...addForm,prefix:e.target.value})}/>
-              </div>
-
-              {/* Entry Type Toggle */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Entry Type</div>
-                <div style={{display:"flex",gap:6}}>
-                  {[["range","📦 Range/Block"],["single","🔢 Single Number"]].map(([t,l])=>(
-                    <button key={t} onClick={()=>setAddForm({...addForm,addType:t})}
-                      style={{flex:1,padding:"9px 8px",borderRadius:8,
-                        border:"2px solid "+((addForm.addType||"range")===t?"#2CADA6":"#E0E0E0"),
-                        background:(addForm.addType||"range")===t?"rgba(44,173,166,0.08)":"#FFF",
-                        color:(addForm.addType||"range")===t?"#2CADA6":"#666",
-                        fontSize:12,fontWeight:(addForm.addType||"range")===t?700:400,
-                        cursor:"pointer",fontFamily:"inherit"}}>
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Range Fields */}
-              {(addForm.addType||"range")==="range"&&(
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {addForm.prefix&&(
-                    <div style={{padding:"8px 12px",background:"#F0FAFA",borderRadius:8,
-                      fontSize:12,color:"#2CADA6",fontWeight:600,letterSpacing:"0.3px"}}>
-                      🔢 Numbers will be: <span style={{fontFamily:"monospace"}}>{addForm.prefix} + [suffix]</span>
-                    </div>
-                  )}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>
-                        {addForm.prefix?"Suffix Start *":"Range Start *"}
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",border:"1px solid #E0E0E0",borderRadius:8,overflow:"hidden",background:"#FFF"}}>
-                        {addForm.prefix&&(
-                          <span style={{padding:"9px 8px",background:"#F5F5F5",color:"#999",
-                            fontSize:12,fontFamily:"monospace",borderRight:"1px solid #E0E0E0",
-                            whiteSpace:"nowrap"}}>{addForm.prefix}</span>
-                        )}
-                        <input style={{...inp,border:"none",borderRadius:0,flex:1}}
-                          placeholder={addForm.prefix?"0000":"393199052100"}
-                          value={addForm.rangeStartSuffix||""}
-                          onChange={e=>{
-                            const suffix=e.target.value.replace(/[^0-9]/g,"");
-                            const full=addForm.prefix?addForm.prefix+suffix:suffix;
-                            setAddForm({...addForm,rangeStartSuffix:suffix,rangeStart:full});
-                          }}/>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>
-                        {addForm.prefix?"Suffix End *":"Range End *"}
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",border:"1px solid #E0E0E0",borderRadius:8,overflow:"hidden",background:"#FFF"}}>
-                        {addForm.prefix&&(
-                          <span style={{padding:"9px 8px",background:"#F5F5F5",color:"#999",
-                            fontSize:12,fontFamily:"monospace",borderRight:"1px solid #E0E0E0",
-                            whiteSpace:"nowrap"}}>{addForm.prefix}</span>
-                        )}
-                        <input style={{...inp,border:"none",borderRadius:0,flex:1}}
-                          placeholder={addForm.prefix?"9999":"393199052199"}
-                          value={addForm.rangeEndSuffix||""}
-                          onChange={e=>{
-                            const suffix=e.target.value.replace(/[^0-9]/g,"");
-                            const full=addForm.prefix?addForm.prefix+suffix:suffix;
-                            setAddForm({...addForm,rangeEndSuffix:suffix,rangeEnd:full});
-                          }}/>
-                      </div>
-                    </div>
-                  </div>
-                  {addForm.rangeStart&&addForm.rangeEnd&&parseInt(addForm.rangeEnd)>=parseInt(addForm.rangeStart)&&(
-                    <div style={{padding:"10px 12px",background:"rgba(44,173,166,0.08)",
-                      borderRadius:8,fontSize:12,color:"#2CADA6",fontWeight:600}}>
-                      📊 Will generate <strong>{parseInt(addForm.rangeEnd)-parseInt(addForm.rangeStart)+1}</strong> numbers
-                      {addForm.prefix&&(
-                        <span style={{color:"#555",fontWeight:400,marginLeft:8,fontFamily:"monospace"}}>
-                          ({addForm.prefix}{addForm.rangeStartSuffix} → {addForm.prefix}{addForm.rangeEndSuffix})
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Single Number Field */}
-              {addForm.addType==="single"&&(
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Phone Number *</div>
-                  <input style={inp} placeholder="393199052141" value={addForm.number}
-                    onChange={e=>setAddForm({...addForm,number:e.target.value})}/>
-                </div>
-              )}
-            </div>
-
-            {/* Apply Button */}
-            <button onClick={async()=>{
-              if(!addForm.trunk_id){alert("Select a supplier");return;}
-              setSaving(true);setResult(null);
-              if((addForm.addType||"range")==="range"){
-                if(!addForm.rangeStart||!addForm.rangeEnd){alert("Enter range start and end");setSaving(false);return;}
-                const d=await apiFetch("/did-ranges/import-range",token,{method:"POST",body:JSON.stringify({
-                  range_start:addForm.rangeStart,range_end:addForm.rangeEnd,
-                  trunk_id:addForm.trunk_id,prefix:addForm.prefix,
-                  country_name:addForm.country_name,country_code:addForm.country_code,
-                  tariff:addForm.tariff,currency:addForm.currency,
-                  payment_terms:addForm.payment_terms||"Weekly"
-                })});
-                setResult(d);setSaving(false);
-                if(d.success) load();
-              } else {
-                if(!addForm.number){alert("Enter a number");setSaving(false);return;}
-                const num="+"+addForm.number.replace(/[^0-9]/g,"");
-                const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
-                  number:num,trunk_id:addForm.trunk_id,
-                  country_name:addForm.country_name,country_code:addForm.country_code,
-                  prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
-                  currency:addForm.currency,payment_terms:addForm.payment_terms||"Weekly",status:"active",
-                  ivr_context:"custom/6g-premium-telecom"
-                })});
-                setResult(d);setSaving(false);
-                if(d.success||d.data) load();
-              }
-            }} disabled={saving}
-              style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
-                background:saving?"#CCC":"#2CADA6",color:"#FFF",fontSize:15,
-                fontWeight:700,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.5px"}}>
-              {saving?"Processing...":"✅ APPLY"}
-            </button>
-          </div>
-        )}
-        {/* ── ASSIGN RESELLER TAB ── */}
-
-        {/* ── DELETE TAB ── */}
-        {tab==="delete"&&(
-          <>
-            <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,
-              boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#1A1A1A",marginBottom:10}}>
-                Delete Numbers — <span style={{color:"#EF4444"}}>{selected.size} selected</span>
-              </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                <button onClick={deleteSelected} disabled={saving||selected.size===0}
-                  style={{padding:"9px 16px",borderRadius:8,border:"none",
-                    background:selected.size===0?"#CCC":"#EF4444",color:"#FFF",
-                    fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                  🗑 Delete {selected.size>0?"("+selected.size+")":"Selected"}
-                </button>
-                <button onClick={selectAll} style={{padding:"9px 16px",borderRadius:8,
-                  border:"1px solid #EF4444",background:"#FFF",color:"#EF4444",
-                  fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                  Select All
-                </button>
-                <button onClick={clearSel} style={{padding:"9px 16px",borderRadius:8,
-                  border:"1px solid #DDD",background:"#FFF",color:"#666",
-                  fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-                  Clear
-                </button>
-              </div>
-            </div>
-            {loading?<div style={{textAlign:"center",padding:30,color:"#999"}}>Loading...</div>
-            :<div style={{background:"#FFF",borderRadius:10,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{overflowX:"auto"}}>
-                <GTable style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead>
-                    <tr style={{background:"#FFF5F5"}}>
-                      <th style={{...thS,width:36,textAlign:"center"}}>
-                        <input type="checkbox" checked={selected.size===dids.length&&dids.length>0}
-                          onChange={e=>e.target.checked?selectAll():clearSel()}
-                          style={{accentColor:"#EF4444"}}/>
-                      </th>
-                      {["NUMBER","COUNTRY","TARIFF","SUPPLIER"].map((h,i)=><th key={i} style={thS}>{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dids.map((d,i)=>(
-                      <tr key={d.id} onClick={()=>toggleSelect(d.id)}
-                        style={{borderBottom:"1px solid #F5F5F5",cursor:"pointer",
-                          background:selected.has(d.id)?"rgba(239,68,68,0.05)":i%2===0?"#FFF":"#FAFAFA"}}>
-                        <td style={{padding:"6px 12px",textAlign:"center"}}>
-                          <input type="checkbox" checked={selected.has(d.id)}
-                            onChange={()=>toggleSelect(d.id)} style={{accentColor:"#EF4444"}}/>
-                        </td>
-                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                        <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff,3)}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </GTable>
-              </div>
-            </div>}
-          </>
-        )}
-
-        {/* ── UPLOAD CSV TAB ── */}
-        {tab==="upload"&&(
-          <div style={{fontFamily:"inherit"}}>
-            <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>Upload Supplier DID List</div>
-              <div style={{fontSize:12,color:"#999",marginBottom:20}}>Select supplier then upload their CSV file — server auto-detects format</div>
-              <div style={{marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",background:"#2CADA6",color:"#FFF",
-                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
-                  <div style={{fontSize:12,fontWeight:700,color:"#333"}}>Select Supplier</div>
-                </div>
-                <select style={inp} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
-                  <option value="">— Choose Supplier —</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
-                </select>
-              </div>
-              <div style={{marginBottom:20}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",
-                    background:uploadTrunk?"#2CADA6":"#CCC",color:"#FFF",
-                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
-                  <div style={{fontSize:12,fontWeight:700,color:uploadTrunk?"#333":"#999"}}>Upload CSV File</div>
-                </div>
-                <div onClick={()=>uploadTrunk&&document.getElementById("csv-sync-input").click()}
-                  onDragOver={e=>e.preventDefault()}
-                  onDrop={e=>{e.preventDefault();if(uploadTrunk)setUploadFile(e.dataTransfer.files[0]);}}
-                  style={{background:uploadFile?"rgba(44,173,166,0.05)":"#F8F9FA",
-                    border:"2px dashed "+(uploadFile?"#2CADA6":"#E0E0E0"),
-                    borderRadius:10,padding:32,textAlign:"center",
-                    cursor:uploadTrunk?"pointer":"not-allowed",opacity:uploadTrunk?1:0.5}}>
-                  <div style={{fontSize:32,marginBottom:8}}>{uploadFile?"✅":"📂"}</div>
-                  <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
-                    {uploadFile?uploadFile.name:"Drop file here or tap to browse"}
-                  </div>
-                  <div style={{fontSize:11,color:"#999"}}>Any CSV format — server auto-detects numbers</div>
-                  <input id="csv-sync-input" type="file" accept=".csv,.txt" style={{display:"none"}}
-                    onChange={e=>setUploadFile(e.target.files[0])} disabled={!uploadTrunk}/>
-                </div>
-              </div>
-              <button onClick={async()=>{
-                if(!uploadFile||!uploadTrunk) return;
-                setUploading(true);setResult(null);
-                const fd=new FormData();
-                fd.append("file",uploadFile);fd.append("trunk_id",uploadTrunk);
-                fd.append("rate",uploadRate);fd.append("currency",uploadCurrency);
-                const res=await fetch("https://6g-premium-telecom.com/api/v1/dids/smart-sync",{
-                  method:"POST",headers:{Authorization:"Bearer "+token},body:fd
-                });
-                let d;try{d=await res.json();}catch(e){d={success:false,error:"Server error: "+res.status};}
-                setResult(d);setUploading(false);
-                if(d.success)load();
-              }} disabled={uploading||!uploadFile||!uploadTrunk}
-                style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
-                  background:uploading||!uploadFile||!uploadTrunk?"#CCC":"#2CADA6",
-                  color:"#FFF",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                {uploading?"Syncing...":"🔄 Sync Numbers"}
-              </button>
-              {result&&(
-                <div style={{marginTop:14,padding:"14px 16px",borderRadius:10,
-                  background:result.success?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
-                  border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
-                  <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444",marginBottom:8}}>
-                    {result.success?"✅ Sync Complete":"❌ Failed"}
-                  </div>
-                  {result.success&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-                      {[["Added",result.added,"#10B981"],["Removed",result.removed,"#EF4444"],["Unchanged",result.unchanged,"#999"]].map(([l,v,c],i)=>(
-                        <div key={i} style={{background:"#FFF",borderRadius:8,padding:"8px",textAlign:"center"}}>
-                          <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
-                          <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{l}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{fontSize:12,color:"#555"}}>{result.message||result.error}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
+      {lastPage>1&&(
+        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:12,marginTop:12,fontSize:12,color:"#666"}}>
+          <button disabled={pg<=1} onClick={()=>setPg(pg-1)} style={{...numBtn(),opacity:pg<=1?0.5:1}}>← Prev</button>
+          <span>Page {pg} of {lastPage}</span>
+          <button disabled={pg>=lastPage} onClick={()=>setPg(pg+1)} style={{...numBtn(),opacity:pg>=lastPage?0.5:1}}>Next →</button>
+        </div>
+      )}
+      {openId&&<NumberDetailsModal token={token} id={openId} setPage={setPage} onClose={()=>setOpenId(null)} onChanged={load}/>}
+    </NumbersPageShell>
+  );
+}
 
-      {/* Sticky Bottom */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#FFF",
-        borderTop:"1px solid #DDD",padding:"10px 16px 24px",display:"flex",gap:10,
-        boxShadow:"0 -2px 8px rgba(0,0,0,0.08)",zIndex:50}}>
-        <button onClick={downloadExcel}
-          style={{padding:"9px 20px",borderRadius:4,border:"2px solid #2CADA6",
-            background:"#FFF",color:"#2CADA6",fontSize:12,fontWeight:600,
-            cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.5px"}}>
-          DOWNLOAD EXCEL
-        </button>
+// ── Number Details (opens from the Numbers list) ──────────────────
+function NumberDetailsModal({token,id,setPage,onClose,onChanged}){
+  const [n,setN]=useState(null);
+  const [err,setErr]=useState("");
+  const [editing,setEditing]=useState(false);
+  const [form,setForm]=useState({ivr_context:"",selling_price:"",is_test:false});
+  const [busy,setBusy]=useState(false);
+  const ivrs=useIvrList(token);
+
+  const load=()=>apiFetch("/numbers/"+id,token).then(d=>{
+    if(d.data) setN(d.data); else setErr(d.error||"Could not load number");
+  });
+  useEffect(()=>{load();},[id]);
+
+  const save=async(body)=>{
+    setBusy(true);setErr("");
+    const d=await apiFetch("/numbers/"+id,token,{method:"PUT",body:JSON.stringify(body)});
+    setBusy(false);
+    if(!d.success){setErr(d.error||d.message||"Update failed");return false;}
+    await load();onChanged();return true;
+  };
+  const startEdit=()=>{setForm({ivr_context:n.ivr_context||"",selling_price:n.selling_price??"",is_test:n.is_test});setEditing(true);};
+  const saveEdit=async()=>{if(await save(form)) setEditing(false);};
+  const toggleStatus=()=>{
+    if(n.status==="available"&&!window.confirm("Disable "+n.number+"?")) return;
+    save({status:n.status==="available"?"disabled":"available"});
+  };
+  // There is no dial-out from the panel: copy the DID and jump to Live Test Call, which shows the call as it arrives.
+  const testCall=()=>{
+    try{navigator.clipboard?.writeText(n.number);}catch{}
+    onClose();setPage("testlivecall");
+  };
+
+  const val=(v)=>v===null||v===undefined||v===""?"—":v;
+  const fields=n?[
+    ["DID",n.number],["Supplier",numSupplier(n.supplier)],["Trunk",val(n.trunk)],["Country",val(n.country)],
+    ["Prefix",val(n.prefix)],["Range",val(n.range)],["Tariff",n.tariff!=null?fmtUSDT(n.tariff):"—"],
+    ["Selling Price",editing?null:(n.selling_price!=null?fmtUSDT(n.selling_price):"—")],
+    ["Payment Term",val(n.payment_term)],["IVR",editing?null:ivrName(n.ivr_context)],
+    ["Test Number",editing?null:(n.is_test?"Yes":"No")],
+    ["Status",n.status==="disabled"?"Disabled":"Available"],
+  ]:[];
+
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#FFF",borderRadius:12,padding:20,width:"100%",maxWidth:420,
+        maxHeight:"90vh",overflowY:"auto",fontFamily:"Arial,Helvetica,sans-serif"}}>
+        <div style={{fontSize:16,fontWeight:800,color:"#1A1A1A",marginBottom:12}}>Number Details</div>
+        {err&&<Banner>{err}</Banner>}
+        {!n&&!err&&<div style={{padding:20,textAlign:"center",color:"#999"}}>Loading...</div>}
+        {n&&fields.map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,
+            padding:"7px 0",borderBottom:"1px solid #F0F0F0",fontSize:13}}>
+            <span style={{color:"#888"}}>{k}</span>
+            {v!==null?<span style={{color:"#1A1A1A",fontWeight:600,fontFamily:k==="DID"?"monospace":"inherit",textAlign:"right"}}>{v}</span>
+            :k==="Selling Price"?<input type="number" step="0.001" style={{...numInp,width:130}} value={form.selling_price}
+                onChange={e=>setForm({...form,selling_price:e.target.value})}/>
+            :k==="IVR"?<select style={{...numInp,width:190}} value={form.ivr_context} onChange={e=>setForm({...form,ivr_context:e.target.value})}>
+                <IvrOptions ivrs={ivrs} value={form.ivr_context}/></select>
+            :<input type="checkbox" checked={form.is_test} onChange={e=>setForm({...form,is_test:e.target.checked})}/>}
+          </div>
+        ))}
+        {n&&(
+          <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
+            {editing?<>
+              <button onClick={saveEdit} disabled={busy} style={{...numBtn("primary"),flex:1}}>{busy?"Saving...":"Save"}</button>
+              <button onClick={()=>setEditing(false)} style={numBtn()}>Cancel</button>
+            </>:<>
+              <button onClick={startEdit} style={{...numBtn(),flex:1}}>Edit</button>
+              <button onClick={testCall} style={{...numBtn(),flex:1}}>Test Call</button>
+              <button onClick={toggleStatus} disabled={busy} style={{...numBtn(n.status==="available"?"danger":"primary"),flex:1}}>
+                {n.status==="available"?"Disable":"Enable"}</button>
+            </>}
+          </div>
+        )}
+        <button onClick={onClose} style={{...numBtn(),width:"100%",marginTop:10}}>Close</button>
       </div>
     </div>
+  );
+}
+
+// ── Add Number (single) ───────────────────────────────────────────
+function AddNumberPage({token,setPage}){
+  const [suppliers,setSuppliers]=useState([]);
+  const [prefixes,setPrefixes]=useState([]);
+  const [f,setF]=useState({supplier_id:"",prefix_id:"",number:"",ivr_context:""});
+  const [msg,setMsg]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const ivrs=useIvrList(token);
+
+  useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
+  const pickSupplier=async(sid)=>{
+    setF({supplier_id:sid,prefix_id:"",number:"",ivr_context:""});setPrefixes([]);setMsg(null);
+    if(sid){const d=await apiFetch(`/supplier-accounts/${sid}/prefixes`,token);setPrefixes(d.data||[]);}
+  };
+  const prefix=prefixes.find(p=>String(p.id)===String(f.prefix_id));
+  const digits=f.number.replace(/[^0-9]/g,"");
+  const problem=!f.supplier_id?"Select a supplier":!prefix?"Select a prefix":!digits?"Enter a number"
+    :!digits.startsWith(prefix.prefix)?`Number must start with ${prefix.prefix}`:null;
+
+  const submit=async()=>{
+    setSaving(true);setMsg(null);
+    const d=await apiFetch(`/supplier-accounts/${f.supplier_id}/numbers`,token,{method:"POST",
+      body:JSON.stringify({mode:"single",prefix_id:f.prefix_id,number:digits,ivr_context:f.ivr_context||undefined})});
+    setSaving(false);
+    if(d.success){setMsg({ok:true,text:`Added ${digits}`});setF({...f,number:""});}
+    else setMsg({ok:false,text:d.error||d.message||"Failed to add number"});
+  };
+
+  return(
+    <NumbersPageShell title="Add Number" subtitle="Add a single DID under an existing prefix">
+      <div style={{background:"#FFF",borderRadius:10,padding:20,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        {msg&&<Banner ok={msg.ok}>{msg.text}</Banner>}
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div><div style={numLbl}>Supplier</div>
+            <select style={numInp} value={f.supplier_id} onChange={e=>pickSupplier(e.target.value)}>
+              <option value="">— Select Supplier —</option>
+              {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
+            </select></div>
+          <div><div style={numLbl}>Prefix</div>
+            <select style={numInp} value={f.prefix_id} disabled={!f.supplier_id}
+              onChange={e=>{const p=prefixes.find(x=>String(x.id)===e.target.value);setF({...f,prefix_id:e.target.value,ivr_context:p?.ivr_context||""});}}>
+              <option value="">{f.supplier_id&&prefixes.length===0?"No prefixes — use Add Range to create one":"— Select Prefix —"}</option>
+              {prefixes.map(p=><option key={p.id} value={p.id}>{p.country} — {p.prefix}</option>)}
+            </select></div>
+          <div><div style={numLbl}>Number</div>
+            <input style={numInp} value={f.number} onChange={e=>setF({...f,number:e.target.value})} placeholder="393191120550"/></div>
+          <div><div style={numLbl}>IVR</div>
+            <select style={numInp} value={f.ivr_context} onChange={e=>setF({...f,ivr_context:e.target.value})}>
+              <IvrOptions ivrs={ivrs} value={f.ivr_context}/></select>
+            <div style={{fontSize:11,color:"#999",marginTop:4}}>Leave empty to use the prefix's IVR. Tariff and payment term come from the prefix.</div></div>
+        </div>
+        {f.number&&problem&&<div style={{fontSize:12,color:"#EF4444",marginTop:10}}>{problem}</div>}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
+          <button onClick={()=>setPage("numbers")} style={numBtn()}>Cancel</button>
+          <button onClick={submit} disabled={!!problem||saving} style={{...numBtn("primary"),opacity:problem||saving?0.5:1}}>
+            {saving?"Adding...":"Add Number"}</button>
+        </div>
+      </div>
+    </NumbersPageShell>
+  );
+}
+
+// ── Add Range (form → preview → import) ───────────────────────────
+function AddRangePage({token,setPage}){
+  const empty={supplier_id:"",country:"",prefix:"",range_start:"",range_end:"",tariff:"",selling_price:"",
+    payment_term:"",test_number:"",ivr_context:""};
+  const [f,setF]=useState(empty);
+  const [suppliers,setSuppliers]=useState([]);
+  const [preview,setPreview]=useState(null);
+  const [result,setResult]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const ivrs=useIvrList(token);
+  useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
+
+  const set=(k,v)=>setF(x=>({...x,[k]:v}));
+  const dg=s=>s.replace(/[^0-9]/g,"");
+  const start=dg(f.range_start),end=dg(f.range_end);
+  const total=start&&end&&start.length===end.length&&+end>=+start?+end-+start+1:0;
+  const missing=!f.supplier_id||!f.country||!f.prefix||!start||!end||f.tariff===""||f.selling_price===""||!f.payment_term||!f.ivr_context;
+
+  const payload=()=>({...f,prefix:dg(f.prefix),range_start:start,range_end:end,test_number:dg(f.test_number)});
+  const runPreview=async()=>{
+    setBusy(true);setErr("");
+    const d=await apiFetch("/number-ranges/preview",token,{method:"POST",body:JSON.stringify(payload())});
+    setBusy(false);
+    if(d.data) setPreview(d.data); else setErr(d.error||d.message||"Preview failed");
+  };
+  const runImport=async()=>{
+    setBusy(true);setErr("");
+    const d=await apiFetch("/number-ranges/import",token,{method:"POST",body:JSON.stringify(payload())});
+    setBusy(false);
+    if(d.success) setResult(d); else setErr(d.error||d.message||"Import failed");
+  };
+  const again=()=>{setF(empty);setPreview(null);setResult(null);setErr("");};
+
+  const supplierName=numSupplier(suppliers.find(s=>String(s.id)===String(f.supplier_id))?.name);
+
+  if(result) return(
+    <NumbersPageShell title="Add Number Range">
+      <div style={{background:"#FFF",borderRadius:10,padding:24,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",textAlign:"center"}}>
+        <div style={{fontSize:36}}>✅</div>
+        <div style={{fontSize:15,fontWeight:700,margin:"8px 0"}}>{result.created} numbers imported</div>
+        {result.skipped>0&&<div style={{fontSize:12,color:"#999"}}>{result.skipped} already existed and were skipped</div>}
+        <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:16}}>
+          <button onClick={again} style={numBtn()}>Add another range</button>
+          <button onClick={()=>setPage("numbers")} style={numBtn("primary")}>View Numbers</button>
+        </div>
+      </div>
+    </NumbersPageShell>
+  );
+
+  if(preview) return(
+    <NumbersPageShell title="Preview" subtitle="Nothing is created until you confirm">
+      <div style={{background:"#FFF",borderRadius:10,padding:20,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        {err&&<Banner>{err}</Banner>}
+        <div style={{fontSize:16,fontWeight:800}}>{f.country} / {dg(f.prefix)}</div>
+        {preview.errors.map((e,i)=><Banner key={i}>{e}</Banner>)}
+        {preview.warnings.map((w,i)=><div key={i} style={{fontSize:12,color:"#B45309",background:"#FFF7E6",border:"1px solid #F5C26B",
+          borderRadius:8,padding:"8px 12px",marginTop:8}}>{w}</div>)}
+        {preview.valid&&<>
+          <div style={{fontSize:13,color:"#666",margin:"6px 0 10px"}}>
+            {preview.total} Numbers{preview.existing_count>0?` · ${preview.new_count} new`:""}
+          </div>
+          <div style={{fontFamily:"monospace",fontSize:13,lineHeight:1.7,maxHeight:300,overflowY:"auto",
+            border:"1px solid #EEE",borderRadius:8,padding:"8px 12px",background:"#FAFAFA"}}>
+            {preview.numbers.map((n,i)=>(
+              <React.Fragment key={n.number}>
+                {preview.truncated&&i===10&&<div style={{color:"#999"}}>...</div>}
+                <div>{n.number}
+                  {"  "}{n.exists?<span style={{color:"#B45309"}}>exists — skipped</span>:<span style={{color:"#10B981"}}>✓</span>}
+                  {n.test&&<span style={{marginLeft:8,color:"#8B5CF6",fontSize:11}}>test</span>}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+          <div style={{margin:"14px 0",fontSize:13,lineHeight:1.8}}>
+            {[["Supplier",supplierName],["Trunk",preview.trunk||"—"],["IVR",ivrName(preview.ivr_context)],
+              ["Tariff",f.tariff],["Selling",f.selling_price],["Payment Term",f.payment_term]].map(([k,v])=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>{k}:</span><b>{v}</b></div>
+            ))}
+          </div>
+        </>}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+          <button onClick={()=>{setPreview(null);setErr("");}} style={numBtn()}>Back</button>
+          {preview.valid&&<button onClick={runImport} disabled={busy||preview.new_count===0}
+            style={{...numBtn("primary"),opacity:busy||preview.new_count===0?0.5:1}}>{busy?"Importing...":"Confirm & Import"}</button>}
+        </div>
+      </div>
+    </NumbersPageShell>
+  );
+
+  return(
+    <NumbersPageShell title="Add Number Range" subtitle="Creates one DID per number in the range">
+      <div style={{background:"#FFF",borderRadius:10,padding:20,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+        {err&&<Banner>{err}</Banner>}
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div><div style={numLbl}>Supplier</div>
+            <select style={numInp} value={f.supplier_id} onChange={e=>set("supplier_id",e.target.value)}>
+              <option value="">— Select Supplier —</option>
+              {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
+            </select></div>
+          <div><div style={numLbl}>Country</div>
+            <input style={numInp} list="range-countries" value={f.country} onChange={e=>set("country",e.target.value)} placeholder="Italy"/>
+            <datalist id="range-countries">{COUNTRIES.map(c=><option key={c.code} value={c.name}/>)}</datalist></div>
+          <div><div style={numLbl}>Prefix</div>
+            <input style={numInp} value={f.prefix} onChange={e=>set("prefix",e.target.value)} placeholder="39319"/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div><div style={numLbl}>Range Start</div>
+              <input style={numInp} value={f.range_start} onChange={e=>set("range_start",e.target.value)} placeholder="393191120550"/></div>
+            <div><div style={numLbl}>Range End</div>
+              <input style={numInp} value={f.range_end} onChange={e=>set("range_end",e.target.value)} placeholder="393191120578"/></div>
+          </div>
+          <div style={{fontSize:13,fontWeight:700,color:total?"#2CADA6":"#999"}}>Total Numbers: {total.toLocaleString()}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div><div style={numLbl}>Tariff</div>
+              <input type="number" step="0.001" style={numInp} value={f.tariff} onChange={e=>set("tariff",e.target.value)} placeholder="0.0400"/></div>
+            <div><div style={numLbl}>Selling Price</div>
+              <input type="number" step="0.001" style={numInp} value={f.selling_price} onChange={e=>set("selling_price",e.target.value)} placeholder="0.0700"/></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div><div style={numLbl}>Currency</div>
+              <input style={{...numInp,background:"#F5F5F5",color:"#888"}} value="USDT" disabled/></div>
+            <div><div style={numLbl}>Payment Term</div>
+              <select style={numInp} value={f.payment_term} onChange={e=>set("payment_term",e.target.value)}>
+                <option value="">— Select —</option>
+                {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
+              </select></div>
+          </div>
+          <div><div style={numLbl}>Test Number (optional, inside the range)</div>
+            <input style={numInp} value={f.test_number} onChange={e=>set("test_number",e.target.value)} placeholder="393191120550"/></div>
+          <div><div style={numLbl}>IVR</div>
+            <select style={numInp} value={f.ivr_context} onChange={e=>set("ivr_context",e.target.value)}>
+              <IvrOptions ivrs={ivrs} value={f.ivr_context}/></select></div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
+          <button onClick={runPreview} disabled={missing||busy}
+            style={{...numBtn("primary"),opacity:missing||busy?0.5:1}}>
+            {busy?"Checking...":`Preview ${total||""} Numbers`}</button>
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <button onClick={()=>setPage("numbers")} style={numBtn()}>Cancel</button></div>
+        </div>
+      </div>
+    </NumbersPageShell>
+  );
+}
+
+// ── Prefix / Routes (Prefix → Supplier → IVR) ─────────────────────
+function PrefixRoutesPage({token}){
+  const [prefixes,setPrefixes]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState("");
+  const [msg,setMsg]=useState(null);
+  const ivrs=useIvrList(token);
+
+  const load=()=>apiFetch("/prefixes?all=1",token).then(d=>{setPrefixes(d.data||[]);setLoading(false);});
+  useEffect(()=>{load();},[token]);
+
+  const setIvr=async(p,ctx)=>{
+    if(!ctx||ctx===p.ivr_context) return;
+    if(!window.confirm(`Apply "${ivrName(ctx)}" to all ${p.number_count} numbers under ${p.prefix}?`)) return;
+    const d=await apiFetch(`/prefixes/${p.id}/ivr`,token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
+    setMsg(d.success?{ok:true,text:d.message||"IVR updated"}:{ok:false,text:d.error||"Failed to update IVR"});
+    load();
+  };
+  const s=search.trim().toLowerCase();
+  const shown=prefixes.filter(p=>!s||[p.prefix,p.country,p.supplier_name].some(v=>(v||"").toLowerCase().includes(s)));
+
+  return(
+    <NumbersPageShell title="Prefix / Routes" subtitle="Prefix → Supplier → IVR. Changing an IVR applies to every number under the prefix.">
+      {msg&&<Banner ok={msg.ok}>{msg.text}</Banner>}
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search prefix, country or supplier..."
+        style={{...numInp,marginBottom:10}}/>
+      <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560,whiteSpace:"nowrap"}}>
+            <thead><tr>{["Prefix","Country","Supplier","Tariff","Numbers","IVR"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
+            <tbody>
+              {loading&&<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
+              {!loading&&shown.length===0&&<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No prefixes found</td></tr>}
+              {shown.map((p,i)=>(
+                <tr key={p.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace",fontWeight:800}}>{p.prefix}</td>
+                  <td style={{padding:"7px 10px",fontSize:12}}>{p.country||"—"}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(p.supplier_name)}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(p.price||0)}</td>
+                  <td style={{padding:"7px 10px",fontSize:12}}>{(p.number_count||0).toLocaleString()}</td>
+                  <td style={{padding:"7px 10px"}}>
+                    <select value={p.ivr_context||""} onChange={e=>setIvr(p,e.target.value)}
+                      style={{padding:"3px 6px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",fontSize:11,maxWidth:170}}>
+                      <IvrOptions ivrs={ivrs} value={p.ivr_context}/>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </GTable>
+        </div>
+      </div>
+    </NumbersPageShell>
   );
 }
 // ── IVR Page ──────────────────────────────────────────────────────
@@ -6548,7 +6393,7 @@ export default function App(){
       "live-calls":"livecalls","livecalls":"livecalls",
       "cdr":"cdr","cdr-analytics":"cdr",
       "revenue":"revenue",
-      "numbers":"numbers","did-inventory":"didinventory","bulk-did":"bulkdid","bulk-manager":"bulkdid",
+      "numbers":"numbers","add-number":"addnumber","add-range":"addrange","prefix-routes":"prefixroutes","did-inventory":"didinventory","bulk-did":"bulkdid","bulk-manager":"bulkdid",
       "ivr":"ivr","ivraudio":"audio-manager","ivr-library":"ivr","audio-manager":"ivraudio","ivr-audio":"ivraudio",
       "connect-ivr":"connectivr",
       "route-prefix":"routeprefix",
@@ -6577,7 +6422,7 @@ export default function App(){
   const navigateTo=(p)=>{
     const urlMap={
       "dashboard":"","livecalls":"live-calls","cdr":"cdr",
-      "revenue":"revenue","numbers":"numbers","bulkdid":"bulk-did",
+      "revenue":"revenue","numbers":"numbers","addnumber":"add-number","addrange":"add-range","prefixroutes":"prefix-routes","bulkdid":"bulk-did",
       "ivr":"ivr","ivraudio":"audio-manager","connectivr":"connect-ivr","routeprefix":"route-prefix",
       "customers":"customers","resellers":"resellers","resellers":"resellers","testnumbers":"test-numbers","testlivecall":"test-live-call",
       "sipmonitor":"sip-monitor","settings":"settings","ipwhitelist":"ip-whitelist","auditlog":"audit-log","systemhealth":"system-health","testnumbers":"test-numbers","testlivecall":"test-live-call","systemhealth":"system-health","ip-whitelist":"ipwhitelist","whitelist":"ipwhitelist","audit-log":"auditlog","system-health":"systemhealth","sip-monitor":"sipmonitor","test-numbers":"testnumbers","test-live-call":"testlivecall","system-health":"systemhealth","audit":"auditlog",
@@ -6794,7 +6639,10 @@ export default function App(){
       case "livecalls":    return <LiveCallsPage token={token}/>;
       case "cdr":          return <CDRPage token={token}/>;
       case "revenue":      return <RevenuePage token={token}/>;
-      case "numbers": return <NumberInventoryPage token={token}/>;
+      case "numbers":      return <NumbersListPage token={token} setPage={navigateTo}/>;
+      case "addnumber":    return <AddNumberPage token={token} setPage={navigateTo}/>;
+      case "addrange":     return <AddRangePage token={token} setPage={navigateTo}/>;
+      case "prefixroutes": return <PrefixRoutesPage token={token}/>;
       case "ivr":          return <IVRPage token={token} setPage={navigateTo}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
