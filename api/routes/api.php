@@ -1686,13 +1686,27 @@ Route::middleware('auth:sanctum')->group(function() {
         if (!$upd) return response()->json(['error' => 'Nothing to update'], 422);
         $upd['updated_at'] = now();
         DB::table('dids')->where('id', $id)->update($upd);
+
+        // Disabling has to stop calls, not just relabel the row. Legacy carrier
+        // contexts read dids.status in did_router.php. The supplier dialplan is
+        // static (no DB at call time), so it consults Asterisk's local AstDB
+        // family blocked_dids, which is flipped here and takes effect at once.
+        $enforce = null;
+        if (isset($upd['status'])) {
+            $digits = preg_replace('/[^0-9]/', '', $d->number);
+            $cmd = $upd['status'] === 'disabled'
+                ? "database put blocked_dids $digits 1" : "database del blocked_dids $digits";
+            exec('asterisk -rx '.escapeshellarg($cmd).' 2>&1', $out, $rc);
+            $installed = str_contains((string)@file_get_contents(config('asterisk.extensions_conf')), 'blocked_dids');
+            $enforce = ['ok' => $rc === 0 && $digits !== '', 'dialplan_ready' => $installed];
+        }
         DB::table('audit_logs')->insert([
             'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'UPDATE_NUMBER',
             'module'=>'Numbers','details'=>"Number {$d->number}: ".json_encode(array_diff_key($upd, ['updated_at'=>1])),
             'ip_address'=>$r->ip(),'method'=>'PUT','url'=>"/api/v1/numbers/{$id}",
             'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
         ]);
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'enforcement' => $enforce]);
     });
 
     // ── Number Import (Upload + Paste share this exact same engine) ──

@@ -3542,6 +3542,7 @@ function NumbersListPage({token,setPage}){
 function NumberDetailsModal({token,id,setPage,onClose,onChanged}){
   const [n,setN]=useState(null);
   const [err,setErr]=useState("");
+  const [note,setNote]=useState("");
   const [editing,setEditing]=useState(false);
   const [form,setForm]=useState({ivr_context:"",selling_price:"",is_test:false});
   const [busy,setBusy]=useState(false);
@@ -3553,10 +3554,13 @@ function NumberDetailsModal({token,id,setPage,onClose,onChanged}){
   useEffect(()=>{load();},[id]);
 
   const save=async(body)=>{
-    setBusy(true);setErr("");
+    setBusy(true);setErr("");setNote("");
     const d=await apiFetch("/numbers/"+id,token,{method:"PUT",body:JSON.stringify(body)});
     setBusy(false);
     if(!d.success){setErr(d.error||d.message||"Update failed");return false;}
+    const en=d.enforcement;
+    if(en&&!en.ok) setNote("Status saved, but Asterisk could not be updated - calls are NOT blocked yet.");
+    else if(en&&!en.dialplan_ready) setNote("Blocked for carrier routes. For supplier trunks, apply the Asterisk configuration once (Asterisk Configuration → Apply) to activate blocking.");
     await load();onChanged();return true;
   };
   const startEdit=()=>{setForm({ivr_context:n.ivr_context||"",selling_price:n.selling_price??"",is_test:n.is_test});setEditing(true);};
@@ -3588,6 +3592,7 @@ function NumberDetailsModal({token,id,setPage,onClose,onChanged}){
         maxHeight:"90vh",overflowY:"auto",fontFamily:"Arial,Helvetica,sans-serif"}}>
         <div style={{fontSize:16,fontWeight:800,color:"#1A1A1A",marginBottom:12}}>Number Details</div>
         {err&&<Banner>{err}</Banner>}
+        {note&&<div style={{fontSize:12,color:"#B45309",background:"#FFF7E6",border:"1px solid #F5C26B",borderRadius:8,padding:"8px 12px",marginBottom:12}}>{note}</div>}
         {!n&&!err&&<div style={{padding:20,textAlign:"center",color:"#999"}}>Loading...</div>}
         {n&&fields.map(([k,v])=>(
           <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,
