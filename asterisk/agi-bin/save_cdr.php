@@ -23,14 +23,13 @@ $call_start= time() - $billsec;
 // $call_start so the start time itself isn't skewed by the rounding.
 if ($billsec > 0) $billsec++;
 
-// Detect supplier from channel. Historical hardcoded names are tried
-// first so existing dashboards/reports that already group by these exact
-// strings keep working unchanged; anything not in this map (including
-// every supplier added later through the Asterisk Configuration module)
-// falls back to a live lookup against the trunks table by pjsip_name,
-// which is what the PJSIP config generator actually bakes into the
-// channel name (see AsteriskConfigGenerator::pjsipManagedBlock).
+// Detect supplier from the PJSIP endpoint in the channel name
+// (PJSIP/<ENDPOINT>-<hex>). The trunks table is the source of truth and is
+// matched EXACTLY on pjsip_name; the historical alias map below is only a
+// last-resort fallback for an endpoint that is not in the table, so a
+// supplier is never mislabelled (e.g. MEDIATEL -> "Tokyo") when the DB knows it.
 $trunk_name = 'PROFESSOR';
+$endpoint = preg_match('#^PJSIP/(.+)-[0-9a-f]{8}$#i', $channel, $em) ? $em[1] : '';
 $endpointMap = [
     'WTP'=>'WTP',
     'MEDIATEL'   => 'Tokyo',
@@ -38,13 +37,6 @@ $endpointMap = [
     'GAMA'       => 'Nairobi',
 ];
 $matched = false;
-foreach($endpointMap as $endpoint => $codeName){
-    if(stripos($channel, $endpoint) !== false){
-        $trunk_name = $codeName;
-        $matched = true;
-        break;
-    }
-}
 
 try {
     // Credentials live in db_config.php (git-ignored, deployed separately
@@ -52,22 +44,24 @@ try {
     $db  = require __DIR__.'/db_config.php';
     $pdo = new PDO("mysql:host={$db['host']};dbname={$db['dbname']}", $db['user'], $db['pass']);
 
-    if (!$matched && $channel !== '') {
-        // Best-effort: a lookup failure here must never block the CDR
-        // insert below, so it stays inside its own try/catch and simply
-        // leaves $trunk_name at the 'PROFESSOR' default on any error.
+    if ($endpoint !== '') {
+        // Best-effort: a lookup failure must never block the CDR insert below.
         try {
-            $stmt = $pdo->query("SELECT nickname, name, pjsip_name FROM trunks WHERE pjsip_name IS NOT NULL AND pjsip_name != ''");
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $t) {
-                if (stripos($channel, $t['pjsip_name']) !== false) {
-                    $trunk_name = $t['nickname'] ?: $t['name'];
-                    break;
-                }
+            $stmt = $pdo->prepare("SELECT nickname, name FROM trunks WHERE pjsip_name = ? LIMIT 1");
+            $stmt->execute([$endpoint]);
+            if ($t = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $trunk_name = $t['nickname'] ?: $t['name'];
+                $matched = true;
             }
         } catch (\Throwable $e) {
             file_put_contents('/tmp/cdr_error.log',
                 date('Y-m-d H:i:s')." | trunk lookup failed: ".$e->getMessage()."\n",
                 FILE_APPEND);
+        }
+    }
+    if (!$matched) {
+        foreach ($endpointMap as $alias => $codeName) {
+            if (stripos($channel, $alias) !== false) { $trunk_name = $codeName; break; }
         }
     }
 
