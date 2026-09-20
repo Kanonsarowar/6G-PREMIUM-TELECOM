@@ -1939,6 +1939,16 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   useEffect(()=>{ loadLiveCalls(); },[supplier.id,prefixes.length,numbers.numbers.length,testNumbers.length]);
 
+  const applyAsterisk=async()=>{
+    if(!window.confirm("Apply the Asterisk configuration now? It is validated first and reverted automatically if verification fails.")) return;
+    setSaving(true);
+    const d=await apiFetch("/asterisk-config/apply",token,{method:"POST"});
+    setSaving(false);
+    const r=d?.data;
+    if(r?.status==="success") flash("Asterisk configuration applied");
+    else alert(`Apply ${r?.status||"failed"}: ${r?.summary||d?.error||d?.message||"unknown error"}`);
+  };
+
   const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});setShowAddPrefix(true);};
   const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",country_code:p.country_code||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",ivr_context:p.ivr_context||"",status:p.status});setShowAddPrefix(true);};
 
@@ -2293,6 +2303,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <button onClick={()=>openImport("paste")} style={actionBtn("#F5A623")}>+ PASTE</button>
           <button onClick={openPaymentModal} style={actionBtn("#F5F5F5","#555")}>PAYMENT</button>
           <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
+          <button onClick={applyAsterisk} disabled={saving} style={actionBtn("#D64545")}>{saving?"APPLYING...":"APPLY TO ASTERISK"}</button>
         </div>
       </div>
 
@@ -3647,7 +3658,7 @@ function NumbersListPage({token,setPage}){
       <div style={{background:"#FFF",borderRadius:8,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
         <div style={{minWidth:780}}>
-        <div style={{...NUM_ROW,padding:"10px 14px",fontSize:11,fontWeight:700,letterSpacing:"0.8px",color:"#888",borderBottom:"2px solid #E8E8E8"}}>
+        <div style={{...NUM_ROW,justifyItems:"center",padding:"10px 14px",fontSize:11,fontWeight:700,letterSpacing:"0.8px",color:"#888",borderBottom:"2px solid #E8E8E8"}}>
           <span>NUMBERS</span><span>SUPPLIER</span><span>PAYOUT</span><span>COUNTRY</span><span/><span>DELETE</span>
         </div>
         {loading&&<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</div>}
@@ -3664,7 +3675,7 @@ function NumbersListPage({token,setPage}){
                     display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,lineHeight:1}}>{open?"−":"+"}</span>
                   <div style={{minWidth:0}}>
                     <span style={{fontSize:14,fontWeight:800,fontFamily:"monospace",color:"#1A1A1A"}}>{g.prefix||"No prefix"}</span>
-                    <span style={{fontSize:13,color:"#555",marginLeft:6}}>({total.toLocaleString()} number{total===1?"":"s"})</span>
+                    <span style={{fontSize:13,color:"#555",marginLeft:6}}>({total.toLocaleString()})</span>
                     {hit>0&&<span style={{marginLeft:8,fontSize:10,fontWeight:700,color:NUM_LIVE}}>{hit} hit</span>}
                   </div>
                 </div>
@@ -3688,9 +3699,6 @@ function NumbersListPage({token,setPage}){
                         {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:NUM_PURPLE,background:"#F0E6F7",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
                         {lv&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:NUM_LIVE,animation:"numLivePulse 1.2s infinite"}}>● LIVE</span>}
                         {d.status==="disabled"&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#EF4444"}}>DISABLED</span>}
-                      </div>
-                      <div style={{fontSize:11,color:"#999",marginTop:2}}>
-                        {d.last_hit?`Last call ${d.last_hit}${d.hits>1?` · ${d.hits} calls`:""}`:"No calls yet"}
                       </div>
                     </div>
                     <span style={{fontSize:11,color:"#999"}}>{numSupplier(d.supplier_name)}</span>
