@@ -2512,6 +2512,30 @@ if (!function_exists('ivrSoundsDir')) {
     }
 }
 
+// Default-IVR pool. The pool is every IVR that is active, opted in (in_pool) and has a sound
+// file on disk. did_router.php (from-carrier) reads it from MySQL per call; the static
+// from-suppliers dialplan cannot, so it is mirrored into the Asterisk AstDB family ivr_pool
+// (count + 1..N -> custom/<name>) and picked with RAND() per call. Called after every change.
+if (!function_exists('ivrPoolContexts')) {
+    function ivrPoolContexts() {
+        $out = [];
+        foreach (DB::table('ivrs')->where('is_active',1)->where('in_pool',1)->orderBy('id')->pluck('name') as $n)
+            if (glob(ivrSoundsDir().$n.'.*')) $out[] = 'custom/'.$n;
+        return $out;
+    }
+    function ivrPoolSync() {
+        $ast = fn($c) => (function() use ($c) { $o = []; exec('asterisk -rx '.escapeshellarg($c).' 2>&1', $o, $rc); return [$rc, implode("\n", $o)]; })();
+        $pool = ivrPoolContexts(); $n = count($pool);
+        [, $old] = $ast('database get ivr_pool count');
+        $oldN = preg_match('/Value:\s*(\d+)/', $old, $m) ? (int)$m[1] : 0;
+        // entries first, count last, stale entries after: a call never sees a half-written pool
+        foreach ($pool as $i => $ctx) { [$rc] = $ast('database put ivr_pool '.($i+1).' '.$ctx); if ($rc !== 0) return ['ok'=>false,'count'=>$n]; }
+        [$rc] = $ast('database put ivr_pool count '.$n);
+        for ($i = $n + 1; $i <= $oldN; $i++) $ast('database del ivr_pool '.$i);
+        return ['ok'=>$rc === 0,'count'=>$n];
+    }
+}
+
 // IVR Upload (a same-name upload replaces the existing IVR in place)
 Route::post('/v1/ivr-lib/upload', function(Request $r) {
     $r->headers->set('Accept','application/json');
@@ -2552,6 +2576,7 @@ Route::post('/v1/ivr-lib/upload', function(Request $r) {
     if($existing){ DB::table('ivrs')->where('id',$existing->id)->update($row); $id = $existing->id; }
     else $id = DB::table('ivrs')->insertGetId($row + ['name'=>$name,'is_active'=>1,'created_at'=>now()]);
 
+    ivrPoolSync();   // the pool depends on the sound file existing
     return response()->json(['success'=>true,'id'=>$id,'name'=>$name,'display_name'=>$displayName,'replaced'=>(bool)$existing]);
 });
 
@@ -2572,6 +2597,7 @@ Route::delete('/v1/ivr-lib/{id}', function($id) {
     }
     ivrPurgeSounds($ivr->name);
     DB::table('ivrs')->delete($id);
+    ivrPoolSync();
     return response()->json(['success'=>true]);
 });
 
@@ -3197,12 +3223,14 @@ Route::get('/v1/ivr-lib/preview/{id}', function($id) {
 });
 
 Route::put('/v1/ivr-lib/{id}', function(Request $r, $id) {
-    DB::table('ivrs')->where('id',$id)->update([
-        'display_name' => $r->display_name,
-        'is_active'    => $r->is_active ?? 1,
-        'updated_at'   => now(),
-    ]);
-    return response()->json(['success'=>true,'data'=>DB::table('ivrs')->find($id)]);
+    // only the fields sent are changed (a partial update must not blank display_name / re-activate)
+    $upd = ['updated_at'=>now()];
+    if($r->has('display_name')) $upd['display_name'] = $r->display_name;
+    if($r->has('is_active'))    $upd['is_active']    = $r->boolean('is_active') ? 1 : 0;
+    if($r->has('in_pool'))      $upd['in_pool']      = $r->boolean('in_pool') ? 1 : 0;
+    DB::table('ivrs')->where('id',$id)->update($upd);
+    $pool = ivrPoolSync();
+    return response()->json(['success'=>true,'data'=>DB::table('ivrs')->find($id),'pool'=>$pool]);
 });
 
 Route::get('/v1/ivr-lib/stats', function() {

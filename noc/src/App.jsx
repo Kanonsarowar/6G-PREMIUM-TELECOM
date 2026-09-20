@@ -4093,6 +4093,12 @@ function IVRPage({token,setPage}){
     setUploading(false);
   };
 
+  const setFlag=async(ivr,patch)=>{
+    const d=await apiFetch(`/ivr-lib/${ivr.id}`,token,{method:"PUT",body:JSON.stringify(patch)});
+    if(!d.success) alert(d.error||d.message||"Update failed");
+    else if(d.pool&&!d.pool.ok) alert("Saved, but the live Asterisk pool could not be updated - supplier-path calls keep the previous pool until it is.");
+    load();
+  };
   const del=async(id)=>{
     if(!window.confirm("Delete this IVR?")) return;
     const d=await apiFetch(`/ivr-lib/${id}`,token,{method:"DELETE"});
@@ -4182,8 +4188,12 @@ function IVRPage({token,setPage}){
                 <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{ivr.display_name||ivr.title||ivr.name}</div>
                 <div style={{fontSize:10,color:C.purple,fontFamily:"monospace",marginBottom:4}}>custom/{ivr.name}</div>
                 <div style={{display:"flex",gap:8}}>
-                  <span style={{fontSize:9,padding:"2px 8px",borderRadius:20,
-                    background:`${C.green}15`,color:C.green,fontWeight:700}}>ACTIVE</span>
+                  <span onClick={()=>setFlag(ivr,{is_active:!ivr.is_active})} title="Click to toggle. Inactive IVRs are never played or pooled."
+                    style={{fontSize:9,padding:"2px 8px",borderRadius:20,cursor:"pointer",
+                    background:ivr.is_active?`${C.green}15`:`${C.red}15`,color:ivr.is_active?C.green:C.red,fontWeight:700}}>{ivr.is_active?"ACTIVE":"INACTIVE"}</span>
+                  <span onClick={()=>setFlag(ivr,{in_pool:!ivr.in_pool})} title="Default-IVR pool: one active pooled IVR is picked at random on every call to a number/route using the default IVR"
+                    style={{fontSize:9,padding:"2px 8px",borderRadius:20,cursor:"pointer",fontWeight:700,
+                    background:ivr.in_pool?"#6A2B9A":"transparent",color:ivr.in_pool?"#FFF":C.muted,border:"1px solid "+(ivr.in_pool?"#6A2B9A":C.border)}}>{ivr.in_pool?"IN POOL":"NOT IN POOL"}</span>
                   <span style={{fontSize:9,color:C.muted}}>{ivr.audio_file||ivr.name+".slin"}</span>
                 </div>
               </div>

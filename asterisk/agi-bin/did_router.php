@@ -41,6 +41,17 @@ try {
     }
 
     $ivr     = $row['ivr_context'] ?? 'custom/6g-premium-telecom';
+
+    // Default IVR = random pick from the pool of active IVRs, chosen fresh on every call
+    // (same DID, different calls, different IVRs). Any failure or an empty pool keeps
+    // the default/fallback IVR above. Unknown DIDs (no row) are never pooled.
+    if ($row && ($ivr === '' || $ivr === 'custom/6g-premium-telecom')) {
+        try {
+            $names = $pdo->query("SELECT name FROM ivrs WHERE is_active=1 AND in_pool=1")->fetchAll(PDO::FETCH_COLUMN);
+            $names = array_values(array_filter($names, fn($n) => glob('/usr/share/asterisk/sounds/custom/'.$n.'.*')));
+            if ($names) $ivr = 'custom/'.$names[random_int(0, count($names) - 1)];
+        } catch (\Throwable $e) { $ivr = 'custom/6g-premium-telecom'; }
+    }
     $tariff  = $row['tariff']      ?? 0.063;
     $country = $row['country_name']?? 'Unknown';
 

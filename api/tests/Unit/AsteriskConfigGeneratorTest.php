@@ -287,4 +287,26 @@ TXT;
             $this->assertNotEmpty($r['errors'], "{$bad} must be rejected");
         }
     }
+
+    public function test_default_ivr_route_picks_from_the_pool_per_call_and_is_not_a_missing_ivr_error(): void
+    {
+        $prefixes = [
+            (object) ['id' => 1, 'prefix' => '9779', 'country_name' => 'Nepal', 'ivr_context' => 'custom/6g-premium-telecom', 'priority' => 1, 'is_active' => 1],
+            (object) ['id' => 2, 'prefix' => '39319', 'country_name' => 'Italy', 'ivr_context' => 'custom/music', 'priority' => 2, 'is_active' => 1],
+        ];
+        $ivrs = [(object) ['name' => 'music', 'title' => 'Music', 'audio_file' => 'music.mp3', 'is_active' => 1]];
+
+        $r = $this->generator()->dialplanManagedBlock($prefixes, $ivrs, 'from-suppliers');
+
+        $this->assertSame([], $r['errors']);
+        // random pick happens in the dialplan on every call, from the AstDB pool
+        $this->assertStringContainsString('${DB(ivr_pool/${RAND(1,${POOL_N})})}', $r['text']);
+        $this->assertStringContainsString('DB_EXISTS(ivr_pool/count)', $r['text']);
+        // falls back to the default IVR, and the chosen IVR is what IVR_CONTEXT (=> CDR) holds
+        $this->assertStringContainsString('Set(IVR_CONTEXT=custom/6g-premium-telecom)', $r['text']);
+        $this->assertStringContainsString('ExecIf($[${DIALPLAN_EXISTS(${POOL_PICK},s,1)}]?Set(IVR_CONTEXT=${POOL_PICK}))', $r['text']);
+        $this->assertStringNotContainsString('Goto(custom/6g-premium-telecom,s,1)', $r['text']);
+        // a fixed-IVR route is untouched
+        $this->assertStringContainsString('Goto(custom/music,s,1)', $r['text']);
+    }
 }

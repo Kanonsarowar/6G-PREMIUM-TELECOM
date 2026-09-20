@@ -56,6 +56,8 @@ class AsteriskConfigGenerator
     public const RESERVED_CONTEXTS = ['from-carrier', 'from-carrier-purple', 'block-unauthorized', 'default', 'general'];
 
     // Fail-safe per-supplier limits for the generated path when a trunk has none.
+    /** The existing default/fallback IVR; a route on it plays a random IVR from the pool instead (see defaultIvrPoolLines). */
+    public const DEFAULT_IVR = 'custom/6g-premium-telecom';
     public const DEFAULT_MAX_CHANNELS = 30;
     public const DEFAULT_MAX_DURATION = 1800;
 
@@ -375,6 +377,32 @@ class AsteriskConfigGenerator
      * @param  array  $limits  pjsip name => [max_channels, max_call_duration] for endpoints on $inboundContext
      * @return array{text:string,routes:array,errors:string[],warnings:string[]}
      */
+    /**
+     * Default IVR: pick one IVR at random from the AstDB family ivr_pool (count + 1..N, kept in
+     * sync by the API) on EVERY call. No MySQL/HTTP in the call path. An empty/missing pool, or
+     * a picked context that is not loaded, falls back to the default IVR; with no usable IVR at
+     * all the call is ended instead of jumping into a missing context.
+     * IVR_CONTEXT is set to the final choice, so the CDR records the IVR actually played.
+     */
+    private function defaultIvrPoolLines(string $pattern, string $label): array
+    {
+        $fb = self::DEFAULT_IVR;
+
+        return [
+            "exten => {$pattern},1,NoOp({$label} -> default IVR pool)",
+            " same => n,Set(IVR_CONTEXT={$fb})",
+            ' same => n,GotoIf($[!${DB_EXISTS(ivr_pool/count)}]?go)',
+            ' same => n,Set(POOL_N=${DB(ivr_pool/count)})',
+            ' same => n,GotoIf($[0${POOL_N} < 1]?go)',
+            ' same => n,Set(POOL_PICK=${DB(ivr_pool/${RAND(1,${POOL_N})})})',
+            ' same => n,ExecIf($[${DIALPLAN_EXISTS(${POOL_PICK},s,1)}]?Set(IVR_CONTEXT=${POOL_PICK}))',
+            ' same => n(go),NoOp(default IVR -> ${IVR_CONTEXT})',
+            ' same => n,GotoIf($[${DIALPLAN_EXISTS(${IVR_CONTEXT},s,1)}]?${IVR_CONTEXT},s,1)',
+            ' same => n,NoOp(no usable IVR for ${EXTEN})',
+            ' same => n,Hangup()',
+        ];
+    }
+
     public function dialplanManagedBlock(iterable $routePrefixes, iterable $ivrs, string $inboundContext = self::NORMAL_CONTEXT, array $limits = []): array
     {
         $validation = $this->validatePrefixes($routePrefixes);
@@ -394,7 +422,8 @@ class AsteriskConfigGenerator
         // not exist, so it blocks Apply and is never emitted.
         $routes = [];
         foreach ($validation['active'] as $row) {
-            if (!isset($activeIvrNames[$row->ivr_context])) {
+            // the default IVR is the pool: resolved per call, so it needs no fixed context here
+            if ($row->ivr_context !== self::DEFAULT_IVR && !isset($activeIvrNames[$row->ivr_context])) {
                 $validation['errors'][] = "Route \"{$row->prefix}\" (#{$row->id}) references IVR context \"{$row->ivr_context}\" which is not an active IVR — Apply blocked (missing IVR)";
                 continue;
             }
@@ -454,6 +483,10 @@ class AsteriskConfigGenerator
         foreach ($routes as $row) {
             $pattern = $this->toDialplanPattern($row->prefix);
             $label = ($row->country_name ?? null) ?: ($row->country_code ?? null) ?: 'Route';
+            if ($row->ivr_context === self::DEFAULT_IVR) {
+                array_push($out, ...$this->defaultIvrPoolLines($pattern, $label));
+                continue;
+            }
             $out[] = "exten => {$pattern},1,NoOp({$label} -> {$row->ivr_context})";
             $out[] = " same => n,Set(IVR_CONTEXT={$row->ivr_context})";
             $out[] = " same => n,Goto({$row->ivr_context},s,1)";
