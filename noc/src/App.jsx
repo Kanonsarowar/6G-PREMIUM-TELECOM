@@ -3563,6 +3563,22 @@ function NumbersListPage({token,setPage}){
   },[token]);
 
   const toggle=(g)=>setExpanded(e=>{const n=new Set(e),k=groupKey(g);if(n.has(k)) n.delete(k); else n.add(k);return n;});
+  const delGroup=async(g)=>{
+    const total=Number(g.total),name=g.prefix||"";
+    const word=name||"DELETE";
+    const typed=window.prompt(`Delete ALL ${total.toLocaleString()} number${total===1?"":"s"} under prefix ${name||"(no prefix)"} (${numSupplier(g.supplier_name)}), plus its ranges?\n\nThis cannot be undone. Type ${word} to confirm.`);
+    if(typed===null) return;
+    if(typed.trim()!==word){setMsg({ok:false,text:"Not deleted - confirmation text did not match"});return;}
+    const p=new URLSearchParams({prefix:name,expected_total:total});
+    if(g.supplier_id==null) p.set("unassigned","1"); else p.set("supplier_id",g.supplier_id);
+    const r=await apiFetch("/number-groups?"+p,token,{method:"DELETE"});
+    if(!r.success){setMsg({ok:false,text:r.error||r.message||"Delete failed"});return;}
+    setExpanded(e=>{const n=new Set(e);n.delete(groupKey(g));return n;});
+    setRowsBy(x=>{const n={...x};delete n[groupKey(g)];return n;});
+    setPending(p=>Object.fromEntries(Object.entries(p).filter(([id])=>!(rowsBy[groupKey(g)]?.rows||[]).some(d=>String(d.id)===id))));
+    setMsg({ok:true,text:`Deleted ${r.deleted} number${r.deleted===1?"":"s"} and ${r.ranges} range record${r.ranges===1?"":"s"} under ${name||"(no prefix)"}`});
+    refreshAll();
+  };
   const delNumberRow=async(d)=>{
     if(!window.confirm("Delete number "+(d.number||"").replace("+","")+"?")) return;
     const r=await apiFetch("/dids/"+d.id,token,{method:"DELETE"});
@@ -3655,7 +3671,9 @@ function NumbersListPage({token,setPage}){
                 <span style={{fontSize:11,color:"#999"}}>{numSupplier(g.supplier_name)}</span>
                 <span style={{fontSize:12,fontFamily:"monospace",color:"#333"}}>{lo===hi?fmtUSDT(lo):fmtUSDT(lo)+" – "+fmtUSDT(hi)}</span>
                 <span style={{fontSize:13,color:"#333",fontWeight:600}}>{g.country_name||"—"}</span>
-                <span/><span/>
+                <span/>
+                <span><button onClick={e=>{e.stopPropagation();delGroup(g);}} title="Delete every number under this prefix"
+                  style={{background:"none",border:"1px solid #EF4444",borderRadius:4,cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 8px"}}>Del</button></span>
               </div>
               {open&&(!data||data.loading)&&<div style={{padding:"8px 14px 12px 46px",fontSize:11,color:"#999"}}>Loading...</div>}
               {open&&data&&!data.loading&&data.rows.map(d=>{

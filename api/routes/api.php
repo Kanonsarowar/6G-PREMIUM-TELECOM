@@ -1637,6 +1637,48 @@ Route::middleware('auth:sanctum')->group(function() {
         return $q;
     };
 
+    // Delete a whole prefix group (same supplier + prefix as one row of the Numbers screen):
+    // its numbers and its range records, in one transaction. The supplier's prefix
+    // definition (price/terms) is left alone. expected is the count the user saw; if the
+    // group changed since, nothing is deleted. Disabled numbers are un-blocked in the
+    // AstDB so a stale blocked_dids entry cannot outlive the number.
+    if (!function_exists('deleteNumberGroup')) {
+        function deleteNumberGroup($supplierId, $prefix, $expected, $actor, $ip = null) {
+            $scope = function($t) use ($supplierId, $prefix) {
+                return DB::table($t)->where(DB::raw("COALESCE($t.prefix,'')"), (string)$prefix)
+                    ->when($supplierId === null, fn($w) => $w->whereNull("$t.supplier_id"), fn($w) => $w->where("$t.supplier_id", $supplierId));
+            };
+            $rows = $scope('dids')->get(['id', 'number', 'status']);
+            if ($rows->count() !== (int)$expected)
+                return ['ok' => false, 'status' => 409, 'error' => "This group now has {$rows->count()} numbers (you saw ".(int)$expected.") - refresh and check again"];
+            if ($rows->isEmpty()) return ['ok' => true, 'deleted' => 0, 'ranges' => 0];
+            $ranges = 0;
+            DB::transaction(function() use ($rows, $scope, &$ranges) {
+                foreach ($rows->pluck('id')->chunk(1000) as $c) DB::table('dids')->whereIn('id', $c)->delete();
+                $ranges = $scope('did_ranges')->delete();
+            });
+            foreach ($rows->where('status', 'disabled') as $d)
+                exec('asterisk -rx '.escapeshellarg('database del blocked_dids '.preg_replace('/[^0-9]/', '', $d->number)).' 2>&1');
+            DB::table('audit_logs')->insert([
+                'user' => $actor->name ?? 'system', 'role' => $actor->role ?? 'unknown', 'action' => 'DELETE_NUMBER_GROUP',
+                'module' => 'Numbers', 'details' => "Deleted prefix group \"$prefix\" (supplier ".($supplierId ?? 'none')."): {$rows->count()} numbers, $ranges range record(s)",
+                'ip_address' => $ip, 'method' => 'DELETE', 'url' => '/api/v1/number-groups',
+                'status_code' => 200, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            return ['ok' => true, 'deleted' => $rows->count(), 'ranges' => $ranges];
+        }
+    }
+
+    Route::delete('/v1/number-groups', function(Request $r) {
+        if (!$r->has('prefix') || !$r->has('expected_total')) return response()->json(['error' => 'prefix and expected_total are required'], 422);
+        $sup = $r->boolean('unassigned') ? null : ($r->filled('supplier_id') ? (int)$r->supplier_id : false);
+        if ($sup === false) return response()->json(['error' => 'supplier_id or unassigned=1 is required'], 422);
+        try { $res = deleteNumberGroup($sup, (string)$r->prefix, $r->expected_total, $r->user(), $r->ip()); }
+        catch (\Throwable $e) { return response()->json(['success' => false, 'error' => 'Delete failed, nothing was removed: '.$e->getMessage()], 500); }
+        if (!$res['ok']) return response()->json(['success' => false, 'error' => $res['error']], $res['status']);
+        return response()->json(['success' => true, 'deleted' => $res['deleted'], 'ranges' => $res['ranges']]);
+    });
+
     // Prefix groups for the Numbers screen. hit_count = how many of the group's
     // numbers have ever received a call (a cdrs row for that DID).
     Route::get('/v1/number-groups', function(Request $r) use ($numbersBase) {
