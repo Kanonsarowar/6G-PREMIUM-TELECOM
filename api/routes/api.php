@@ -1619,14 +1619,12 @@ Route::middleware('auth:sanctum')->group(function() {
     // Paginated server-side because a single Add Range can create tens of
     // thousands of dids rows. "disabled" is a dids.status value; everything
     // else (incl. NULL from older rows) reads as Available.
-    Route::get('/v1/numbers', function(Request $r) {
+    $numbersBase = function(Request $r) {
         $q = DB::table('dids')
             ->leftJoin('suppliers', 'dids.supplier_id', '=', 'suppliers.id')
-            ->leftJoin('trunks', 'dids.trunk_id', '=', 'trunks.id')
-            ->select('dids.id', 'dids.number', 'dids.country_name', 'dids.prefix', 'dids.ivr_context',
-                'dids.status', 'dids.is_test', 'dids.supplier_id',
-                DB::raw('COALESCE(suppliers.name, trunks.nickname) as supplier_name'));
+            ->leftJoin('trunks', 'dids.trunk_id', '=', 'trunks.id');
         if ($r->filled('supplier_id')) $q->where('dids.supplier_id', $r->supplier_id);
+        elseif ($r->boolean('unassigned')) $q->whereNull('dids.supplier_id');
         if ($r->status === 'disabled') $q->where('dids.status', 'disabled');
         elseif ($r->status === 'available') $q->where(fn($w) => $w->whereNull('dids.status')->orWhere('dids.status', '!=', 'disabled'));
         if ($r->filled('search')) {
@@ -1636,10 +1634,43 @@ Route::middleware('auth:sanctum')->group(function() {
                 $w->orWhere('dids.country_name', 'like', "%$s%")->orWhere('dids.prefix', 'like', "%$s%");
             });
         }
+        return $q;
+    };
+
+    // Prefix groups for the Numbers screen. hit_count = how many of the group's
+    // numbers have ever received a call (a cdrs row for that DID).
+    Route::get('/v1/number-groups', function(Request $r) use ($numbersBase) {
+        $groups = $numbersBase($r)
+            ->select(DB::raw("COALESCE(dids.prefix,'') as prefix"), 'dids.supplier_id',
+                DB::raw('MAX(dids.country_name) as country_name'),
+                DB::raw('MAX(COALESCE(suppliers.name, trunks.nickname)) as supplier_name'),
+                DB::raw('COUNT(*) as total'),
+                DB::raw('SUM(EXISTS(SELECT 1 FROM cdrs WHERE cdrs.did IN (dids.number, SUBSTRING(dids.number,2)))) as hit_count'))
+            ->groupBy(DB::raw("COALESCE(dids.prefix,'')"), 'dids.supplier_id')
+            ->orderBy(DB::raw("COALESCE(dids.prefix,'')"))->get();
+        return response()->json(['data' => $groups]);
+    });
+
+    Route::get('/v1/numbers', function(Request $r) use ($numbersBase) {
+        $q = $numbersBase($r)
+            ->select('dids.id', 'dids.number', 'dids.country_name', 'dids.prefix', 'dids.ivr_context',
+                'dids.status', 'dids.is_test', 'dids.supplier_id',
+                DB::raw('COALESCE(suppliers.name, trunks.nickname) as supplier_name'));
+        if ($r->has('prefix')) $q->where(DB::raw("COALESCE(dids.prefix,'')"), (string)$r->prefix);
         $total = (clone $q)->count();
         $per = min(max((int)($r->per_page ?: 50), 1), 200);
         $page = max((int)($r->page ?: 1), 1);
         $rows = $q->orderBy('dids.number')->offset(($page - 1) * $per)->limit($per)->get();
+        // Call history for just this page: how many calls each number has taken and when last.
+        $forms = $rows->flatMap(fn($d) => [$d->number, ltrim($d->number, '+')])->unique()->values()->all();
+        $hits = $forms ? DB::table('cdrs')->whereIn('did', $forms)
+            ->select(DB::raw("REPLACE(did,'+','') as n"), DB::raw('COUNT(*) as hits'), DB::raw('MAX(created_at) as last_hit'))
+            ->groupBy(DB::raw("REPLACE(did,'+','')"))->get()->keyBy('n') : collect();
+        foreach ($rows as $d) {
+            $h = $hits[ltrim($d->number, '+')] ?? null;
+            $d->hits = (int)($h->hits ?? 0);
+            $d->last_hit = $h->last_hit ?? null;
+        }
         return response()->json(['data' => $rows, 'total' => $total, 'page' => $page,
             'last_page' => max((int)ceil($total / $per), 1)]);
     });
@@ -2675,9 +2706,20 @@ Route::get('/v1/live-calls', function() {
         // Sanity check
         if($duration > 86400) $duration = 0;
         
-        // Only show from-carrier context
-        // (from-carrier, from-carrier-purple, ...)
-        if(!str_starts_with($context,'from-carrier') && !str_contains($channel,'from-carrier')) continue;
+        // Legacy carrier contexts (from-carrier, from-carrier-purple, ...) keep the
+        // dialled number in the extension. Trunks on the generated from-suppliers
+        // path move on into number-routing / an IVR context where the extension is
+        // just 's', so their inbound PJSIP legs are listed too and the number is
+        // read from the DID_NUMBER channel variable the inbound context sets.
+        $legacy = str_starts_with($context,'from-carrier') || str_contains($channel,'from-carrier');
+        $supplierPath = !$legacy && str_starts_with($channel,'PJSIP/')
+            && ($context === 'from-suppliers' || $context === 'number-routing' || str_starts_with($context,'custom/'));
+        if(!$legacy && !$supplierPath) continue;
+        if($supplierPath){
+            $info = [];
+            exec('asterisk -rx '.escapeshellarg('core show channel '.$channel).' 2>/dev/null', $info);
+            $exten = preg_match('/^DID_NUMBER=(\d+)/m', implode("\n", $info), $dm) ? $dm[1] : $exten;
+        }
         
         // Get DID info from DB
         $did = \Illuminate\Support\Facades\DB::table('dids')

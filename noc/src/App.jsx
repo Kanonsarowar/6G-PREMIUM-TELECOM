@@ -3455,12 +3455,15 @@ const Banner=({ok,children})=>(
     border:"1px solid "+(ok?"#10B981":"#EF4444"),color:ok?"#10B981":"#EF4444"}}>{children}</div>
 );
 
-// ── All Numbers ───────────────────────────────────────────────────
+// ── All Numbers (grouped by prefix) ───────────────────────────────
+// Numbers that have taken a call (a CDR exists for the DID) are tinted light
+// green; numbers with a call up right now also show a pulsing LIVE badge.
+const HIT_BG="#E3F6E8";
+const groupKey=g=>(g.supplier_id??"")+"|"+g.prefix;
 function NumbersListPage({token,setPage}){
-  const [rows,setRows]=useState([]);
-  const [total,setTotal]=useState(0);
-  const [pg,setPg]=useState(1);
-  const [lastPage,setLastPage]=useState(1);
+  const [groups,setGroups]=useState([]);
+  const [rowsBy,setRowsBy]=useState({});
+  const [expanded,setExpanded]=useState(new Set());
   const [search,setSearch]=useState("");
   const [q,setQ]=useState("");
   const [supplierId,setSupplierId]=useState("");
@@ -3468,72 +3471,172 @@ function NumbersListPage({token,setPage}){
   const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [openId,setOpenId]=useState(null);
+  const [live,setLive]=useState(new Set());
+  const PER=200;
 
   useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
-  useEffect(()=>{const t=setTimeout(()=>{setQ(search);setPg(1);},300);return()=>clearTimeout(t);},[search]);
+  useEffect(()=>{const t=setTimeout(()=>setQ(search),300);return()=>clearTimeout(t);},[search]);
 
-  const load=useCallback(()=>{
-    setLoading(true);
-    const p=new URLSearchParams({page:pg,per_page:50});
+  const filterParams=()=>{
+    const p=new URLSearchParams();
     if(q) p.set("search",q);
     if(supplierId) p.set("supplier_id",supplierId);
     if(status) p.set("status",status);
-    apiFetch("/numbers?"+p,token).then(d=>{
-      setRows(d.data||[]);setTotal(d.total||0);setLastPage(d.last_page||1);setLoading(false);
+    return p;
+  };
+  const rowsUrl=(g,page)=>{
+    const p=filterParams();
+    p.set("prefix",g.prefix);p.set("per_page",PER);p.set("page",page);
+    if(g.supplier_id==null) p.set("unassigned","1");
+    else p.set("supplier_id",g.supplier_id);
+    return "/numbers?"+p;
+  };
+  // fetch every page already shown for a group, so a refresh never collapses "load more"
+  const fetchRows=async(g,pages)=>{
+    const res=await Promise.all(Array.from({length:pages},(_,i)=>apiFetch(rowsUrl(g,i+1),token)));
+    return {rows:res.flatMap(d=>d.data||[]),total:res[0]?.total||0,pages};
+  };
+
+  // filters changed: reload the group list and drop cached rows; searching opens every matching group
+  useEffect(()=>{
+    setRowsBy({});
+    setLoading(true);
+    apiFetch("/number-groups?"+filterParams(),token).then(d=>{
+      const gs=d.data||[];
+      setGroups(gs);setLoading(false);
+      setExpanded(q?new Set(gs.map(groupKey)):new Set());
     });
-  },[token,pg,q,supplierId,status]);
-  useEffect(()=>{load();},[load]);
+  },[token,q,supplierId,status]);
+
+  // load rows for any expanded group that has none yet
+  useEffect(()=>{
+    groups.forEach(g=>{
+      const k=groupKey(g);
+      if(expanded.has(k)&&!rowsBy[k]){
+        setRowsBy(r=>({...r,[k]:{rows:[],total:0,pages:0,loading:true}}));
+        fetchRows(g,1).then(v=>setRowsBy(r=>({...r,[k]:v})));
+      }
+    });
+  },[groups,expanded]);
+
+  const loadMore=async(g)=>{
+    const k=groupKey(g),cur=rowsBy[k];
+    const d=await apiFetch(rowsUrl(g,cur.pages+1),token);
+    setRowsBy(r=>({...r,[k]:{...cur,rows:[...cur.rows,...(d.data||[])],pages:cur.pages+1}}));
+  };
+  const rowsRef=useRef(rowsBy);rowsRef.current=rowsBy;
+  const refreshAll=useCallback(async()=>{
+    const d=await apiFetch("/number-groups?"+filterParams(),token);
+    const gs=d.data||[];
+    setGroups(gs);
+    Object.entries(rowsRef.current).forEach(([k,v])=>{
+      const g=gs.find(x=>groupKey(x)===k);
+      if(g&&v.pages>0) fetchRows(g,v.pages).then(nv=>setRowsBy(r=>r[k]?{...r,[k]:nv}:r));
+    });
+  },[token,q,supplierId,status]);
+  const refreshRef=useRef(refreshAll);refreshRef.current=refreshAll;
+
+  // poll live calls; when the set of numbers on a call changes (a call started or ended) refresh so new hits show
+  const liveRef=useRef(null);
+  useEffect(()=>{
+    let stop=false;
+    const tick=async()=>{
+      const d=await apiFetch("/live-calls",token);
+      if(stop||!Array.isArray(d.data)) return;
+      const s=new Set(d.data.map(c=>(c.did||"").replace(/[^0-9]/g,"")).filter(Boolean));
+      const sig=[...s].sort().join(",");
+      setLive(s);
+      const prev=liveRef.current;
+      liveRef.current=sig;
+      if(prev!==null&&sig!==prev) refreshRef.current();
+    };
+    tick();const t=setInterval(tick,5000);
+    return()=>{stop=true;clearInterval(t);};
+  },[token]);
+
+  const toggle=(g)=>setExpanded(e=>{const n=new Set(e),k=groupKey(g);if(n.has(k)) n.delete(k); else n.add(k);return n;});
+  const totalNumbers=groups.reduce((a,g)=>a+Number(g.total),0);
+  const isLive=d=>live.has((d.number||"").replace("+",""));
 
   return(
-    <NumbersPageShell title="Numbers" subtitle={`${total.toLocaleString()} numbers`}
+    <NumbersPageShell title="Numbers" subtitle={`${totalNumbers.toLocaleString()} numbers · ${groups.length} prefixes`}
       action={<button onClick={()=>setPage("addrange")} style={numBtn("primary")}>+ Add Range</button>}>
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search number, country or prefix..."
           style={{...numInp,flex:"2 1 200px",width:"auto"}}/>
-        <select value={supplierId} onChange={e=>{setSupplierId(e.target.value);setPg(1);}} style={{...numInp,flex:"1 1 140px",width:"auto"}}>
+        <select value={supplierId} onChange={e=>setSupplierId(e.target.value)} style={{...numInp,flex:"1 1 140px",width:"auto"}}>
           <option value="">All suppliers</option>
           {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
         </select>
-        <select value={status} onChange={e=>{setStatus(e.target.value);setPg(1);}} style={{...numInp,flex:"1 1 120px",width:"auto"}}>
+        <select value={status} onChange={e=>setStatus(e.target.value)} style={{...numInp,flex:"1 1 120px",width:"auto"}}>
           <option value="">All statuses</option>
           <option value="available">Available</option>
           <option value="disabled">Disabled</option>
         </select>
       </div>
+      <div style={{fontSize:11,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+        <span style={{width:12,height:12,borderRadius:3,background:HIT_BG,border:"1px solid #B7E4C4",display:"inline-block"}}/>
+        Number has received a call
+      </div>
+      <style>{`@keyframes numLivePulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
       <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
           <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560,whiteSpace:"nowrap"}}>
             <thead><tr>{["Number","Supplier","Country","IVR","Status"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
             <tbody>
               {loading&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
-              {!loading&&rows.length===0&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>}
-              {!loading&&rows.map((d,i)=>(
-                <tr key={d.id} onClick={()=>setOpenId(d.id)}
-                  style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA",cursor:"pointer"}}>
-                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
-                    {(d.number||"").replace("+","")}
-                    {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#8B5CF6",background:"#EBE4FB",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
-                  </td>
-                  <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
-                  <td style={{padding:"7px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                  <td style={{padding:"7px 10px",fontSize:12,color:"#555"}}>{ivrName(d.ivr_context)}</td>
-                  <td style={{padding:"7px 10px",fontSize:12,fontWeight:600,color:d.status==="disabled"?"#EF4444":"#10B981"}}>
-                    {d.status==="disabled"?"Disabled":"Available"}
-                  </td>
-                </tr>
-              ))}
+              {!loading&&groups.length===0&&<tr><td colSpan={5} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>}
+              {!loading&&groups.map(g=>{
+                const k=groupKey(g),open=expanded.has(k),data=rowsBy[k];
+                const hit=Number(g.hit_count);
+                return(
+                  <React.Fragment key={k}>
+                    <tr onClick={()=>toggle(g)} style={{background:open?"#F0FAFA":"#F7F7F7",borderBottom:"1px solid #E8E8E8",cursor:"pointer"}}>
+                      <td colSpan={5} style={{padding:"8px 10px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{width:20,height:20,borderRadius:"50%",background:"#2CADA6",color:"#FFF",display:"inline-flex",
+                            alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700}}>{open?"−":"+"}</span>
+                          <span style={{fontSize:13,fontWeight:800,fontFamily:"monospace",color:"#1A1A1A"}}>{g.prefix||"No prefix"}</span>
+                          <span style={{fontSize:12,color:"#333",fontWeight:600}}>{g.country_name||"—"}</span>
+                          <span style={{fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(g.supplier_name)}</span>
+                          <span style={{fontSize:11,color:"#999"}}>{Number(g.total).toLocaleString()} numbers</span>
+                          {hit>0&&<span style={{fontSize:10,fontWeight:800,color:"#1E7B3A",background:HIT_BG,border:"1px solid #B7E4C4",borderRadius:10,padding:"1px 8px"}}>{hit} hit</span>}
+                        </div>
+                      </td>
+                    </tr>
+                    {open&&(!data||data.loading)&&<tr><td colSpan={5} style={{padding:"8px 10px 8px 37px",fontSize:11,color:"#999"}}>Loading...</td></tr>}
+                    {open&&data&&!data.loading&&data.rows.map(d=>{
+                      const lv=isLive(d),hitRow=lv||d.hits>0;
+                      return(
+                        <tr key={d.id} onClick={()=>setOpenId(d.id)}
+                          title={d.hits>0?`${d.hits} call${d.hits>1?"s":""} · last ${d.last_hit}`:undefined}
+                          style={{borderBottom:"1px solid #F0F0F0",background:hitRow?HIT_BG:"#FFF",cursor:"pointer"}}>
+                          <td style={{padding:"7px 10px 7px 37px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
+                            {(d.number||"").replace("+","")}
+                            {!!d.is_test&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#8B5CF6",background:"#EBE4FB",borderRadius:4,padding:"1px 5px"}}>TEST</span>}
+                            {lv&&<span style={{marginLeft:8,fontSize:9,fontWeight:800,color:"#1E7B3A",animation:"numLivePulse 1.2s infinite"}}>● LIVE</span>}
+                          </td>
+                          <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
+                          <td style={{padding:"7px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
+                          <td style={{padding:"7px 10px",fontSize:12,color:"#555"}}>{ivrName(d.ivr_context)}</td>
+                          <td style={{padding:"7px 10px",fontSize:12,fontWeight:600,color:d.status==="disabled"?"#EF4444":"#10B981"}}>
+                            {d.status==="disabled"?"Disabled":"Available"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {open&&data&&!data.loading&&data.rows.length<data.total&&(
+                      <tr><td colSpan={5} style={{padding:"8px 10px",textAlign:"center"}}>
+                        <button onClick={()=>loadMore(g)} style={numBtn()}>Load more ({data.rows.length} of {data.total})</button></td></tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </GTable>
         </div>
       </div>
-      {lastPage>1&&(
-        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:12,marginTop:12,fontSize:12,color:"#666"}}>
-          <button disabled={pg<=1} onClick={()=>setPg(pg-1)} style={{...numBtn(),opacity:pg<=1?0.5:1}}>← Prev</button>
-          <span>Page {pg} of {lastPage}</span>
-          <button disabled={pg>=lastPage} onClick={()=>setPg(pg+1)} style={{...numBtn(),opacity:pg>=lastPage?0.5:1}}>Next →</button>
-        </div>
-      )}
-      {openId&&<NumberDetailsModal token={token} id={openId} setPage={setPage} onClose={()=>setOpenId(null)} onChanged={load}/>}
+      {openId&&<NumberDetailsModal token={token} id={openId} setPage={setPage} onClose={()=>setOpenId(null)} onChanged={()=>refreshRef.current()}/>}
     </NumbersPageShell>
   );
 }
