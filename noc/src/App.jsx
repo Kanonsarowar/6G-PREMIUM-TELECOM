@@ -3561,11 +3561,12 @@ function AddNumberPage({token,setPage}){
               {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
             </select></div>
           <div><div style={numLbl}>Prefix</div>
-            <select style={numInp} value={f.prefix_id} disabled={!f.supplier_id}
+            <select style={{...numInp,...(!f.supplier_id?{background:"#F5F5F5",cursor:"not-allowed"}:{})}} value={f.prefix_id} disabled={!f.supplier_id}
               onChange={e=>{const p=prefixes.find(x=>String(x.id)===e.target.value);setF({...f,prefix_id:e.target.value,ivr_context:p?.ivr_context||""});}}>
               <option value="">{f.supplier_id&&prefixes.length===0?"No prefixes — use Add Range to create one":"— Select Prefix —"}</option>
               {prefixes.map(p=><option key={p.id} value={p.id}>{p.country} — {p.prefix}</option>)}
-            </select></div>
+            </select>
+            {!f.supplier_id&&<div style={{fontSize:11,color:"#B45309",marginTop:4}}>Select a supplier above first</div>}</div>
           <div><div style={numLbl}>Number</div>
             <input style={numInp} value={f.number} onChange={e=>setF({...f,number:e.target.value})} placeholder="393191120550"/></div>
           <div><div style={numLbl}>IVR</div>
@@ -3691,11 +3692,12 @@ function AddRangePage({token,setPage}){
               {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
             </select></div>
           <div><div style={numLbl}>Prefix</div>
-            <select style={numInp} value={f.prefix_id} disabled={!f.supplier_id}
+            <select style={{...numInp,...(!f.supplier_id?{background:"#F5F5F5",cursor:"not-allowed"}:{})}} value={f.prefix_id} disabled={!f.supplier_id}
               onChange={e=>{const p=prefixes.find(x=>String(x.id)===e.target.value);setF({...f,prefix_id:e.target.value,ivr_context:p?.ivr_context||""});}}>
               <option value="">{f.supplier_id&&prefixes.length===0?"No prefixes — add one from Prefix / Routes":"— Select Prefix —"}</option>
               {prefixes.map(p=><option key={p.id} value={p.id}>{p.country} — {p.prefix}</option>)}
-            </select></div>
+            </select>
+            {!f.supplier_id&&<div style={{fontSize:11,color:"#B45309",marginTop:4}}>Select a supplier above first</div>}</div>
           {prefix&&<div style={{fontSize:12,lineHeight:1.7,background:"#FAFAFA",border:"1px solid #EEE",borderRadius:8,padding:"8px 12px"}}>
             {[["Country",prefix.country||"—"],["Access From",(prefix.access_from||"").split(",").filter(Boolean).join(", ")||"—"],
               ["Supplier Price",fmtUSDT(prefix.price)],["Payment Term",prefix.payment_term||"—"],
