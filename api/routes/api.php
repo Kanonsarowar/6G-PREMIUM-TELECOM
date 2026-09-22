@@ -2022,10 +2022,15 @@ Route::middleware('auth:sanctum')->group(function() {
         $out = $rows->map(function($c) use ($testNumbers, $prefixes) {
             $tn = $testNumbers[ltrim($c->did,'+')] ?? null;
             $prefix = $tn && $tn->prefix_id ? ($prefixes[$tn->prefix_id] ?? null) : null;
+            // supplier_prefixes has no currency column (an override price is
+            // always entered in USDT); only the dids.tariff fallback carries
+            // a real currency to report - without this, the frontend has no
+            // way to tell a EUR-priced fallback from a USDT one.
             return [
                 'date'        => $c->call_start,
                 'prefix'      => $prefix->prefix ?? ($tn->prefix ?? '—'),
                 'price'       => $prefix->price ?? ($tn->tariff ?? 0),
+                'currency'    => $prefix ? 'USDT' : ($tn->currency ?? 'USDT'),
                 'test_number' => $c->did,
                 'access_from' => $c->src ?? '—',
             ];
