@@ -2497,16 +2497,24 @@ Route::post('/v1/invoices/generate-weekly-supplier', function() {
     $suppliers = DB::table('trunks')->where('is_active',1)->get();
 
     foreach($suppliers as $supplier){
+        // cdrs.trunk_name is written by save_cdr.php as the supplier's
+        // NICKNAME when one is set (falling back to name only if there's no
+        // nickname) - matching on $supplier->name alone missed every
+        // supplier whose nickname differs from its name (e.g. trunk "purple"
+        // has nickname "PURNUM"; cdrs.trunk_name is "PURNUM", which never
+        // equals "purple"), so this generated zero invoices for real traffic.
+        $trunkNames = array_values(array_unique(array_filter([$supplier->nickname, $supplier->name])));
+
         // Get CDRs for this supplier this week
         $usd = DB::table('cdrs')
-            ->where('trunk_name', $supplier->name)
+            ->whereIn('trunk_name', $trunkNames)
             ->where('currency','USD')
             ->whereBetween('call_start',[$weekStart,$weekEnd])
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue, COUNT(DISTINCT did) as dids')
             ->first();
 
         $eur = DB::table('cdrs')
-            ->where('trunk_name', $supplier->name)
+            ->whereIn('trunk_name', $trunkNames)
             ->where('currency','EUR')
             ->whereBetween('call_start',[$weekStart,$weekEnd])
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue, COUNT(DISTINCT did) as dids')
@@ -2515,7 +2523,7 @@ Route::post('/v1/invoices/generate-weekly-supplier', function() {
         // Previously missing entirely, so a supplier's USDT-billed calls
         // (the majority of CDRs) never got invoiced to them at all.
         $usdt = DB::table('cdrs')
-            ->where('trunk_name', $supplier->name)
+            ->whereIn('trunk_name', $trunkNames)
             ->where('currency','USDT')
             ->whereBetween('call_start',[$weekStart,$weekEnd])
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue, COUNT(DISTINCT did) as dids')
