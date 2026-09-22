@@ -2886,7 +2886,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 <div style={{marginLeft:"auto",textAlign:"right"}}>
                   <div style={lblS}>Revenue (filtered)</div>
                   <div style={{fontSize:15,fontWeight:800,color:"#10B981",fontFamily:"monospace"}}>
-                    {fmtUSDT(payHistory.reduce((sum,h)=>sum+Number(h.total_amount||0),0))}</div>
+                    {fmtUSDT(payHistory.reduce((sum,h)=>sum+Number(h.total_amount||0)*(h.currency==="EUR"?1.08:1),0))}</div>
                 </div>
               </div>
               <div style={{overflowX:"auto",marginBottom:16}}>
@@ -2899,8 +2899,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={{padding:"6px 10px",fontSize:11}}>{(h.paid_at||"").slice(0,10)}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{h.payment_term||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(h.rate)}</td>
-                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.total_amount)}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(Number(h.rate||0)*(h.currency==="EUR"?1.08:1))}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(h.total_amount||0)*(h.currency==="EUR"?1.08:1))}</td>
                         <td style={{padding:"6px 10px"}}><span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,background:"rgba(16,185,129,0.1)",color:"#10B981"}}>PAID</span></td>
                       </tr>
                     ))}
@@ -3229,8 +3229,8 @@ function SupplierPaymentsPage({token,user}){
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{h.period_start} → {h.period_end}</td>
                         <td style={{padding:"8px 10px",fontSize:12}}>{h.total_calls}</td>
                         <td style={{padding:"8px 10px",fontSize:12}}>{h.total_minutes}</td>
-                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(h.rate)}</td>
-                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.total_amount)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{fmtUSDT(Number(h.rate||0)*(h.currency==="EUR"?1.08:1))}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(h.total_amount||0)*(h.currency==="EUR"?1.08:1))}</td>
                         <td style={{padding:"8px 10px",fontSize:11}}>{h.payment_method_name||"USDT"}</td>
                         <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{h.reference||"—"}</td>
                         <td style={{padding:"8px 10px"}}>
