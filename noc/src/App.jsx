@@ -3126,6 +3126,44 @@ function TypeaheadField({value,onChange,options,placeholder}){
   );
 }
 
+// Full prefix master list (all suppliers) for the Add Number/Add Range
+// "Search Prefix" field - loaded once, filtered client-side as you type.
+function usePrefixList(token){
+  const [prefixes,setPrefixes]=useState([]);
+  useEffect(()=>{apiFetch("/prefixes?all=1",token).then(d=>setPrefixes(d.data||[]));},[token]);
+  return prefixes;
+}
+// Search-as-you-type picker across every Prefix (matches on country, prefix
+// digits or supplier name) - selecting one carries its full record, so the
+// caller can inherit supplier/country/access_from/price/etc. from it.
+function PrefixSearchField({prefixes,selected,onSelect}){
+  const [q,setQ]=useState("");
+  const [open,setOpen]=useState(false);
+  const label=p=>`${p.country||"—"} — ${p.prefix} — ${numSupplier(p.supplier_name)}`;
+  const s=q.trim().toLowerCase();
+  const matches=!s?[]:prefixes.filter(p=>[p.prefix,p.country,p.supplier_name].some(v=>(v||"").toLowerCase().includes(s))).slice(0,25);
+  return(
+    <div style={{position:"relative"}}>
+      <input style={numInp} value={selected?label(selected):q} placeholder="Type country, prefix or supplier..."
+        onFocus={()=>{if(selected){onSelect(null);setQ("");} setOpen(true);}}
+        onChange={e=>{setQ(e.target.value);setOpen(true);if(selected) onSelect(null);}}
+        onBlur={()=>setTimeout(()=>setOpen(false),150)}/>
+      {open&&matches.length>0&&
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:10,background:"#FFF",
+          border:"1px solid #E0E0E0",borderRadius:8,maxHeight:220,overflowY:"auto",
+          boxShadow:"0 4px 10px rgba(0,0,0,0.08)",marginTop:2}}>
+          {matches.map(p=>
+            <div key={p.id} onMouseDown={()=>{onSelect(p);setQ("");setOpen(false);}}
+              style={{padding:"8px 12px",fontSize:13,cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#F5F5F5"}
+              onMouseLeave={e=>e.currentTarget.style.background="#FFF"}>
+              <b>{p.country||"—"}</b> — <span style={{fontFamily:"monospace"}}>{p.prefix}</span>
+              {" — "}<span style={{color:"#2CADA6"}}>{numSupplier(p.supplier_name)}</span>
+            </div>)}
+        </div>}
+    </div>
+  );
+}
 function useIvrList(token){
   const [ivrs,setIvrs]=useState([]);
   useEffect(()=>{apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));},[token]);
@@ -3524,57 +3562,50 @@ function NumberDetailsModal({token,id,setPage,onClose,onChanged}){
 
 // ── Add Number (single) ───────────────────────────────────────────
 function AddNumberPage({token,setPage}){
-  const [suppliers,setSuppliers]=useState([]);
-  const [prefixes,setPrefixes]=useState([]);
-  const [f,setF]=useState({supplier_id:"",prefix_id:"",number:"",ivr_context:""});
+  const prefixes=usePrefixList(token);
+  const [prefix,setPrefix]=useState(null);
+  const [number,setNumber]=useState("");
+  const [ivrOverride,setIvrOverride]=useState("");
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
   const ivrs=useIvrList(token);
 
-  useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
-  const pickSupplier=async(sid)=>{
-    setF({supplier_id:sid,prefix_id:"",number:"",ivr_context:""});setPrefixes([]);setMsg(null);
-    if(sid){const d=await apiFetch(`/supplier-accounts/${sid}/prefixes`,token);setPrefixes(d.data||[]);}
-  };
-  const prefix=prefixes.find(p=>String(p.id)===String(f.prefix_id));
-  const digits=f.number.replace(/[^0-9]/g,"");
-  const problem=!f.supplier_id?"Select a supplier":!prefix?"Select a prefix":!digits?"Enter a number"
+  const digits=number.replace(/[^0-9]/g,"");
+  const problem=!prefix?"Search and select a prefix":!digits?"Enter a number"
     :!digits.startsWith(prefix.prefix)?`Number must start with ${prefix.prefix}`:null;
 
   const submit=async()=>{
     setSaving(true);setMsg(null);
     const d=await apiFetch(`/numbers`,token,{method:"POST",
-      body:JSON.stringify({supplier_id:f.supplier_id,prefix_id:f.prefix_id,number:digits,ivr_context:f.ivr_context||undefined})});
+      body:JSON.stringify({supplier_id:prefix.supplier_id,prefix_id:prefix.id,number:digits,ivr_context:ivrOverride||undefined})});
     setSaving(false);
-    if(d.success){setMsg({ok:true,text:`Added ${digits}`});setF({...f,number:""});}
+    if(d.success){setMsg({ok:true,text:`Added ${digits}`});setNumber("");}
     else setMsg({ok:false,text:d.error||d.message||"Failed to add number"});
   };
 
   return(
-    <NumbersPageShell title="Add Number" subtitle="Add a single DID under an existing prefix">
+    <NumbersPageShell title="Add Number" subtitle="Search a Prefix and add a single DID under it">
       <div style={{background:"#FFF",borderRadius:10,padding:20,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
         {msg&&<Banner ok={msg.ok}>{msg.text}</Banner>}
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div><div style={numLbl}>Supplier</div>
-            <select style={numInp} value={f.supplier_id} onChange={e=>pickSupplier(e.target.value)}>
-              <option value="">— Select Supplier —</option>
-              {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
-            </select></div>
-          <div><div style={numLbl}>Prefix</div>
-            <select style={{...numInp,...(!f.supplier_id?{background:"#F5F5F5",cursor:"not-allowed"}:{})}} value={f.prefix_id} disabled={!f.supplier_id}
-              onChange={e=>{const p=prefixes.find(x=>String(x.id)===e.target.value);setF({...f,prefix_id:e.target.value,ivr_context:p?.ivr_context||""});}}>
-              <option value="">{f.supplier_id&&prefixes.length===0?"No prefixes — use Add Range to create one":"— Select Prefix —"}</option>
-              {prefixes.map(p=><option key={p.id} value={p.id}>{p.country} — {p.prefix}</option>)}
-            </select>
-            {!f.supplier_id&&<div style={{fontSize:11,color:"#B45309",marginTop:4}}>Select a supplier above first</div>}</div>
+          <div><div style={numLbl}>Search Prefix</div>
+            <PrefixSearchField prefixes={prefixes} selected={prefix} onSelect={p=>{setPrefix(p);setIvrOverride("");}}/></div>
+          {prefix&&<div style={{fontSize:12,lineHeight:1.7,background:"#FAFAFA",border:"1px solid #EEE",borderRadius:8,padding:"8px 12px"}}>
+            {[["Supplier",numSupplier(prefix.supplier_name)],["Country",prefix.country||"—"],
+              ["Access From",(prefix.access_from||"").split(",").filter(Boolean).join(", ")||"—"],
+              ["Supplier Price",fmtUSDT(prefix.price)],["Payment Term",prefix.payment_term||"—"],
+              ["Test Number",prefix.test_number||"—"]].map(([k,v])=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>{k}:</span><b>{v}</b></div>
+            ))}
+          </div>}
           <div><div style={numLbl}>Number</div>
-            <input style={numInp} value={f.number} onChange={e=>setF({...f,number:e.target.value})} placeholder="393191120550"/></div>
+            <input style={numInp} value={number} onChange={e=>setNumber(e.target.value)} placeholder="393191120550"/></div>
           <div><div style={numLbl}>IVR</div>
-            <select style={numInp} value={f.ivr_context} onChange={e=>setF({...f,ivr_context:e.target.value})}>
-              <IvrOptions ivrs={ivrs} value={f.ivr_context}/></select>
+            <select style={numInp} value={ivrOverride} onChange={e=>setIvrOverride(e.target.value)}>
+              <IvrOptions ivrs={ivrs} value={ivrOverride}/></select>
             <div style={{fontSize:11,color:"#999",marginTop:4}}>Leave empty to use the prefix's IVR. Tariff and payment term come from the prefix.</div></div>
         </div>
-        {f.number&&problem&&<div style={{fontSize:12,color:"#EF4444",marginTop:10}}>{problem}</div>}
+        {number&&problem&&<div style={{fontSize:12,color:"#EF4444",marginTop:10}}>{problem}</div>}
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
           <button onClick={()=>setPage("numbers")} style={numBtn()}>Cancel</button>
           <button onClick={submit} disabled={!!problem||saving} style={{...numBtn("primary"),opacity:problem||saving?0.5:1}}>
@@ -3587,29 +3618,23 @@ function AddNumberPage({token,setPage}){
 
 // ── Add Range (form → preview → import) ───────────────────────────
 function AddRangePage({token,setPage}){
-  const empty={supplier_id:"",prefix_id:"",range_start:"",range_end:"",ivr_context:""};
-  const [f,setF]=useState(empty);
-  const [suppliers,setSuppliers]=useState([]);
-  const [prefixes,setPrefixes]=useState([]);
+  const prefixes=usePrefixList(token);
+  const [prefix,setPrefix]=useState(null);
+  const [rangeStart,setRangeStart]=useState("");
+  const [rangeEnd,setRangeEnd]=useState("");
+  const [ivrOverride,setIvrOverride]=useState("");
   const [preview,setPreview]=useState(null);
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
   const ivrs=useIvrList(token);
-  useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
-  const pickSupplier=async(sid)=>{
-    setF({...empty,supplier_id:sid});setPrefixes([]);
-    if(sid){const d=await apiFetch(`/supplier-accounts/${sid}/prefixes`,token);setPrefixes(d.data||[]);}
-  };
 
-  const set=(k,v)=>setF(x=>({...x,[k]:v}));
   const dg=s=>s.replace(/[^0-9]/g,"");
-  const prefix=prefixes.find(p=>String(p.id)===String(f.prefix_id));
-  const start=dg(f.range_start),end=dg(f.range_end);
+  const start=dg(rangeStart),end=dg(rangeEnd);
   const total=start&&end&&start.length===end.length&&+end>=+start?+end-+start+1:0;
-  const missing=!f.supplier_id||!f.prefix_id||!start||!end;
+  const missing=!prefix||!start||!end;
 
-  const payload=()=>({supplier_id:f.supplier_id,prefix_id:f.prefix_id,range_start:start,range_end:end,ivr_context:f.ivr_context});
+  const payload=()=>({supplier_id:prefix.supplier_id,prefix_id:prefix.id,range_start:start,range_end:end,ivr_context:ivrOverride});
   const runPreview=async()=>{
     setBusy(true);setErr("");
     const d=await apiFetch("/number-ranges/preview",token,{method:"POST",body:JSON.stringify(payload())});
@@ -3622,9 +3647,9 @@ function AddRangePage({token,setPage}){
     setBusy(false);
     if(d.success) setResult(d); else setErr(d.error||d.message||"Import failed");
   };
-  const again=()=>{setF(empty);setPreview(null);setResult(null);setErr("");};
+  const again=()=>{setPrefix(null);setRangeStart("");setRangeEnd("");setIvrOverride("");setPreview(null);setResult(null);setErr("");};
 
-  const supplierName=numSupplier(suppliers.find(s=>String(s.id)===String(f.supplier_id))?.name);
+  const supplierName=numSupplier(prefix?.supplier_name);
 
   if(result) return(
     <NumbersPageShell title="Add Number Range">
@@ -3686,20 +3711,11 @@ function AddRangePage({token,setPage}){
       <div style={{background:"#FFF",borderRadius:10,padding:20,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
         {err&&<Banner>{err}</Banner>}
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div><div style={numLbl}>Supplier</div>
-            <select style={numInp} value={f.supplier_id} onChange={e=>pickSupplier(e.target.value)}>
-              <option value="">— Select Supplier —</option>
-              {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
-            </select></div>
-          <div><div style={numLbl}>Prefix</div>
-            <select style={{...numInp,...(!f.supplier_id?{background:"#F5F5F5",cursor:"not-allowed"}:{})}} value={f.prefix_id} disabled={!f.supplier_id}
-              onChange={e=>{const p=prefixes.find(x=>String(x.id)===e.target.value);setF({...f,prefix_id:e.target.value,ivr_context:p?.ivr_context||""});}}>
-              <option value="">{f.supplier_id&&prefixes.length===0?"No prefixes — add one from Prefix / Routes":"— Select Prefix —"}</option>
-              {prefixes.map(p=><option key={p.id} value={p.id}>{p.country} — {p.prefix}</option>)}
-            </select>
-            {!f.supplier_id&&<div style={{fontSize:11,color:"#B45309",marginTop:4}}>Select a supplier above first</div>}</div>
+          <div><div style={numLbl}>Search Prefix</div>
+            <PrefixSearchField prefixes={prefixes} selected={prefix} onSelect={p=>{setPrefix(p);setIvrOverride("");}}/></div>
           {prefix&&<div style={{fontSize:12,lineHeight:1.7,background:"#FAFAFA",border:"1px solid #EEE",borderRadius:8,padding:"8px 12px"}}>
-            {[["Country",prefix.country||"—"],["Access From",(prefix.access_from||"").split(",").filter(Boolean).join(", ")||"—"],
+            {[["Supplier",numSupplier(prefix.supplier_name)],["Country",prefix.country||"—"],
+              ["Access From",(prefix.access_from||"").split(",").filter(Boolean).join(", ")||"—"],
               ["Supplier Price",fmtUSDT(prefix.price)],["Payment Term",prefix.payment_term||"—"],
               ["Test Number",prefix.test_number||"—"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>{k}:</span><b>{v}</b></div>
@@ -3707,14 +3723,14 @@ function AddRangePage({token,setPage}){
           </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div><div style={numLbl}>Range Start</div>
-              <input style={numInp} value={f.range_start} onChange={e=>set("range_start",e.target.value)} placeholder="393191120550"/></div>
+              <input style={numInp} value={rangeStart} onChange={e=>setRangeStart(e.target.value)} placeholder="393191120550"/></div>
             <div><div style={numLbl}>Range End</div>
-              <input style={numInp} value={f.range_end} onChange={e=>set("range_end",e.target.value)} placeholder="393191120578"/></div>
+              <input style={numInp} value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} placeholder="393191120578"/></div>
           </div>
           <div style={{fontSize:13,fontWeight:700,color:total?"#2CADA6":"#999"}}>Total Numbers: {total.toLocaleString()}</div>
           <div><div style={numLbl}>IVR</div>
-            <select style={numInp} value={f.ivr_context} onChange={e=>set("ivr_context",e.target.value)}>
-              <IvrOptions ivrs={ivrs} value={f.ivr_context}/></select>
+            <select style={numInp} value={ivrOverride} onChange={e=>setIvrOverride(e.target.value)}>
+              <IvrOptions ivrs={ivrs} value={ivrOverride}/></select>
             <div style={{fontSize:11,color:"#999",marginTop:4}}>Leave empty to use the prefix's IVR.</div></div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
