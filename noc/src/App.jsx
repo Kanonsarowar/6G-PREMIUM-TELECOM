@@ -17,6 +17,12 @@ const SUP_COLORS=[
 ];
 const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
 const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals);
+// A CDR's `revenue` is stored in whatever currency it billed in (EUR/USD/USDT).
+// Every place that ADDS revenue across multiple CDRs (a chart total, a daily/
+// country/supplier breakdown) must convert to the single operational currency
+// first - otherwise it sums unlike units together. Same fixed rate as the
+// backend's /v1/billing/current-revenue (1 EUR = 1.08 USD; USD/USDT 1:1).
+const revUsdt=c=>c?.currency==="EUR"?parseFloat(c.revenue||0)*1.08:parseFloat(c.revenue||0);
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={hasError:false,error:""}; }
   static getDerivedStateFromError(e){ return {hasError:true,error:e.message}; }
@@ -355,17 +361,17 @@ function StatsCharts({token}){
   const dailyData=()=>{
     const days={};const[y,m]=month.split("-");const dim=new Date(parseInt(y),parseInt(m),0).getDate();
     for(let i=1;i<=dim;i++){const d=month+"-"+String(i).padStart(2,"0");days[d]={date:String(i),calls:0,revenue:0,minutes:0};}
-    cdrs.forEach(c=>{const day=(c.call_start||"").slice(0,10);if(days[day]){days[day].calls++;days[day].revenue+=parseFloat(c.revenue||0);days[day].minutes+=parseInt(c.billsec||0)/60;}});
+    cdrs.forEach(c=>{const day=(c.call_start||"").slice(0,10);if(days[day]){days[day].calls++;days[day].revenue+=revUsdt(c);days[day].minutes+=parseInt(c.billsec||0)/60;}});
     return Object.values(days);
   };
   const weeklyData=()=>{
     const weeks={};
-    cdrs.forEach(c=>{const d=new Date(c.call_start||"");if(isNaN(d.getTime()))return;const wn=Math.ceil(d.getDate()/7);const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-W"+wn;const label="W"+wn+"/"+String(d.getMonth()+1).padStart(2,"0");if(!weeks[key])weeks[key]={date:label,calls:0,revenue:0,minutes:0};weeks[key].calls++;weeks[key].revenue+=parseFloat(c.revenue||0);weeks[key].minutes+=parseInt(c.billsec||0)/60;});
+    cdrs.forEach(c=>{const d=new Date(c.call_start||"");if(isNaN(d.getTime()))return;const wn=Math.ceil(d.getDate()/7);const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-W"+wn;const label="W"+wn+"/"+String(d.getMonth()+1).padStart(2,"0");if(!weeks[key])weeks[key]={date:label,calls:0,revenue:0,minutes:0};weeks[key].calls++;weeks[key].revenue+=revUsdt(c);weeks[key].minutes+=parseInt(c.billsec||0)/60;});
     return Object.values(weeks).slice(-16);
   };
   const monthlyData=()=>{
     const months={};
-    cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=parseFloat(c.revenue||0);});
+    cdrs.forEach(c=>{const m=(c.call_start||"").slice(0,7);if(!m)return;if(!months[m])months[m]={date:m.slice(5),calls:0,revenue:0};months[m].calls++;months[m].revenue+=revUsdt(c);});
     return Object.values(months).sort((a,b)=>a.date.localeCompare(b.date));
   };
   const [didMap,setDidMap]=useState({});
@@ -389,17 +395,17 @@ function StatsCharts({token}){
     cdrs.forEach(c=>{
       const cn=getCountry(c.did||c.dst||"");
       if(!co[cn])co[cn]={name:cn,calls:0,revenue:0,minutes:0};
-      co[cn].calls++;co[cn].revenue+=parseFloat(c.revenue||0);co[cn].minutes+=parseInt(c.billsec||0)/60;
+      co[cn].calls++;co[cn].revenue+=revUsdt(c);co[cn].minutes+=parseInt(c.billsec||0)/60;
     });
     return Object.values(co).sort((a,b)=>b.revenue-a.revenue).slice(0,15);
   };
   const supplierData=()=>{
     const s={};
-    cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:numSupplier(sup),calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=parseFloat(c.revenue||0);});
+    cdrs.forEach(c=>{const sup=c.trunk_name||"Unknown";if(!s[sup])s[sup]={name:numSupplier(sup),calls:0,revenue:0};s[sup].calls++;s[sup].revenue+=revUsdt(c);});
     return Object.values(s).sort((a,b)=>b.revenue-a.revenue);
   };
 
-  const totalRevenue=cdrs.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
+  const totalRevenue=cdrs.reduce((a,c)=>a+revUsdt(c),0);
   const COLORS=["#2CADA6","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#10B981"];
 
   const getFlag=(country)=>{
@@ -1139,7 +1145,7 @@ function CDRPage({token}){
   });
 
   const totalSec=filtered.reduce((a,c)=>a+parseInt(c.billsec||0),0);
-  const totalRev=filtered.reduce((a,c)=>a+parseFloat(c.revenue||0),0);
+  const totalRev=filtered.reduce((a,c)=>a+revUsdt(c),0);
   const suppliers=[...new Set(cdrs.map(c=>c.trunk_name).filter(Boolean))];
   const totalPages=Math.max(1,Math.ceil(filtered.length/perPage));
   const pageSafe=Math.min(page,totalPages);
@@ -1150,7 +1156,7 @@ function CDRPage({token}){
     filtered.forEach(c=>rows.push([
       (c.call_start||c.created_at||"").slice(0,19),
       c.src||"",c.did||"",c.billsec||0,
-      parseFloat(c.revenue||0).toFixed(4),
+      revUsdt(c).toFixed(4),
       "USDT",c.trunk_name||"",c.disposition||""
     ]));
     const csv=rows.map(r=>r.join(",")).join("\n");
@@ -1316,7 +1322,7 @@ function CDRPage({token}){
 }
 // ── Revenue ───────────────────────────────────────────────────────
 function RevenuePage({token}){
-  const [data,setData]=useState({usd:{calls:0,minutes:0,revenue:0},eur:{calls:0,minutes:0,revenue:0},total_calls:0,total_minutes:0});
+  const [data,setData]=useState({usd:{calls:0,minutes:0,revenue:0},eur:{calls:0,minutes:0,revenue:0},usdt:{calls:0,minutes:0,revenue:0},total_calls:0,total_minutes:0});
   const [supRevenue,setSupRevenue]=useState([]);
   const [cdrs,setCdrs]=useState([]);
   const [invoices,setInvoices]=useState([]);
@@ -1334,6 +1340,7 @@ function RevenuePage({token}){
       setData({
         usd:{calls:d.usd?.calls||0,minutes:parseFloat(d.usd?.minutes||0).toFixed(2),revenue:parseFloat(d.usd?.revenue||0).toFixed(4)},
         eur:{calls:d.eur?.calls||0,minutes:parseFloat(d.eur?.minutes||0).toFixed(2),revenue:parseFloat(d.eur?.revenue||0).toFixed(4)},
+        usdt:{calls:d.usdt?.calls||0,minutes:parseFloat(d.usdt?.minutes||0).toFixed(2),revenue:parseFloat(d.usdt?.revenue||0).toFixed(4)},
         total_calls:d.total_calls||0,
         total_minutes:parseFloat(d.total_minutes||0).toFixed(2),
       });
@@ -1350,7 +1357,7 @@ function RevenuePage({token}){
       if(!day) return;
       if(!days[day]) days[day]={date:day,calls:0,revenue:0,minutes:0};
       days[day].calls++;
-      days[day].revenue+=parseFloat(c.revenue||0);
+      days[day].revenue+=revUsdt(c);
       days[day].minutes+=parseInt(c.billsec||c.duration||0)/60;
     });
     return Object.values(days).sort((a,b)=>a.date.localeCompare(b.date)).slice(-14);
@@ -1363,7 +1370,7 @@ function RevenuePage({token}){
       const country=c.country_name||c.country||"Unknown";
       if(!countries[country]) countries[country]={country,calls:0,revenue:0};
       countries[country].calls++;
-      countries[country].revenue+=parseFloat(c.revenue||0);
+      countries[country].revenue+=revUsdt(c);
     });
     return Object.values(countries).sort((a,b)=>b.revenue-a.revenue).slice(0,8);
   };
@@ -1372,11 +1379,13 @@ function RevenuePage({token}){
   const countries=countryData();
   const maxRev=Math.max(...daily.map(d=>d.revenue),0.01);
   const maxCountryRev=Math.max(...countries.map(c=>c.revenue),0.01);
-  // Single operational currency (USDT) - combine whatever the backend
-  // still splits by historical currency into one wallet figure.
-  const totalRevUsdt=parseFloat(data.eur.revenue||0)+parseFloat(data.usd.revenue||0);
-  const totalCallsUsdt=(parseInt(data.eur.calls||0))+(parseInt(data.usd.calls||0));
-  const totalMinUsdt=parseFloat(data.eur.minutes||0)+parseFloat(data.usd.minutes||0);
+  // Single operational currency (USDT) - combine whatever the backend still
+  // splits by historical currency into one wallet figure. EUR converts to its
+  // USDT-equivalent at a fixed rate (1 EUR = 1.08 USD) instead of being added
+  // 1:1 with USD/USDT; USDT was also missing from this total entirely before.
+  const totalRevUsdt=parseFloat(data.eur.revenue||0)*1.08+parseFloat(data.usd.revenue||0)+parseFloat(data.usdt.revenue||0);
+  const totalCallsUsdt=(parseInt(data.eur.calls||0))+(parseInt(data.usd.calls||0))+(parseInt(data.usdt.calls||0));
+  const totalMinUsdt=parseFloat(data.eur.minutes||0)+parseFloat(data.usd.minutes||0)+parseFloat(data.usdt.minutes||0);
 
   const tabs=[
     {id:"overview",label:"Overview"},

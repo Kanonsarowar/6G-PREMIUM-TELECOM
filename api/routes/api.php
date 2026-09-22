@@ -545,7 +545,11 @@ Route::middleware('auth:sanctum')->group(function() {
             $q = DB::table('cdrs')->whereIn('trunk_name',$names);
             if ($lastPaid) $q->where('call_start','>',$lastPaid);
             if ($paidRefs) $q->where(fn($w)=>$w->whereNull('invoice_ref')->orWhereNotIn('invoice_ref',$paidRefs));
-            $row = $q->selectRaw('COUNT(*) as calls, COALESCE(SUM(billsec),0)/60 as minutes, COALESCE(SUM(revenue),0) as amount')->first();
+            // Convert EUR to its USDT-equivalent before summing (see the same
+            // conversion in /v1/billing/current-revenue) - otherwise a supplier
+            // billed in more than one currency gets an "amount" that adds
+            // unlike units together.
+            $row = $q->selectRaw("COUNT(*) as calls, COALESCE(SUM(billsec),0)/60 as minutes, COALESCE(SUM(CASE currency WHEN 'EUR' THEN revenue*1.08 ELSE revenue END),0) as amount")->first();
             // unpaid bills entered from a supplier's own report (no per-call rows behind them)
             $manual = DB::table('invoices')->where('supplier_id',$sup->id)->where('invoice_type','supplier_payment')
                 ->where('status','unpaid')->where('invoice_number','like','M%')
@@ -564,8 +568,14 @@ Route::middleware('auth:sanctum')->group(function() {
         // Current week: Monday 00:00 -> now (same boundary as invoices)
         $weekStart = now()->startOfWeek(\Carbon\Carbon::MONDAY);
         $weekEnd   = now()->endOfWeek(\Carbon\Carbon::SUNDAY);
+        // cdrs.revenue is stored in whatever currency that row billed in (EUR/USD/USDT) -
+        // summing it raw adds unlike units together. The app's single operational
+        // currency is USDT, so convert EUR to its USDT-equivalent before summing
+        // (USD and USDT are treated 1:1, USDT being a USD-pegged stablecoin).
+        // Keep this rate in one place - every blended revenue total below uses it.
+        $usdtSum = "SUM(CASE currency WHEN 'EUR' THEN revenue*1.08 ELSE revenue END)";
         $weekData = DB::table('cdrs')
-            ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+            ->selectRaw("COUNT(*) as calls, SUM(billsec/60) as minutes, $usdtSum as revenue")
             ->whereBetween('call_start', [$weekStart, $weekEnd])
             ->first();
         $weekEur = DB::table('cdrs')
@@ -574,11 +584,14 @@ Route::middleware('auth:sanctum')->group(function() {
         $weekUsd = DB::table('cdrs')
             ->whereBetween('call_start', [$weekStart, $weekEnd])->where('currency','USD')
             ->sum('revenue');
+        $weekUsdt = DB::table('cdrs')
+            ->whereBetween('call_start', [$weekStart, $weekEnd])->where('currency','USDT')
+            ->sum('revenue');
         $data = DB::table('cdrs')
-            ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+            ->selectRaw("COUNT(*) as calls, SUM(billsec/60) as minutes, $usdtSum as revenue")
             ->first();
         $todayData = DB::table('cdrs')
-            ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+            ->selectRaw("COUNT(*) as calls, SUM(billsec/60) as minutes, $usdtSum as revenue")
             ->whereDate('call_start', $today)
             ->first();
         $todayEur = DB::table('cdrs')
@@ -587,24 +600,31 @@ Route::middleware('auth:sanctum')->group(function() {
         $todayUsd = DB::table('cdrs')
             ->whereDate('call_start', $today)->where('currency','USD')
             ->sum('revenue');
+        $todayUsdt = DB::table('cdrs')
+            ->whereDate('call_start', $today)->where('currency','USDT')
+            ->sum('revenue');
         $allEur = DB::table('cdrs')->where('currency','EUR')->sum('revenue');
         $allUsd = DB::table('cdrs')->where('currency','USD')->sum('revenue');
+        $allUsdt = DB::table('cdrs')->where('currency','USDT')->sum('revenue');
         return response()->json(['data'=>[
             'calls'         => $data->calls??0,
             'minutes'       => $data->minutes??0,
             'revenue'       => $data->revenue??0,
             'revenue_eur'   => $allEur??0,
             'revenue_usd'   => $allUsd??0,
+            'revenue_usdt'  => $allUsdt??0,
             'today_calls'   => $todayData->calls??0,
             'today_minutes' => $todayData->minutes??0,
             'today_revenue' => $todayData->revenue??0,
             'today_eur'     => $todayEur??0,
             'today_usd'     => $todayUsd??0,
+            'today_usdt'    => $todayUsdt??0,
             'week_calls'    => $weekData->calls??0,
             'week_minutes'  => $weekData->minutes??0,
             'week_revenue'  => $weekData->revenue??0,
             'week_eur'      => $weekEur??0,
             'week_usd'      => $weekUsd??0,
+            'week_usdt'     => $weekUsdt??0,
             'week_start'    => $weekStart->toDateString(),
             'week_end'      => $weekEnd->toDateString(),
         ]]);
@@ -773,8 +793,11 @@ Route::middleware('auth:sanctum')->group(function() {
         $out = $suppliers->map(function($s) use ($numberCounts,$rangeCounts,$testCounts,$trunkLinks) {
             $sid = $s->id;
             $didNumbers = DB::table('dids')->where('supplier_id',$sid)->where('is_test',0)->pluck('number');
+            // Convert EUR to its USDT-equivalent before summing (see the same
+            // conversion in /v1/billing/current-revenue) so a supplier's numbers
+            // spanning more than one currency don't get a blended, meaningless total.
             $cdr = $didNumbers->isEmpty() ? null : DB::table('cdrs')->whereIn('did',$didNumbers)
-                ->selectRaw('COUNT(*) as calls, COALESCE(SUM(billsec),0)/60 as minutes, COALESCE(SUM(revenue),0) as revenue')
+                ->selectRaw("COUNT(*) as calls, COALESCE(SUM(billsec),0)/60 as minutes, COALESCE(SUM(CASE currency WHEN 'EUR' THEN revenue*1.08 ELSE revenue END),0) as revenue")
                 ->first();
             $s = redactSupplier($s);
             $s['number_count']      = ($numberCounts[$sid] ?? 0) + ($rangeCounts[$sid] ?? 0);
@@ -2319,13 +2342,19 @@ Route::get('/v1/billing/revenue-by-currency', function() {
     $eur = DB::table('cdrs')->where('currency','EUR')
         ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
         ->first();
+    // USDT was missing here entirely - every USDT-billed call (the majority of
+    // CDRs) was silently dropped from this endpoint's totals, not just blended.
+    $usdt = DB::table('cdrs')->where('currency','USDT')
+        ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+        ->first();
     // Default all to USD if no currency set
     $all = DB::table('cdrs')
         ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
         ->first();
     return response()->json([
-        'usd' => ['calls'=>$usd->calls??0,'minutes'=>round($usd->minutes??0,2),'revenue'=>round($usd->revenue??0,4)],
-        'eur' => ['calls'=>$eur->calls??0,'minutes'=>round($eur->minutes??0,2),'revenue'=>round($eur->revenue??0,4)],
+        'usd'  => ['calls'=>$usd->calls??0,'minutes'=>round($usd->minutes??0,2),'revenue'=>round($usd->revenue??0,4)],
+        'eur'  => ['calls'=>$eur->calls??0,'minutes'=>round($eur->minutes??0,2),'revenue'=>round($eur->revenue??0,4)],
+        'usdt' => ['calls'=>$usdt->calls??0,'minutes'=>round($usdt->minutes??0,2),'revenue'=>round($usdt->revenue??0,4)],
         'total_calls' => $all->calls??0,
         'total_minutes' => round($all->minutes??0,2),
     ]);
@@ -3331,7 +3360,10 @@ Route::get('/v1/resellers', function() {
                 'markup'       => $r->markup??0,
                 'dids_count'   => $dids,
                 'calls_count'  => $cdrs->count(),
-                'revenue'      => round($cdrs->sum('revenue'),4),
+                // Convert EUR to its USDT-equivalent before summing (see the same
+                // conversion in /v1/billing/current-revenue) instead of adding
+                // EUR/USD/USDT revenue together as if they were the same unit.
+                'revenue'      => round((float)$cdrs->selectRaw("SUM(CASE currency WHEN 'EUR' THEN revenue*1.08 ELSE revenue END) as rev")->value('rev'),4),
                 'last_login'   => $r->last_login??null,
                 'created_at'   => $r->created_at,
                 'notes'        => $r->notes??'',
