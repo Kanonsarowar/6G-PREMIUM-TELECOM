@@ -2406,6 +2406,14 @@ Route::post('/v1/invoices/generate-weekly', function() {
         ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
         ->first();
 
+    // USDT invoice - previously missing entirely, so every USDT-billed call
+    // (the majority of CDRs) never got invoiced by this endpoint at all.
+    $usdt = DB::table('cdrs')
+        ->whereBetween('call_start',[$weekStart,$weekEnd])
+        ->where('currency','USDT')
+        ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue')
+        ->first();
+
     $created = [];
 
     if(($usd->calls??0) > 0){
@@ -2433,13 +2441,34 @@ Route::post('/v1/invoices/generate-weekly', function() {
             'total_calls'    => $eur->calls??0,
             'total_minutes'  => round($eur->minutes??0,4),
             'total_amount'   => round($eur->revenue??0,6),
-            'currency'       => $r->currency ?? 'USDT',
+            // Was `$r->currency ?? 'USDT'` - this closure takes no $r
+            // (Request) argument at all, so that reference was always
+            // undefined and silently fell back to 'USDT', mislabelling
+            // every EUR weekly invoice as USDT.
+            'currency'       => 'EUR',
             'status'         => 'unpaid',
             'invoice_type'   => 'weekly',
             'created_at'     => now(),
             'updated_at'     => now(),
         ]);
         $created[] = $invoiceNum.'-EUR';
+    }
+
+    if(($usdt->calls??0) > 0){
+        DB::table('invoices')->insert([
+            'invoice_number' => $invoiceNum.'-USDT',
+            'period_start'   => $weekStart->toDateString(),
+            'period_end'     => $weekEnd->toDateString(),
+            'total_calls'    => $usdt->calls??0,
+            'total_minutes'  => round($usdt->minutes??0,4),
+            'total_amount'   => round($usdt->revenue??0,6),
+            'currency'       => 'USDT',
+            'status'         => 'unpaid',
+            'invoice_type'   => 'weekly',
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+        $created[] = $invoiceNum.'-USDT';
     }
 
     return response()->json([
@@ -2483,7 +2512,16 @@ Route::post('/v1/invoices/generate-weekly-supplier', function() {
             ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue, COUNT(DISTINCT did) as dids')
             ->first();
 
-        foreach([['USD',$usd],['EUR',$eur]] as [$currency,$data]){
+        // Previously missing entirely, so a supplier's USDT-billed calls
+        // (the majority of CDRs) never got invoiced to them at all.
+        $usdt = DB::table('cdrs')
+            ->where('trunk_name', $supplier->name)
+            ->where('currency','USDT')
+            ->whereBetween('call_start',[$weekStart,$weekEnd])
+            ->selectRaw('COUNT(*) as calls, SUM(billsec/60) as minutes, SUM(revenue) as revenue, COUNT(DISTINCT did) as dids')
+            ->first();
+
+        foreach([['USD',$usd],['EUR',$eur],['USDT',$usdt]] as [$currency,$data]){
             if(($data->calls??0) > 0){
                 $invNum = 'SINV-'.$weekNum.'-'.strtoupper($supplier->name).'-'.$currency;
                 // Skip if already exists
