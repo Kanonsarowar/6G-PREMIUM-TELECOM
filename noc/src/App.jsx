@@ -3841,9 +3841,15 @@ function PrefixRoutesPage({token}){
                     setForm({...form,country:v,country_code:c?c.prefix:form.country_code});
                   }}/></div>
               <div><div style={numLbl}>Operator</div>
-                <TypeaheadField value={form.operator} placeholder="e.g. STC"
-                  options={OPERATORS_BY_COUNTRY[(COUNTRIES.find(c=>c.name.toLowerCase()===form.country.trim().toLowerCase())||{}).name]||[]}
-                  onChange={v=>setForm({...form,operator:v})}/></div>
+                {(()=>{
+                  const opList=OPERATORS_BY_COUNTRY[(COUNTRIES.find(c=>c.name.toLowerCase()===form.country.trim().toLowerCase())||{}).name];
+                  return opList
+                    ?<select style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}>
+                      <option value="">— Select Operator —</option>
+                      {opList.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                    :<input style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})} placeholder="e.g. STC"/>;
+                })()}</div>
               <div><div style={numLbl}>Prefix *</div>
                 <input style={numInp} value={form.prefix} onChange={e=>setForm({...form,prefix:e.target.value})} placeholder="919876XXXX" disabled={!!editing}/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
