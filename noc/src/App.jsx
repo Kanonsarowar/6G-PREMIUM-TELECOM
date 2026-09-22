@@ -3809,11 +3809,13 @@ function PrefixRoutesPage({token}){
                   {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
                 </select></div>
               <div><div style={numLbl}>Country *</div>
-                <input style={numInp} list="prefix-routes-countries" value={form.country} onChange={e=>{
+                <select style={numInp} value={form.country} onChange={e=>{
                   const c=COUNTRIES.find(c=>c.name===e.target.value);
                   setForm({...form,country:e.target.value,country_code:c?c.prefix:form.country_code});
-                }} placeholder="Italy"/>
-                <datalist id="prefix-routes-countries">{COUNTRIES.map(c=><option key={c.code} value={c.name}/>)}</datalist></div>
+                }}>
+                  <option value="">— Select Country —</option>
+                  {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
+                </select></div>
               <div><div style={numLbl}>Operator</div>
                 {OPERATORS_BY_COUNTRY[form.country]
                   ?<select style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}>
