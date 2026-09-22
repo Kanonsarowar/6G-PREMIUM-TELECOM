@@ -3076,6 +3076,11 @@ const COUNTRIES=[
   {name:"Zambia",code:"ZM",prefix:"260"},
   {name:"Zimbabwe",code:"ZW",prefix:"263"},
 ];
+// Operator options per country for the Prefix / Routes "Add Prefix" form.
+// Countries not listed here fall back to a free-text Operator input.
+const OPERATORS_BY_COUNTRY={
+  "Saudi Arabia":["STC","Mobily","Zain","Virgin Mobile KSA","Lebara KSA"],
+};
 // ── Numbers & IVR ─────────────────────────────────────────────────
 // Data model: Supplier → Trunk + Prefix → Range → individual DIDs → IVR.
 // The screens below (All Numbers, Add Number, Add Range, Prefix / Routes)
@@ -3810,7 +3815,12 @@ function PrefixRoutesPage({token}){
                 }} placeholder="Italy"/>
                 <datalist id="prefix-routes-countries">{COUNTRIES.map(c=><option key={c.code} value={c.name}/>)}</datalist></div>
               <div><div style={numLbl}>Operator</div>
-                <input style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})} placeholder="e.g. STC"/></div>
+                {OPERATORS_BY_COUNTRY[form.country]
+                  ?<select style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}>
+                    <option value="">— Select Operator —</option>
+                    {OPERATORS_BY_COUNTRY[form.country].map(o=><option key={o} value={o}>{o}</option>)}
+                  </select>
+                  :<input style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})} placeholder="e.g. STC"/>}</div>
               <div><div style={numLbl}>Prefix *</div>
                 <input style={numInp} value={form.prefix} onChange={e=>setForm({...form,prefix:e.target.value})} placeholder="919876XXXX" disabled={!!editing}/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
