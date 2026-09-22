@@ -2268,81 +2268,6 @@ Route::middleware('auth:sanctum')->group(function() {
 
 });
 
-// Import Range — store range and generate numbers
-Route::post('/v1/did-ranges/import-range', function(Request $r) {
-    $start  = preg_replace('/[^0-9]/','',$r->range_start);
-    $end    = preg_replace('/[^0-9]/','',$r->range_end);
-    $count  = (int)$end - (int)$start + 1;
-    $prefix = substr($start,0,-4);
-
-    if($count > 100000) return response()->json(['error'=>'Range too large (max 100,000)'],400);
-
-    // Insert range record
-    $rangeId = DB::table('did_ranges')->insertGetId([
-        'batch_name'    => $r->batch_name ?? ($r->country_name.' '.$prefix),
-        'country_code'  => $r->country_code,
-        'country_name'  => $r->country_name,
-        'prefix'        => $prefix,
-        'range_start'   => $start,
-        'range_end'     => $end,
-        'rate'          => $r->tariff ?? 0.063,
-        'selling_price' => $r->selling_price ?? 0.07,
-        'currency'      => $r->currency ?? 'USDT',
-        'payment_terms' => $r->payment_terms ?? 'Weekly',
-        'supplier_name' => $r->supplier ?? (DB::table('trunks')->where('id',$r->trunk_id)->value('nickname') ?? ''),
-        'trunk_id'      => $r->trunk_id ?? 1,
-        'default_ivr'   => $r->default_ivr ?? 'custom/6g-premium-telecom',
-        'total_count'   => $count,
-        'is_active'     => 1,
-        'created_at'    => now(),
-        'updated_at'    => now(),
-    ]);
-
-    // Generate individual numbers
-    $imported = 0;
-    $batch = [];
-    for($i=(int)$start; $i<=(int)$end; $i++){
-        $number = '+'.$i;
-        $batch[] = [
-            'number'           => $number,
-            'e164_number'      => $number,
-            'country_code'     => $r->country_code,
-            'country_name'     => $r->country_name,
-            'prefix'           => $prefix,
-            'tariff'           => $r->tariff ?? 0.063,
-            'selling_price'    => $r->selling_price ?? 0.07,
-            'currency'         => $r->currency ?? 'USDT',
-            'payment_terms'    => $r->payment_terms ?? 'Weekly',
-            'lifecycle_status' => 'available',
-            'status'           => 'active',
-            'ivr_context'      => $r->default_ivr ?? 'custom/6g-premium-telecom',
-            'trunk_id'         => $r->trunk_id ?? 1,
-            'batch_id'         => $rangeId,
-            'created_at'       => now(),
-            'updated_at'       => now(),
-        ];
-        // Insert in batches of 1000
-        if(count($batch) >= 1000){
-            DB::table('dids')->insertOrIgnore($batch);
-            $imported += count($batch);
-            $batch = [];
-        }
-    }
-    if(!empty($batch)){
-        DB::table('dids')->insertOrIgnore($batch);
-        $imported += count($batch);
-    }
-
-
-    return response()->json([
-        'success' => true,
-        'range_id'=> $rangeId,
-        'imported'=> $imported,
-        'total'   => $count,
-        'message' => "Range imported — $imported numbers (+$start → +$end)",
-    ]);
-});
-
 // Add single DID
 Route::post('/v1/dids/add', function(Request $r) {
     if(DB::table('dids')->where('number',$r->number)->exists())
@@ -2611,11 +2536,23 @@ Route::get('/v1/route-prefixes', function() {
 });
 
 Route::post('/v1/route-prefixes', function(Request $r) {
+    if (!$r->filled('prefix')) return response()->json(['error'=>'Prefix is required'],422);
+    // A route with no valid, active IVR would fail dialplanManagedBlock's own
+    // validation and block Apply for every route, not just this one - reject
+    // it here instead of silently falling back to a default (which is how
+    // the DB column's own dead default, custom/telephone-convo, would have
+    // bitten anyone who skipped this field).
+    $ivrContext = trim((string)$r->ivr_context);
+    if ($ivrContext === '') return response()->json(['error'=>'IVR context is required'],422);
+    $ivrName = preg_replace('#^custom/#', '', $ivrContext);
+    if (!DB::table('ivrs')->where('name', $ivrName)->where('is_active', 1)->exists())
+        return response()->json(['error'=>"\"$ivrContext\" is not an active IVR"],422);
+
     $id = DB::table('route_prefixes')->insertGetId([
         'prefix'       => $r->prefix,
         'country_code' => $r->country_code,
         'country_name' => $r->country_name,
-        'ivr_context'  => $r->ivr_context ?? 'custom/6g-premium-telecom',
+        'ivr_context'  => $ivrContext,
         'trunk_id'     => $r->trunk_id,
         'supplier_name'=> $r->supplier_name,
         'priority'     => $r->priority ?? 1,
@@ -2638,11 +2575,19 @@ Route::put('/v1/route-prefixes/{id}', function(Request $r, $id) {
     if (!$current) {
         return response()->json(['error'=>'Route not found'],404);
     }
+    $ivrContext = $current->ivr_context;
+    if ($r->has('ivr_context')) {
+        $ivrContext = trim((string)$r->ivr_context);
+        if ($ivrContext === '') return response()->json(['error'=>'IVR context is required'],422);
+        $ivrName = preg_replace('#^custom/#', '', $ivrContext);
+        if (!DB::table('ivrs')->where('name', $ivrName)->where('is_active', 1)->exists())
+            return response()->json(['error'=>"\"$ivrContext\" is not an active IVR"],422);
+    }
     DB::table('route_prefixes')->where('id',$id)->update([
         'prefix'       => $r->has('prefix') ? $r->prefix : $current->prefix,
         'country_code' => $r->has('country_code') ? $r->country_code : $current->country_code,
         'country_name' => $r->has('country_name') ? $r->country_name : $current->country_name,
-        'ivr_context'  => $r->has('ivr_context') ? $r->ivr_context : $current->ivr_context,
+        'ivr_context'  => $ivrContext,
         'is_active'    => $r->has('is_active') ? $r->is_active : $current->is_active,
         'priority'     => $r->has('priority') ? $r->priority : $current->priority,
         'updated_at'   => now(),
