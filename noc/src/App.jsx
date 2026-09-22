@@ -3079,8 +3079,7 @@ const COUNTRIES=[
 // Operator options per country for the Prefix / Routes "Add Prefix" form.
 // Countries not listed here fall back to a free-text Operator input.
 const OPERATORS_BY_COUNTRY={
-  "Saudi Arabia":["STC","Mobily","Zain","Virgin Mobile KSA","Lebara KSA"],
-  "UAE":["Mobily","Zain"],
+  "Saudi Arabia":["STC","Mobily","Zain","Redbull","Virgin","Lebara","Salam"],
 };
 // ── Numbers & IVR ─────────────────────────────────────────────────
 // Data model: Supplier → Trunk + Prefix → Range → individual DIDs → IVR.
