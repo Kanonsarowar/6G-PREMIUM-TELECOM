@@ -3106,7 +3106,13 @@ function TypeaheadField({value,onChange,options,placeholder}){
     <div style={{position:"relative"}}>
       <input style={numInp} value={value||""} placeholder={placeholder}
         onFocus={()=>setOpen(true)}
-        onBlur={()=>setTimeout(()=>setOpen(false),150)}
+        onBlur={()=>setTimeout(()=>{
+          setOpen(false);
+          const v=(value||"").trim().toLowerCase();
+          if(!v||options.some(o=>o.toLowerCase()===v)) return;
+          const partial=options.filter(o=>o.toLowerCase().includes(v));
+          if(partial.length===1) onChange(partial[0]);
+        },150)}
         onChange={e=>{onChange(e.target.value);setOpen(true);}}/>
       {open&&matches.length>0&&
         <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:10,background:"#FFF",
