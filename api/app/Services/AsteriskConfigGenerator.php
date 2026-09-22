@@ -58,6 +58,8 @@ class AsteriskConfigGenerator
     // Fail-safe per-supplier limits for the generated path when a trunk has none.
     /** The existing default/fallback IVR; a route on it plays a random IVR from the pool instead (see defaultIvrPoolLines). */
     public const DEFAULT_IVR = 'custom/6g-premium-telecom';
+    /** The IVR name used for a DID range's test number - a connectivity ping, never billed (see dialplanManagedBlock). */
+    public const TEST_NUMBER_IVR = 'test-call-successful';
     public const DEFAULT_MAX_CHANNELS = 30;
     public const DEFAULT_MAX_DURATION = 1800;
 
@@ -504,14 +506,23 @@ class AsteriskConfigGenerator
             }
             $out[] = "[custom/{$ivr->name}]";
             $out[] = '';
-            $out[] = 'exten => s,1,Answer()';
-            $out[] = " same => n,Playback(custom/{$ivr->name})";
-            $out[] = ' same => n,WaitExten(10)';
-            // CDR for the generated path (same AGI as [from-carrier]); the DID
-            // is passed explicitly because CDR(dst) is "s" after the Goto.
-            $out[] = 'exten => h,1,NoOp(CDR SAVE START - billsec=${CDR(billsec)})';
-            $out[] = ' same => n,AGI(save_cdr.php,${CDR(src)},${DID_NUMBER},${CDR(billsec)},${TARIFF},${IVR_CONTEXT},${CHANNEL})';
-            $out[] = ' same => n,System(/usr/local/bin/import_cdr.sh >> /tmp/cdr_import.log 2>&1 &)';
+            if ($ivr->name === self::TEST_NUMBER_IVR) {
+                // A test-number DID is a connectivity ping, not real traffic:
+                // ring so the caller/monitor confirms the route is reachable,
+                // but never Answer() (no billing clock) and never write a CDR.
+                $out[] = 'exten => s,1,Ringing()';
+                $out[] = ' same => n,Wait(2)';
+                $out[] = ' same => n,Hangup(16)';
+            } else {
+                $out[] = 'exten => s,1,Answer()';
+                $out[] = " same => n,Playback(custom/{$ivr->name})";
+                $out[] = ' same => n,WaitExten(10)';
+                // CDR for the generated path (same AGI as [from-carrier]); the DID
+                // is passed explicitly because CDR(dst) is "s" after the Goto.
+                $out[] = 'exten => h,1,NoOp(CDR SAVE START - billsec=${CDR(billsec)})';
+                $out[] = ' same => n,AGI(save_cdr.php,${CDR(src)},${DID_NUMBER},${CDR(billsec)},${TARIFF},${IVR_CONTEXT},${CHANNEL})';
+                $out[] = ' same => n,System(/usr/local/bin/import_cdr.sh >> /tmp/cdr_import.log 2>&1 &)';
+            }
             $out[] = '';
         }
 
