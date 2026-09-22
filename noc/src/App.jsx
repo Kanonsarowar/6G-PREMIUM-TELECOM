@@ -3826,7 +3826,7 @@ function PrefixRoutesPage({token}){
                   <td style={{padding:"7px 10px",fontSize:12}}>{(p.number_count||0).toLocaleString()}</td>
                   <td style={{padding:"7px 10px"}}>
                     <select value={p.ivr_context||""} onChange={e=>setIvr(p,e.target.value)}
-                      style={{padding:"3px 6px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",fontSize:11,maxWidth:170}}>
+                      style={{padding:"3px 6px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",color:"#333",fontSize:11,maxWidth:170}}>
                       <IvrOptions ivrs={ivrs} value={p.ivr_context}/>
                     </select>
                   </td>
