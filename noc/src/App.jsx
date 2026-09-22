@@ -3096,6 +3096,31 @@ const numBtn=(kind)=>({padding:"10px 18px",borderRadius:8,fontSize:13,fontWeight
   background:kind==="primary"?"#6A2B9A":kind==="danger"?"#FFF5F5":"#FFF",
   color:kind==="primary"?"#FFF":kind==="danger"?"#EF4444":"#555"});
 const ivrName=v=>(v||"").replace("custom/","")||"—";
+// Text input that opens a tappable, filtered options list on focus/typing -
+// works as both a picker (mobile-friendly, unlike <input list=datalist>)
+// and free text when `options` doesn't cover the value being entered.
+function TypeaheadField({value,onChange,options,placeholder}){
+  const [open,setOpen]=useState(false);
+  const matches=options.filter(o=>o.toLowerCase().includes((value||"").trim().toLowerCase()));
+  return(
+    <div style={{position:"relative"}}>
+      <input style={numInp} value={value||""} placeholder={placeholder}
+        onFocus={()=>setOpen(true)}
+        onBlur={()=>setTimeout(()=>setOpen(false),150)}
+        onChange={e=>{onChange(e.target.value);setOpen(true);}}/>
+      {open&&matches.length>0&&
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:10,background:"#FFF",
+          border:"1px solid #E0E0E0",borderRadius:8,maxHeight:180,overflowY:"auto",
+          boxShadow:"0 4px 10px rgba(0,0,0,0.08)",marginTop:2}}>
+          {matches.map(o=>
+            <div key={o} onMouseDown={()=>{onChange(o);setOpen(false);}}
+              style={{padding:"8px 12px",fontSize:13,cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#F5F5F5"}
+              onMouseLeave={e=>e.currentTarget.style.background="#FFF"}>{o}</div>)}
+        </div>}
+    </div>
+  );
+}
 
 function useIvrList(token){
   const [ivrs,setIvrs]=useState([]);
@@ -3713,9 +3738,7 @@ function PrefixRoutesPage({token}){
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(emptyForm);
   const [saving,setSaving]=useState(false);
-  const [countryOpen,setCountryOpen]=useState(false);
   const ivrs=useIvrList(token);
-  const countryMatches=COUNTRIES.filter(c=>c.name.toLowerCase().includes(form.country.trim().toLowerCase()));
 
   const load=()=>apiFetch("/prefixes?all=1",token).then(d=>{setPrefixes(d.data||[]);setLoading(false);});
   useEffect(()=>{load();apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
@@ -3810,32 +3833,17 @@ function PrefixRoutesPage({token}){
                   <option value="">— Select Supplier —</option>
                   {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
                 </select></div>
-              <div style={{position:"relative"}}><div style={numLbl}>Country *</div>
-                <input style={numInp} value={form.country} placeholder="Type or pick a country"
-                  onFocus={()=>setCountryOpen(true)}
-                  onBlur={()=>setTimeout(()=>setCountryOpen(false),150)}
-                  onChange={e=>{
-                    const c=COUNTRIES.find(c=>c.name===e.target.value);
-                    setForm({...form,country:e.target.value,country_code:c?c.prefix:form.country_code});
-                    setCountryOpen(true);
-                  }}/>
-                {countryOpen&&countryMatches.length>0&&
-                  <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:10,background:"#FFF",
-                    border:"1px solid #E0E0E0",borderRadius:8,maxHeight:180,overflowY:"auto",
-                    boxShadow:"0 4px 10px rgba(0,0,0,0.08)",marginTop:2}}>
-                    {countryMatches.map(c=>
-                      <div key={c.code} onMouseDown={()=>{setForm({...form,country:c.name,country_code:c.prefix});setCountryOpen(false);}}
-                        style={{padding:"8px 12px",fontSize:13,cursor:"pointer"}}
-                        onMouseEnter={e=>e.currentTarget.style.background="#F5F5F5"}
-                        onMouseLeave={e=>e.currentTarget.style.background="#FFF"}>{c.name}</div>)}
-                  </div>}</div>
+              <div><div style={numLbl}>Country *</div>
+                <TypeaheadField value={form.country} placeholder="Type or pick a country"
+                  options={COUNTRIES.map(c=>c.name)}
+                  onChange={v=>{
+                    const c=COUNTRIES.find(c=>c.name===v);
+                    setForm({...form,country:v,country_code:c?c.prefix:form.country_code});
+                  }}/></div>
               <div><div style={numLbl}>Operator</div>
-                {OPERATORS_BY_COUNTRY[form.country]
-                  ?<select style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}>
-                    <option value="">— Select Operator —</option>
-                    {OPERATORS_BY_COUNTRY[form.country].map(o=><option key={o} value={o}>{o}</option>)}
-                  </select>
-                  :<input style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})} placeholder="e.g. STC"/>}</div>
+                <TypeaheadField value={form.operator} placeholder="e.g. STC"
+                  options={OPERATORS_BY_COUNTRY[form.country]||[]}
+                  onChange={v=>setForm({...form,operator:v})}/></div>
               <div><div style={numLbl}>Prefix *</div>
                 <input style={numInp} value={form.prefix} onChange={e=>setForm({...form,prefix:e.target.value})} placeholder="919876XXXX" disabled={!!editing}/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
