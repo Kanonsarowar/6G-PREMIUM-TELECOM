@@ -6446,7 +6446,7 @@ function TestNumbersPage({token}){
                   selling_price:parseFloat(newTest.rate)||0.42,
                   currency:newTest.currency,
                   supplier:newTest.supplier,
-                  payment_terms:addForm.payment_terms||"Weekly",
+                  payment_terms:"Weekly",
                   ivr_context:"custom/6g-premium-telecom",
                 })});
                 setSaving(false);
