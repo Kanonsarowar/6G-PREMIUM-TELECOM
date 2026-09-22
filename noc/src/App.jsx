@@ -3713,7 +3713,9 @@ function PrefixRoutesPage({token}){
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(emptyForm);
   const [saving,setSaving]=useState(false);
+  const [countryOpen,setCountryOpen]=useState(false);
   const ivrs=useIvrList(token);
+  const countryMatches=COUNTRIES.filter(c=>c.name.toLowerCase().includes(form.country.trim().toLowerCase()));
 
   const load=()=>apiFetch("/prefixes?all=1",token).then(d=>{setPrefixes(d.data||[]);setLoading(false);});
   useEffect(()=>{load();apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
@@ -3808,14 +3810,25 @@ function PrefixRoutesPage({token}){
                   <option value="">— Select Supplier —</option>
                   {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
                 </select></div>
-              <div><div style={numLbl}>Country *</div>
-                <select style={numInp} value={form.country} onChange={e=>{
-                  const c=COUNTRIES.find(c=>c.name===e.target.value);
-                  setForm({...form,country:e.target.value,country_code:c?c.prefix:form.country_code});
-                }}>
-                  <option value="">— Select Country —</option>
-                  {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
-                </select></div>
+              <div style={{position:"relative"}}><div style={numLbl}>Country *</div>
+                <input style={numInp} value={form.country} placeholder="Type or pick a country"
+                  onFocus={()=>setCountryOpen(true)}
+                  onBlur={()=>setTimeout(()=>setCountryOpen(false),150)}
+                  onChange={e=>{
+                    const c=COUNTRIES.find(c=>c.name===e.target.value);
+                    setForm({...form,country:e.target.value,country_code:c?c.prefix:form.country_code});
+                    setCountryOpen(true);
+                  }}/>
+                {countryOpen&&countryMatches.length>0&&
+                  <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:10,background:"#FFF",
+                    border:"1px solid #E0E0E0",borderRadius:8,maxHeight:180,overflowY:"auto",
+                    boxShadow:"0 4px 10px rgba(0,0,0,0.08)",marginTop:2}}>
+                    {countryMatches.map(c=>
+                      <div key={c.code} onMouseDown={()=>{setForm({...form,country:c.name,country_code:c.prefix});setCountryOpen(false);}}
+                        style={{padding:"8px 12px",fontSize:13,cursor:"pointer"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#F5F5F5"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#FFF"}>{c.name}</div>)}
+                  </div>}</div>
               <div><div style={numLbl}>Operator</div>
                 {OPERATORS_BY_COUNTRY[form.country]
                   ?<select style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}>
