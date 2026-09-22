@@ -67,6 +67,10 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
         ->whereBetween('cdrs.call_start', [$from, $to])
         ->select('cdrs.id', 'cdrs.billsec',
             DB::raw('COALESCE(supplier_prefixes.price, dids.tariff) as rate'),
+            // supplier_prefixes has no currency column of its own (an
+            // override price is always entered in USDT); only a rate that
+            // fell back to dids.tariff carries a real currency to convert.
+            DB::raw("CASE WHEN supplier_prefixes.price IS NOT NULL THEN 'USDT' ELSE dids.currency END as rate_currency"),
             DB::raw("COALESCE(supplier_prefixes.payment_term, '$defaultTerm') as payment_term"))
         ->get();
 
@@ -76,6 +80,7 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
         ->where('did_ranges.supplier_id', $supplierId)
         ->whereNotNull('did_ranges.prefix')->where('did_ranges.prefix', '!=', '')
         ->select('did_ranges.prefix', DB::raw('COALESCE(supplier_prefixes.price, did_ranges.rate) as rate'),
+            DB::raw("CASE WHEN supplier_prefixes.price IS NOT NULL THEN 'USDT' ELSE did_ranges.currency END as rate_currency"),
             DB::raw("COALESCE(supplier_prefixes.payment_term, '$defaultTerm') as payment_term"))
         ->get();
 
@@ -88,7 +93,7 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
             foreach ($ranges as $rng) {
                 $prefix = preg_replace('/\s+/', '', $rng->prefix);
                 if ($prefix !== '' && str_starts_with($digits, $prefix)) {
-                    $rangeMatches->push((object)['id'=>$c->id,'billsec'=>$c->billsec,'rate'=>$rng->rate,'payment_term'=>$rng->payment_term]);
+                    $rangeMatches->push((object)['id'=>$c->id,'billsec'=>$c->billsec,'rate'=>$rng->rate,'rate_currency'=>$rng->rate_currency,'payment_term'=>$rng->payment_term]);
                     break;
                 }
             }
@@ -98,7 +103,11 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
     $out = [];
     foreach ($exact->concat($rangeMatches)->groupBy('payment_term') as $term => $rows) {
         $minutes = $rows->sum('billsec') / 60;
-        $amount  = $rows->sum(fn($r) => ($r->billsec / 60) * (float)$r->rate);
+        // Same fixed-rate conversion used across the rest of this app (1 EUR
+        // = 1.08 USD) - a rate sourced from a EUR-denominated dids/did_ranges
+        // row must convert to USDT before summing, or it silently understates
+        // what's owed on that supplier's EUR-priced numbers.
+        $amount  = $rows->sum(fn($r) => ($r->billsec / 60) * (float)$r->rate * (($r->rate_currency ?? 'USDT') === 'EUR' ? 1.08 : 1));
         $out[] = [
             'payment_term' => $term,
             'calls'        => $rows->count(),

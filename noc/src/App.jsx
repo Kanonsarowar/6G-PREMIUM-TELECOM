@@ -3163,7 +3163,11 @@ function SupplierPaymentsPage({token,user}){
         {tab==="weekly"&&(
           <div>
             {(()=>{
-              const unpaidTotal=weekly.filter(w=>w.status!=="paid").reduce((t,w)=>t+Number(w.total_amount||0),0);
+              // WeeklyEntries::sync groups CDRs by week+currency into separate
+              // rows (correct per row), but summing total_amount across rows
+              // ignores that some are EUR and some USD/USDT - convert each to
+              // its USDT-equivalent first (same fixed rate used app-wide).
+              const unpaidTotal=weekly.filter(w=>w.status!=="paid").reduce((t,w)=>t+Number(w.total_amount||0)*(w.currency==="EUR"?1.08:1),0);
               return <div style={{fontSize:12,color:"#555",marginBottom:10}}>Unpaid: <b style={{color:"#F5A623"}}>{fmtUSDT(unpaidTotal)}</b> · click <b>Paid</b> after you pay a week — it comes off Rev in the top bar.</div>;
             })()}
             <div style={{...cardS,overflow:"hidden"}}>
