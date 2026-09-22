@@ -3080,6 +3080,7 @@ const COUNTRIES=[
 // Countries not listed here fall back to a free-text Operator input.
 const OPERATORS_BY_COUNTRY={
   "Saudi Arabia":["STC","Mobily","Zain","Virgin Mobile KSA","Lebara KSA"],
+  "UAE":["Mobily","Zain"],
 };
 // ── Numbers & IVR ─────────────────────────────────────────────────
 // Data model: Supplier → Trunk + Prefix → Range → individual DIDs → IVR.
