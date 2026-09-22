@@ -3076,12 +3076,9 @@ const COUNTRIES=[
   {name:"Zambia",code:"ZM",prefix:"260"},
   {name:"Zimbabwe",code:"ZW",prefix:"263"},
 ];
-// Operator options per country for the Prefix / Routes "Add Prefix" form.
-// Countries not listed here fall back to a free-text Operator input.
-const OPERATORS_BY_COUNTRY={
-  "Saudi Arabia":["STC","Mobily","Zain","Redbull","Virgin","Lebara","Salam"],
-  "UAE":["Etisalat","du"],
-};
+// Access From options for the Prefix / Routes "Add Prefix" form - the
+// networks a prefix's numbers can be reached from, multi-select per prefix.
+const ACCESS_FROM_OPTIONS=["STC","MOBILY","ZAIN","VIRGIN","LEBARA","SALAM"];
 // ── Numbers & IVR ─────────────────────────────────────────────────
 // Data model: Supplier → Trunk + Prefix → Range → individual DIDs → IVR.
 // The screens below (All Numbers, Add Number, Add Range, Prefix / Routes)
@@ -3734,7 +3731,7 @@ function AddRangePage({token,setPage}){
 
 // ── Prefix / Routes (Prefix → Supplier → IVR) ─────────────────────
 function PrefixRoutesPage({token}){
-  const emptyForm={supplier_id:"",country:"",country_code:"",prefix:"",operator:"",price:"",
+  const emptyForm={supplier_id:"",country:"",country_code:"",prefix:"",access_from:[],price:"",
     payment_term:"",test_number:"",ivr_context:"",status:"active"};
   const [prefixes,setPrefixes]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
@@ -3761,7 +3758,7 @@ function PrefixRoutesPage({token}){
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const openAdd=()=>{setEditing(null);setForm(emptyForm);setShowForm(true);};
   const openEdit=(p)=>{setEditing(p);setForm({supplier_id:p.supplier_id||"",country:p.country||"",country_code:p.country_code||"",
-    prefix:p.prefix||"",operator:p.operator||"",price:p.price||"",payment_term:p.payment_term||"",
+    prefix:p.prefix||"",access_from:(p.access_from||"").split(",").filter(Boolean),price:p.price||"",payment_term:p.payment_term||"",
     test_number:p.test_number||"",ivr_context:p.ivr_context||"",status:p.status||"active"});setShowForm(true);};
 
   const save=async()=>{
@@ -3796,7 +3793,7 @@ function PrefixRoutesPage({token}){
       <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
           <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:760,whiteSpace:"nowrap"}}>
-            <thead><tr>{["Prefix","Country","Supplier","Operator","Tariff","Payment Term","Test Number","Status","Numbers","IVR","Actions"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Prefix","Country","Supplier","Access From","Tariff","Payment Term","Test Number","Status","Numbers","IVR","Actions"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
             <tbody>
               {loading&&<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
               {!loading&&shown.length===0&&<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No prefixes found</td></tr>}
@@ -3805,7 +3802,7 @@ function PrefixRoutesPage({token}){
                   <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace",fontWeight:800}}>{p.prefix}</td>
                   <td style={{padding:"7px 10px",fontSize:12}}>{p.country||"—"}</td>
                   <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(p.supplier_name)}</td>
-                  <td style={{padding:"7px 10px",fontSize:12}}>{p.operator||"—"}</td>
+                  <td style={{padding:"7px 10px",fontSize:12}}>{(p.access_from||"").split(",").filter(Boolean).join(", ")||"—"}</td>
                   <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
                   <td style={{padding:"7px 10px",fontSize:12}}>{p.payment_term||"—"}</td>
                   <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
@@ -3847,16 +3844,17 @@ function PrefixRoutesPage({token}){
                     const c=COUNTRIES.find(c=>c.name===v);
                     setForm({...form,country:v,country_code:c?c.prefix:form.country_code});
                   }}/></div>
-              <div><div style={numLbl}>Operator</div>
-                {(()=>{
-                  const opList=OPERATORS_BY_COUNTRY[(COUNTRIES.find(c=>c.name.toLowerCase()===form.country.trim().toLowerCase())||{}).name];
-                  return opList
-                    ?<select style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}>
-                      <option value="">— Select Operator —</option>
-                      {opList.map(o=><option key={o} value={o}>{o}</option>)}
-                    </select>
-                    :<input style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})} placeholder="e.g. STC"/>;
-                })()}</div>
+              <div><div style={numLbl}>Access From</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:10,padding:"8px 2px"}}>
+                  {ACCESS_FROM_OPTIONS.map(o=>(
+                    <label key={o} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,cursor:"pointer"}}>
+                      <input type="checkbox" checked={form.access_from.includes(o)}
+                        onChange={e=>setForm({...form,access_from:e.target.checked
+                          ?[...form.access_from,o]:form.access_from.filter(x=>x!==o)})}/>
+                      {o}
+                    </label>
+                  ))}
+                </div></div>
               <div><div style={numLbl}>Prefix *</div>
                 <input style={numInp} value={form.prefix} onChange={e=>setForm({...form,prefix:e.target.value})} placeholder="919876XXXX" disabled={!!editing}/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
