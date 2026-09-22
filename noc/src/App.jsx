@@ -3586,24 +3586,29 @@ function AddNumberPage({token,setPage}){
 
 // ── Add Range (form → preview → import) ───────────────────────────
 function AddRangePage({token,setPage}){
-  const empty={supplier_id:"",country:"",prefix:"",range_start:"",range_end:"",tariff:"",selling_price:"",
-    payment_term:"",test_number:"",ivr_context:""};
+  const empty={supplier_id:"",prefix_id:"",range_start:"",range_end:"",ivr_context:""};
   const [f,setF]=useState(empty);
   const [suppliers,setSuppliers]=useState([]);
+  const [prefixes,setPrefixes]=useState([]);
   const [preview,setPreview]=useState(null);
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
   const ivrs=useIvrList(token);
   useEffect(()=>{apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
+  const pickSupplier=async(sid)=>{
+    setF({...empty,supplier_id:sid});setPrefixes([]);
+    if(sid){const d=await apiFetch(`/supplier-accounts/${sid}/prefixes`,token);setPrefixes(d.data||[]);}
+  };
 
   const set=(k,v)=>setF(x=>({...x,[k]:v}));
   const dg=s=>s.replace(/[^0-9]/g,"");
+  const prefix=prefixes.find(p=>String(p.id)===String(f.prefix_id));
   const start=dg(f.range_start),end=dg(f.range_end);
   const total=start&&end&&start.length===end.length&&+end>=+start?+end-+start+1:0;
-  const missing=!f.supplier_id||!f.country||!f.prefix||!start||!end||f.tariff===""||f.selling_price===""||!f.payment_term||!f.ivr_context;
+  const missing=!f.supplier_id||!f.prefix_id||!start||!end;
 
-  const payload=()=>({...f,prefix:dg(f.prefix),range_start:start,range_end:end,test_number:dg(f.test_number)});
+  const payload=()=>({supplier_id:f.supplier_id,prefix_id:f.prefix_id,range_start:start,range_end:end,ivr_context:f.ivr_context});
   const runPreview=async()=>{
     setBusy(true);setErr("");
     const d=await apiFetch("/number-ranges/preview",token,{method:"POST",body:JSON.stringify(payload())});
@@ -3638,7 +3643,7 @@ function AddRangePage({token,setPage}){
     <NumbersPageShell title="Preview" subtitle="Nothing is created until you confirm">
       <div style={{background:"#FFF",borderRadius:10,padding:20,maxWidth:520,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
         {err&&<Banner>{err}</Banner>}
-        <div style={{fontSize:16,fontWeight:800}}>{f.country} / {dg(f.prefix)}</div>
+        <div style={{fontSize:16,fontWeight:800}}>{preview.country} / {preview.prefix}</div>
         {preview.errors.map((e,i)=><Banner key={i}>{e}</Banner>)}
         {preview.warnings.map((w,i)=><div key={i} style={{fontSize:12,color:"#B45309",background:"#FFF7E6",border:"1px solid #F5C26B",
           borderRadius:8,padding:"8px 12px",marginTop:8}}>{w}</div>)}
@@ -3653,14 +3658,15 @@ function AddRangePage({token,setPage}){
                 {preview.truncated&&i===10&&<div style={{color:"#999"}}>...</div>}
                 <div>{n.number}
                   {"  "}{n.exists?<span style={{color:"#B45309"}}>exists — skipped</span>:<span style={{color:"#10B981"}}>✓</span>}
-                  {n.test&&<span style={{marginLeft:8,color:"#8B5CF6",fontSize:11}}>test</span>}
                 </div>
               </React.Fragment>
             ))}
           </div>
           <div style={{margin:"14px 0",fontSize:13,lineHeight:1.8}}>
             {[["Supplier",supplierName],["Trunk",preview.trunk||"—"],["IVR",ivrName(preview.ivr_context)],
-              ["Tariff",f.tariff],["Selling",f.selling_price],["Payment Term",f.payment_term]].map(([k,v])=>(
+              ["Access From",preview.access_from?preview.access_from.split(",").join(", "):"—"],
+              ["Supplier Price",fmtUSDT(preview.price)],["Payment Term",preview.payment_term||"—"],
+              ["Test Number",preview.test_number||"—"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>{k}:</span><b>{v}</b></div>
             ))}
           </div>
@@ -3680,15 +3686,23 @@ function AddRangePage({token,setPage}){
         {err&&<Banner>{err}</Banner>}
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div><div style={numLbl}>Supplier</div>
-            <select style={numInp} value={f.supplier_id} onChange={e=>set("supplier_id",e.target.value)}>
+            <select style={numInp} value={f.supplier_id} onChange={e=>pickSupplier(e.target.value)}>
               <option value="">— Select Supplier —</option>
               {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
             </select></div>
-          <div><div style={numLbl}>Country</div>
-            <input style={numInp} list="range-countries" value={f.country} onChange={e=>set("country",e.target.value)} placeholder="Italy"/>
-            <datalist id="range-countries">{COUNTRIES.map(c=><option key={c.code} value={c.name}/>)}</datalist></div>
           <div><div style={numLbl}>Prefix</div>
-            <input style={numInp} value={f.prefix} onChange={e=>set("prefix",e.target.value)} placeholder="39319"/></div>
+            <select style={numInp} value={f.prefix_id} disabled={!f.supplier_id}
+              onChange={e=>{const p=prefixes.find(x=>String(x.id)===e.target.value);setF({...f,prefix_id:e.target.value,ivr_context:p?.ivr_context||""});}}>
+              <option value="">{f.supplier_id&&prefixes.length===0?"No prefixes — add one from Prefix / Routes":"— Select Prefix —"}</option>
+              {prefixes.map(p=><option key={p.id} value={p.id}>{p.country} — {p.prefix}</option>)}
+            </select></div>
+          {prefix&&<div style={{fontSize:12,lineHeight:1.7,background:"#FAFAFA",border:"1px solid #EEE",borderRadius:8,padding:"8px 12px"}}>
+            {[["Country",prefix.country||"—"],["Access From",(prefix.access_from||"").split(",").filter(Boolean).join(", ")||"—"],
+              ["Supplier Price",fmtUSDT(prefix.price)],["Payment Term",prefix.payment_term||"—"],
+              ["Test Number",prefix.test_number||"—"]].map(([k,v])=>(
+              <div key={k} style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#888"}}>{k}:</span><b>{v}</b></div>
+            ))}
+          </div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div><div style={numLbl}>Range Start</div>
               <input style={numInp} value={f.range_start} onChange={e=>set("range_start",e.target.value)} placeholder="393191120550"/></div>
@@ -3696,26 +3710,10 @@ function AddRangePage({token,setPage}){
               <input style={numInp} value={f.range_end} onChange={e=>set("range_end",e.target.value)} placeholder="393191120578"/></div>
           </div>
           <div style={{fontSize:13,fontWeight:700,color:total?"#2CADA6":"#999"}}>Total Numbers: {total.toLocaleString()}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><div style={numLbl}>Tariff</div>
-              <input type="number" step="0.001" style={numInp} value={f.tariff} onChange={e=>set("tariff",e.target.value)} placeholder="0.0400"/></div>
-            <div><div style={numLbl}>Selling Price</div>
-              <input type="number" step="0.001" style={numInp} value={f.selling_price} onChange={e=>set("selling_price",e.target.value)} placeholder="0.0700"/></div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><div style={numLbl}>Currency</div>
-              <input style={{...numInp,background:"#F5F5F5",color:"#888"}} value="USDT" disabled/></div>
-            <div><div style={numLbl}>Payment Term</div>
-              <select style={numInp} value={f.payment_term} onChange={e=>set("payment_term",e.target.value)}>
-                <option value="">— Select —</option>
-                {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
-              </select></div>
-          </div>
-          <div><div style={numLbl}>Test Number (optional, inside the range)</div>
-            <input style={numInp} value={f.test_number} onChange={e=>set("test_number",e.target.value)} placeholder="393191120550"/></div>
           <div><div style={numLbl}>IVR</div>
             <select style={numInp} value={f.ivr_context} onChange={e=>set("ivr_context",e.target.value)}>
-              <IvrOptions ivrs={ivrs} value={f.ivr_context}/></select></div>
+              <IvrOptions ivrs={ivrs} value={f.ivr_context}/></select>
+            <div style={{fontSize:11,color:"#999",marginTop:4}}>Leave empty to use the prefix's IVR.</div></div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
           <button onClick={runPreview} disabled={missing||busy}

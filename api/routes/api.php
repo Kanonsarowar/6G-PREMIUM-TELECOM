@@ -1296,7 +1296,11 @@ Route::middleware('auth:sanctum')->group(function() {
     });
 
     // ── Numbers & IVR: Add Range (preview -> import) ─────────────────
-    // Supplier -> Trunk + Prefix -> Range -> individual DIDs -> IVR.
+    // Add Range only ever attaches to an EXISTING Prefix (looked up by
+    // prefix_id) and inherits supplier/country/price/payment_term/ivr/
+    // access_from from it - same "search prefix, no duplicate data entry"
+    // model as Add Number. A new Prefix can only be created from the
+    // Prefix/Routes master screen.
     // Both endpoints share one planner so the preview is exactly what the
     // import will do; preview never writes. Import materialises one dids
     // row per number (did_router.php looks DIDs up by exact number) plus a
@@ -1304,20 +1308,18 @@ Route::middleware('auth:sanctum')->group(function() {
     $rangePlan = function(Request $r) {
         $errors = []; $warnings = [];
         $digits = fn($v) => preg_replace('/[^0-9]/', '', (string)$v);
-        $supplier = DB::table('suppliers')->find($r->supplier_id);
-        if (!$supplier) $errors[] = 'Select a supplier';
-        $prefix = $digits($r->prefix);
+        $prefixRow = DB::table('supplier_prefixes')->find($r->prefix_id);
+        if (!$prefixRow) $errors[] = 'Select a prefix';
+        $supplier = $prefixRow ? DB::table('suppliers')->find($prefixRow->supplier_id) : null;
+        if ($prefixRow && !$supplier) $errors[] = 'Supplier not found for this prefix';
+        $prefix = $prefixRow->prefix ?? '';
         $start  = $digits($r->range_start);
         $end    = $digits($r->range_end);
-        $test   = $digits($r->test_number);
-        $country = trim((string)$r->country);
-        $tariff = $r->tariff; $selling = $r->selling_price;
-        if ($country === '') $errors[] = 'Country is required';
-        if ($prefix === '') $errors[] = 'Prefix is required';
+        $country = $prefixRow->country ?? '';
+        $tariff = $prefixRow->price ?? null;
+        $selling = $tariff; // Add Range mirrors Add Number: the customer selling price is not re-entered here
+        $paymentTerm = $prefixRow->payment_term ?? '';
         if ($start === '' || $end === '') $errors[] = 'Range start and end are required';
-        if (!is_numeric($tariff) || $tariff < 0) $errors[] = 'Tariff must be a number';
-        if (!is_numeric($selling) || $selling < 0) $errors[] = 'Selling price must be a number';
-        if (trim((string)$r->payment_term) === '') $errors[] = 'Payment term is required';
 
         $count = 0;
         if ($prefix !== '' && $start !== '' && $end !== '') {
@@ -1331,20 +1333,11 @@ Route::middleware('auth:sanctum')->group(function() {
                 if ($count > 100000) { $errors[] = 'Range too large (max 100,000 numbers)'; }
             }
         }
-        if ($test !== '' && $count > 0 && ((int)$test < (int)$start || (int)$test > (int)$end || strlen($test) !== strlen($start)))
-            $errors[] = 'Test number must be inside the range';
 
-        $existing = []; $trunk = null; $prefixRow = null;
+        $existing = []; $trunk = null;
         if ($supplier) {
             $trunk = DB::table('trunks')->where('supplier_id', $supplier->id)->first();
             if (!$trunk) $warnings[] = 'This supplier has no trunk yet - numbers will be created without one';
-            if ($prefix !== '') {
-                $prefixRow = DB::table('supplier_prefixes')->where('supplier_id', $supplier->id)->where('prefix', $prefix)->first();
-                if ($prefixRow && is_numeric($tariff) && abs((float)$prefixRow->price - (float)$tariff) > 0.0000001)
-                    $errors[] = "Prefix $prefix already exists for {$supplier->name} at tariff "
-                        . rtrim(rtrim(number_format((float)$prefixRow->price, 6, '.', ''), '0'), '.')
-                        . ' - use the same tariff or edit the prefix first';
-            }
         }
         if ($count > 0 && !$errors) {
             $overlap = DB::table('did_ranges')->where('range_start', '<=', $end)->where('range_end', '>=', $start)
@@ -1360,8 +1353,8 @@ Route::middleware('auth:sanctum')->group(function() {
         if ($ivr === '') $ivr = $prefixRow->ivr_context ?? 'custom/6g-premium-telecom';
         elseif (!str_starts_with($ivr, 'custom/')) $ivr = 'custom/'.$ivr;
 
-        return compact('errors', 'warnings', 'supplier', 'trunk', 'prefixRow', 'prefix', 'start', 'end', 'test',
-            'count', 'existing', 'country', 'tariff', 'selling', 'ivr');
+        return compact('errors', 'warnings', 'supplier', 'trunk', 'prefixRow', 'prefix', 'start', 'end',
+            'count', 'existing', 'country', 'tariff', 'selling', 'paymentTerm', 'ivr');
     };
 
     Route::post('/v1/number-ranges/preview', function(Request $r) use ($rangePlan) {
@@ -1373,7 +1366,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 : array_merge(range(0, 9), range($p['count'] - 3, $p['count'] - 1));
             foreach ($shown as $i) {
                 $n = str_pad((string)($start + $i), $len, '0', STR_PAD_LEFT);
-                $numbers[] = ['number' => $n, 'exists' => array_key_exists($n, $p['existing']), 'test' => $n === $p['test']];
+                $numbers[] = ['number' => $n, 'exists' => array_key_exists($n, $p['existing'])];
             }
         }
         return response()->json(['data' => [
@@ -1383,11 +1376,16 @@ Route::middleware('auth:sanctum')->group(function() {
             'total'        => $p['count'],
             'new_count'    => $p['count'] - count($p['existing']),
             'existing_count' => count($p['existing']),
-            'prefix_exists' => (bool)$p['prefixRow'],
             'truncated'    => $p['count'] > 50,
             'numbers'      => $numbers,
             'supplier'     => $p['supplier']->name ?? null,
             'trunk'        => $p['trunk']->pjsip_name ?? $p['trunk']->name ?? null,
+            'country'      => $p['country'],
+            'prefix'       => $p['prefix'],
+            'access_from'  => $p['prefixRow']->access_from ?? null,
+            'price'        => $p['tariff'],
+            'payment_term' => $p['paymentTerm'],
+            'test_number'  => $p['prefixRow']->test_number ?? null,
             'ivr_context'  => $p['ivr'],
         ]]);
     });
@@ -1395,31 +1393,19 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::post('/v1/number-ranges/import', function(Request $r) use ($rangePlan) {
         $p = $rangePlan($r);
         if ($p['errors']) return response()->json(['error' => implode('; ', $p['errors'])], 422);
-        $supplier = $p['supplier']; $trunk = $p['trunk'];
-        $len = strlen($p['start']); $start = (int)$p['start'];
+        $supplier = $p['supplier']; $trunk = $p['trunk']; $prefixId = $p['prefixRow']->id;
 
         $created = 0;
         $rangeId = null;
-        DB::transaction(function() use ($p, $r, $supplier, $trunk, $len, $start, &$created, &$rangeId) {
-            $prefixRow = $p['prefixRow'];
-            if (!$prefixRow) {
-                $prefixId = DB::table('supplier_prefixes')->insertGetId([
-                    'supplier_id' => $supplier->id, 'prefix' => $p['prefix'], 'country' => $p['country'],
-                    'price' => $p['tariff'], 'payment_term' => $r->payment_term,
-                    'test_number' => $p['test'] !== '' ? '+'.$p['test'] : null,
-                    'ivr_context' => $p['ivr'], 'status' => 'active',
-                    'created_at' => now(), 'updated_at' => now(),
-                ]);
-            } else {
-                $prefixId = $prefixRow->id;
-            }
+        DB::transaction(function() use ($p, $supplier, $trunk, $prefixId, &$created, &$rangeId) {
+            $len = strlen($p['start']); $start = (int)$p['start'];
             $rangeId = DB::table('did_ranges')->insertGetId([
                 'batch_name'    => $p['country'].' '.$p['prefix'],
                 'country_code'  => 'XX', 'country_name' => $p['country'],
                 'prefix'        => $p['prefix'], 'prefix_id' => $prefixId,
                 'range_start'   => $p['start'], 'range_end' => $p['end'],
                 'rate'          => $p['tariff'], 'selling_price' => $p['selling'],
-                'currency'      => 'USDT', 'payment_terms' => $r->payment_term,
+                'currency'      => 'USDT', 'payment_terms' => $p['paymentTerm'],
                 'supplier_name' => $supplier->name, 'supplier_id' => $supplier->id,
                 'trunk_id'      => $trunk->id ?? null, 'default_ivr' => $p['ivr'],
                 'total_count'   => $p['count'], 'is_active' => 1,
@@ -1433,10 +1419,10 @@ Route::middleware('auth:sanctum')->group(function() {
                     'number' => '+'.$n, 'e164_number' => '+'.$n,
                     'trunk_id' => $trunk->id ?? null, 'supplier_id' => $supplier->id,
                     'prefix_id' => $prefixId, 'batch_id' => $rangeId,
-                    'is_test' => $n === $p['test'] ? 1 : 0,
+                    'is_test' => 0,
                     'prefix' => $p['prefix'], 'country_name' => $p['country'], 'country_code' => 'XX',
                     'tariff' => $p['tariff'], 'selling_price' => $p['selling'],
-                    'currency' => 'USDT', 'payment_terms' => $r->payment_term,
+                    'currency' => 'USDT', 'payment_terms' => $p['paymentTerm'],
                     'lifecycle_status' => 'available', 'status' => 'active',
                     'ivr_context' => $p['ivr'],
                     'created_at' => now(), 'updated_at' => now(),
