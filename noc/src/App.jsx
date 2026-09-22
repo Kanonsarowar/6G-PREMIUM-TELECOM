@@ -1599,7 +1599,7 @@ function RevenuePage({token}){
                         <td style={{padding:"10px 14px",fontSize:12,color:"#333",fontFamily:"monospace"}}>{inv.total_calls}</td>
                         <td style={{padding:"10px 14px",fontSize:13,fontWeight:700,
                           color:"#10B981",fontFamily:"monospace"}}>
-                          {fmtUSDT(inv.total_amount)}
+                          {fmtUSDT(inv.currency==="EUR"?parseFloat(inv.total_amount||0)*1.08:inv.total_amount)}
                         </td>
                         <td style={{padding:"10px 14px"}}>
                           <a href={"https://6g-premium-telecom.com/api/v1/invoices/"+inv.id+"/pdf"}
