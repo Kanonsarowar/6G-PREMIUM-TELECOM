@@ -655,7 +655,10 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // ── Customers ─────────────────────────────────────────────
     Route::get('/v1/customers', function() {
-        return response()->json(['data'=>User::orderBy('client_id')->get()]);
+        // Excludes the operator/admin account(s) - this list is customers
+        // only, and POST below always creates new ones with role 'reseller'
+        // by default, never 'superadmin'.
+        return response()->json(['data'=>User::where('role','!=','superadmin')->orderBy('client_id')->get()]);
     });
 
     Route::post('/v1/customers', function(Request $request) {
