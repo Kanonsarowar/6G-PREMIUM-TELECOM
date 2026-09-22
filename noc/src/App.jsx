@@ -3842,7 +3842,7 @@ function PrefixRoutesPage({token}){
                   }}/></div>
               <div><div style={numLbl}>Operator</div>
                 <TypeaheadField value={form.operator} placeholder="e.g. STC"
-                  options={OPERATORS_BY_COUNTRY[form.country]||[]}
+                  options={OPERATORS_BY_COUNTRY[(COUNTRIES.find(c=>c.name.toLowerCase()===form.country.trim().toLowerCase())||{}).name]||[]}
                   onChange={v=>setForm({...form,operator:v})}/></div>
               <div><div style={numLbl}>Prefix *</div>
                 <input style={numInp} value={form.prefix} onChange={e=>setForm({...form,prefix:e.target.value})} placeholder="919876XXXX" disabled={!!editing}/></div>
