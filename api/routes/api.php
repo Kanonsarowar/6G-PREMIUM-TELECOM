@@ -516,31 +516,6 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['data'=>$ranges,'total'=>count($ranges)]);
     });
 
-    Route::post('/v1/did-ranges/import-range', function(Request $r) {
-        $start = preg_replace('/[^0-9]/','', $r->range_start);
-        $end   = preg_replace('/[^0-9]/','', $r->range_end);
-        $count = (int)$end - (int)$start + 1;
-        $id = DB::table('did_ranges')->insertGetId([
-            'batch_name'   => $r->batch_name ?? ($r->country_name.' '.substr($start,0,-4)),
-            'country_code' => $r->country_code,
-            'country_name' => $r->country_name,
-            'prefix'       => substr($start,0,-4),
-            'range_start'  => $start,
-            'range_end'    => $end,
-            'rate'         => $r->tariff ?? 0.063,
-            'selling_price'=> $r->selling_price ?? 0.07,
-            'currency'     => $r->currency ?? 'USDT',
-            'payment_terms'=> 'Daily',
-            'supplier_name'=> $r->supplier,
-            'default_ivr'  => $r->default_ivr ?? 'custom/6g-premium-telecom',
-            'total_count'  => $count,
-            'is_active'    => 1,
-            'created_at'   => now(),
-            'updated_at'   => now(),
-        ]);
-        return response()->json(['success'=>true,'id'=>$id,'total'=>$count,'message'=>"Range imported — $count numbers"]);
-    });
-
     // ── Revenue ───────────────────────────────────────────────
     // Revenue we have not yet paid out, per supplier: every CDR of the supplier's
     // numbers since its last PAID supplier payment (all of it if never paid).
@@ -1305,88 +1280,6 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['data'=>$out]);
     });
 
-    Route::post('/v1/supplier-accounts/{id}/prefixes', function(Request $r, $id) {
-        $supplier = DB::table('suppliers')->find($id);
-        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-        if (!$r->prefix || !$r->country || !$r->price || !$r->payment_term || !$r->test_number)
-            return response()->json(['error'=>'Prefix, country, price, payment term and test number are required'],422);
-        if (DB::table('supplier_prefixes')->where('supplier_id',$id)->where('prefix',$r->prefix)->exists())
-            return response()->json(['error'=>'This prefix already exists for this supplier'],409);
-
-        $ivrContext = $r->ivr_context ?: 'custom/6g-premium-telecom';
-        $prefixId = DB::table('supplier_prefixes')->insertGetId([
-            'supplier_id'   => $id,
-            'prefix'        => $r->prefix,
-            'country'       => $r->country,
-            'country_code'  => $r->country_code,
-            'price'         => $r->price,
-            'payment_term'  => $r->payment_term,
-            'test_number'   => $r->test_number,
-            'operator'      => $r->operator,
-            'ivr_context'   => $r->ivr_context,
-            'status'        => $r->status ?? 'active',
-            'created_at'    => now(),
-            'updated_at'    => now(),
-        ]);
-
-        // The Prefix's own required test number is immediately reflected as
-        // a real Test Number record too, so both tables stay in sync without
-        // asking the user to enter it twice.
-        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->test_number),'+');
-        if (!DB::table('dids')->where('number',$num)->exists()) {
-            $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
-            DB::table('dids')->insert([
-                'number' => $num, 'trunk_id' => $trunk->id ?? null, 'supplier_id' => $id,
-                'prefix_id' => $prefixId, 'is_test' => 1, 'prefix' => $r->prefix,
-                'country_name' => $r->country, 'country_code' => 'XX', 'tariff' => $r->price,
-                'currency' => 'USDT', 'status' => 'active', 'ivr_context' => $ivrContext,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
-        }
-
-        return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($prefixId)],201);
-    });
-
-    Route::put('/v1/supplier-accounts/{id}/prefixes/{prefixId}', function(Request $r, $id, $prefixId) {
-        $prefix = DB::table('supplier_prefixes')->where('id',$prefixId)->where('supplier_id',$id)->first();
-        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],404);
-        if ($r->filled('prefix') && $r->prefix !== $prefix->prefix
-            && DB::table('supplier_prefixes')->where('supplier_id',$id)->where('prefix',$r->prefix)->exists())
-            return response()->json(['error'=>'This prefix already exists for this supplier'],409);
-        $newIvrContext = $r->ivr_context ?? $prefix->ivr_context;
-        DB::table('supplier_prefixes')->where('id',$prefixId)->update([
-            'prefix'       => $r->prefix ?? $prefix->prefix,
-            'country'      => $r->country ?? $prefix->country,
-            'country_code' => $r->country_code ?? $prefix->country_code,
-            'price'        => $r->price ?? $prefix->price,
-            'payment_term' => $r->payment_term ?? $prefix->payment_term,
-            'test_number'  => $r->test_number ?? $prefix->test_number,
-            'operator'     => $r->operator ?? $prefix->operator,
-            'ivr_context'  => $newIvrContext,
-            'status'       => $r->status ?? $prefix->status,
-            'updated_at'   => now(),
-        ]);
-
-        // Changing the prefix's IVR re-applies it to every number already
-        // created under this prefix - the whole point of assigning IVR at
-        // the prefix level instead of per individual number.
-        if ($r->filled('ivr_context') && $newIvrContext !== $prefix->ivr_context) {
-            DB::table('dids')->where('prefix_id', $prefixId)->update(['ivr_context' => $newIvrContext, 'updated_at' => now()]);
-            DB::table('did_ranges')->where('prefix_id', $prefixId)->update(['default_ivr' => $newIvrContext, 'updated_at' => now()]);
-        }
-
-        return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($prefixId)]);
-    });
-
-    Route::delete('/v1/supplier-accounts/{id}/prefixes/{prefixId}', function($id, $prefixId) {
-        $prefix = DB::table('supplier_prefixes')->where('id',$prefixId)->where('supplier_id',$id)->first();
-        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],404);
-        // DB-level ON DELETE CASCADE removes child dids/did_ranges rows;
-        // cdrs/invoices are untouched (no FK path from supplier_prefixes).
-        DB::table('supplier_prefixes')->where('id',$prefixId)->delete();
-        return response()->json(['success'=>true]);
-    });
-
     // Numbers/ranges are the supplier's production inventory (existing
     // dids/did_ranges tables, filtered by supplier_id) and always belong to
     // a Prefix. Test numbers use the same dids table with is_test=1 so they
@@ -1397,104 +1290,9 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['data'=>['numbers'=>$numbers,'ranges'=>$ranges]]);
     });
 
-    Route::post('/v1/supplier-accounts/{id}/numbers', function(Request $r, $id) {
-        $supplier = DB::table('suppliers')->find($id);
-        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-        if (!$r->prefix_id) return response()->json(['error'=>'prefix_id is required'],422);
-        $prefix = DB::table('supplier_prefixes')->where('id',$r->prefix_id)->where('supplier_id',$id)->first();
-        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],422);
-        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
-
-        if ($r->mode === 'range') {
-            if (!$r->range_start || !$r->range_end) return response()->json(['error'=>'range_start and range_end are required'],422);
-            $start = preg_replace('/[^0-9]/','',$r->range_start);
-            $end   = preg_replace('/[^0-9]/','',$r->range_end);
-            $count = (int)$end - (int)$start + 1;
-            if ($count < 1) return response()->json(['error'=>'range_end must be >= range_start'],422);
-            $rangeId = DB::table('did_ranges')->insertGetId([
-                'batch_name'    => $r->batch_name ?? ($prefix->country.' '.$prefix->prefix),
-                'country_code'  => 'XX',
-                'country_name'  => $prefix->country,
-                'prefix'        => $prefix->prefix,
-                'prefix_id'     => $prefix->id,
-                'range_start'   => $start,
-                'range_end'     => $end,
-                'rate'          => $prefix->price,
-                'selling_price' => $prefix->price,
-                'currency'      => 'USDT',
-                'payment_terms' => $prefix->payment_term,
-                'supplier_name' => $supplier->name,
-                'supplier_id'   => $id,
-                'trunk_id'      => $trunk->id ?? null,
-                'default_ivr'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
-                'total_count'   => $count,
-                'is_active'     => 1,
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ]);
-            return response()->json(['success'=>true,'data'=>DB::table('did_ranges')->find($rangeId)],201);
-        }
-
-        // Single number
-        if (!$r->number) return response()->json(['error'=>'number is required'],422);
-        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
-        if (DB::table('dids')->where('number',$num)->exists())
-            return response()->json(['error'=>'Number already exists'],409);
-        $didId = DB::table('dids')->insertGetId([
-            'number'        => $num,
-            'trunk_id'      => $trunk->id ?? null,
-            'supplier_id'   => $id,
-            'prefix_id'     => $prefix->id,
-            'is_test'       => 0,
-            'prefix'        => $prefix->prefix,
-            'country_name'  => $prefix->country,
-            'country_code'  => 'XX',
-            'tariff'        => $prefix->price,
-            'selling_price' => $prefix->price,
-            'currency'      => 'USDT',
-            'payment_terms' => $prefix->payment_term,
-            'status'        => 'active',
-            'ivr_context'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
-            'created_at'    => now(),
-            'updated_at'    => now(),
-        ]);
-        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($didId)],201);
-    });
-
     Route::get('/v1/supplier-accounts/{id}/test-numbers', function($id) {
         $rows = DB::table('dids')->where('supplier_id',$id)->where('is_test',1)->orderByDesc('created_at')->get();
         return response()->json(['data'=>$rows]);
-    });
-
-    Route::post('/v1/supplier-accounts/{id}/test-numbers', function(Request $r, $id) {
-        $supplier = DB::table('suppliers')->find($id);
-        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-        if (!$r->prefix_id) return response()->json(['error'=>'prefix_id is required'],422);
-        $prefix = DB::table('supplier_prefixes')->where('id',$r->prefix_id)->where('supplier_id',$id)->first();
-        if (!$prefix) return response()->json(['error'=>'Prefix not found for this supplier'],422);
-        if (!$r->number) return response()->json(['error'=>'number is required'],422);
-        $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->number),'+');
-        if (DB::table('dids')->where('number',$num)->exists())
-            return response()->json(['error'=>'Number already exists'],409);
-        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
-        $id2 = DB::table('dids')->insertGetId([
-            'number'        => $num,
-            'trunk_id'      => $trunk->id ?? null,
-            'supplier_id'   => $id,
-            'prefix_id'     => $prefix->id,
-            'is_test'       => 1,
-            'prefix'        => $prefix->prefix,
-            'country_name'  => $prefix->country,
-            'country_code'  => 'XX',
-            'tariff'        => $prefix->price,
-            'currency'      => 'USDT',
-            'status'        => 'active',
-            'ivr_context'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
-            'created_at'    => now(),
-            'updated_at'    => now(),
-        ]);
-        if ($r->notes) DB::table('dids')->where('id',$id2)->update(['route'=>$r->notes]);
-        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($id2)],201);
     });
 
     // ── Numbers & IVR: Add Range (preview -> import) ─────────────────
@@ -1762,6 +1560,49 @@ Route::middleware('auth:sanctum')->group(function() {
             'last_page' => max((int)ceil($total / $per), 1)]);
     });
 
+    // Add Number (single DID under an existing Prefix) - tariff, selling
+    // price, payment term, currency and (unless overridden) IVR are all
+    // inherited from the Prefix, same as a range created via Add Range.
+    Route::post('/v1/numbers', function(Request $r) {
+        if (!$r->supplier_id) return response()->json(['error' => 'supplier_id is required'], 422);
+        $supplier = DB::table('suppliers')->find($r->supplier_id);
+        if (!$supplier) return response()->json(['error' => 'Supplier not found'], 404);
+        if (!$r->prefix_id) return response()->json(['error' => 'prefix_id is required'], 422);
+        $prefix = DB::table('supplier_prefixes')->where('id', $r->prefix_id)->where('supplier_id', $supplier->id)->first();
+        if (!$prefix) return response()->json(['error' => 'Prefix not found for this supplier'], 422);
+        if (!$r->number) return response()->json(['error' => 'number is required'], 422);
+        $num = '+'.ltrim(preg_replace('/[^0-9]/', '', $r->number), '+');
+        if (DB::table('dids')->where('number', $num)->exists())
+            return response()->json(['error' => 'Number already exists'], 409);
+        $trunk = DB::table('trunks')->where('supplier_id', $supplier->id)->first();
+        $didId = DB::table('dids')->insertGetId([
+            'number'        => $num,
+            'trunk_id'      => $trunk->id ?? null,
+            'supplier_id'   => $supplier->id,
+            'prefix_id'     => $prefix->id,
+            'is_test'       => 0,
+            'prefix'        => $prefix->prefix,
+            'country_name'  => $prefix->country,
+            'country_code'  => 'XX',
+            'tariff'        => $prefix->price,
+            'selling_price' => $prefix->price,
+            'currency'      => 'USDT',
+            'payment_terms' => $prefix->payment_term,
+            'status'        => 'active',
+            'ivr_context'   => $r->ivr_context ?: ($prefix->ivr_context ?: 'custom/6g-premium-telecom'),
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+        DB::table('audit_logs')->insert([
+            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'ADD_NUMBER',
+            'module'=>'Numbers',
+            'details'=>"Added {$num} for {$supplier->name} (prefix {$prefix->prefix})",
+            'ip_address'=>$r->ip(),'method'=>'POST','url'=>'/api/v1/numbers',
+            'status_code'=>201,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return response()->json(['success'=>true,'data'=>DB::table('dids')->find($didId)],201);
+    });
+
     Route::get('/v1/numbers/{id}', function($id) {
         $d = DB::table('dids')->find($id);
         if (!$d) return response()->json(['error' => 'Number not found'], 404);
@@ -1825,189 +1666,6 @@ Route::middleware('auth:sanctum')->group(function() {
             'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
         ]);
         return response()->json(['success' => true, 'enforcement' => $enforce]);
-    });
-
-    // ── Number Import (Upload + Paste share this exact same engine) ──
-    // Both the file-upload and paste-textarea frontend flows send their
-    // raw text here first for a dry-run preview, then to /confirm to
-    // actually write. Neither writes to the database on preview, and
-    // Asterisk configuration is never touched by import - only
-    // suppliers/supplier_prefixes/dids/did_ranges rows are affected,
-    // exactly the same tables the manual Add Prefix/Number forms use.
-    Route::post('/v1/supplier-accounts/{id}/import/preview', function(Request $r, $id) {
-        $supplier = DB::table('suppliers')->find($id);
-        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-        if (!$r->filled('raw_text')) return response()->json(['error'=>'raw_text is required'],422);
-
-        $parsed = parseSupplierImportRecords($r->raw_text, $supplier->country);
-        $existingPrefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('prefix');
-        $existingNumbers = DB::table('dids')->pluck('number')
-            ->map(fn($n)=>ltrim($n,'+'))->flip();
-        $existingRanges = DB::table('did_ranges')->get(['range_start','range_end']);
-
-        $seenInBatch = [];
-        $out = [];
-        foreach ($parsed as $rec) {
-            $status = 'new';
-            $reason = null;
-            $matchedPrefix = $rec['prefix'] ? ($existingPrefixes[$rec['prefix']] ?? null) : null;
-
-            if ($rec['mode'] === 'single') {
-                if (!$rec['number']) { $status='error'; $reason='Could not detect a number'; }
-                elseif (isset($existingNumbers[$rec['number']])) { $status='duplicate'; $reason='Number already exists'; }
-                elseif (isset($seenInBatch['n:'.$rec['number']])) { $status='duplicate'; $reason='Duplicate within this import'; }
-            } else {
-                if (!$rec['range_start'] || !$rec['range_end']) { $status='error'; $reason='Could not detect a full range'; }
-                elseif ((int)$rec['range_end'] < (int)$rec['range_start']) { $status='error'; $reason='Range end is before range start'; }
-                else {
-                    foreach ($existingRanges as $er) {
-                        if ($rec['range_start'] <= $er->range_end && $rec['range_end'] >= $er->range_start) {
-                            $status='duplicate'; $reason='Overlaps an existing range'; break;
-                        }
-                    }
-                    $batchKey = 'r:'.$rec['range_start'].'-'.$rec['range_end'];
-                    if ($status==='new' && isset($seenInBatch[$batchKey])) { $status='duplicate'; $reason='Duplicate within this import'; }
-                }
-            }
-
-            if ($status==='new' && !$matchedPrefix && !$rec['price']) {
-                $status='error'; $reason='No matching prefix and no price detected - cannot create a new prefix';
-            }
-
-            if ($status==='new') {
-                $key = $rec['mode']==='single' ? 'n:'.$rec['number'] : 'r:'.$rec['range_start'].'-'.$rec['range_end'];
-                $seenInBatch[$key] = true;
-            }
-
-            $out[] = array_merge($rec, [
-                'status' => $status,
-                'reason' => $reason,
-                'matched_prefix_id' => $matchedPrefix->id ?? null,
-                'will_create_prefix' => $status==='new' && !$matchedPrefix,
-            ]);
-        }
-
-        $newRows = array_filter($out, fn($x)=>$x['status']==='new');
-        $summary = [
-            'total'        => count($out),
-            'new'          => count($newRows),
-            'duplicate'    => count(array_filter($out, fn($x)=>$x['status']==='duplicate')),
-            'error'        => count(array_filter($out, fn($x)=>$x['status']==='error')),
-            'new_prefixes' => count(array_unique(array_map(fn($x)=>$x['prefix'],
-                array_filter($newRows, fn($x)=>$x['will_create_prefix'])))),
-        ];
-
-        return response()->json(['data'=>['records'=>$out,'summary'=>$summary]]);
-    });
-
-    Route::post('/v1/supplier-accounts/{id}/import/confirm', function(Request $r, $id) {
-        $supplier = DB::table('suppliers')->find($id);
-        if (!$supplier) return response()->json(['error'=>'Supplier not found'],404);
-        $records = $r->records ?? [];
-        if (!is_array($records) || empty($records)) return response()->json(['error'=>'No records to import'],422);
-
-        $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
-        $prefixCache = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('prefix');
-        $newPrefixCache = [];
-        $createdPrefixes = 0; $createdNumbers = 0; $createdRanges = 0; $skipped = 0;
-
-        foreach ($records as $rec) {
-            if (($rec['status'] ?? null) !== 'new') { $skipped++; continue; }
-            $mode = $rec['mode'] ?? 'single';
-            $prefixStr = $rec['prefix'] ?? null;
-            if (!$prefixStr) { $skipped++; continue; }
-
-            // Re-checked here (not just at preview time) so a race between
-            // preview and confirm can never create a duplicate.
-            if ($mode === 'single') {
-                $num = '+'.ltrim($rec['number'] ?? '', '+');
-                if (!$rec['number'] || DB::table('dids')->where('number',$num)->exists()) { $skipped++; continue; }
-            } else {
-                if (!$rec['range_start'] || !$rec['range_end']) { $skipped++; continue; }
-                $overlap = DB::table('did_ranges')
-                    ->where('range_start','<=',$rec['range_end'])->where('range_end','>=',$rec['range_start'])
-                    ->exists();
-                if ($overlap) { $skipped++; continue; }
-            }
-
-            $prefixRow = $prefixCache[$prefixStr] ?? ($newPrefixCache[$prefixStr] ?? null);
-            if (!$prefixRow) {
-                $price = $rec['price'] ?? null;
-                if (!$price) { $skipped++; continue; }
-                $newId = DB::table('supplier_prefixes')->insertGetId([
-                    'supplier_id'   => $id,
-                    'prefix'        => $prefixStr,
-                    'country'       => $rec['country'] ?? null,
-                    'price'         => $price,
-                    'payment_term'  => $rec['payment_term'] ?? null,
-                    'operator'      => $rec['operator'] ?? null,
-                    'status'        => 'active',
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]);
-                $prefixRow = DB::table('supplier_prefixes')->find($newId);
-                $newPrefixCache[$prefixStr] = $prefixRow;
-                $createdPrefixes++;
-            }
-
-            if ($mode === 'single') {
-                DB::table('dids')->insert([
-                    'number'        => $num,
-                    'trunk_id'      => $trunk->id ?? null,
-                    'supplier_id'   => $id,
-                    'prefix_id'     => $prefixRow->id,
-                    'is_test'       => 0,
-                    'prefix'        => $prefixRow->prefix,
-                    'country_name'  => $rec['country'] ?? $prefixRow->country,
-                    'country_code'  => 'XX',
-                    'tariff'        => $rec['price'] ?? $prefixRow->price,
-                    'selling_price' => $rec['price'] ?? $prefixRow->price,
-                    'currency'      => 'USDT',
-                    'payment_terms' => $rec['payment_term'] ?? $prefixRow->payment_term,
-                    'status'        => 'active',
-                    'ivr_context'   => 'custom/6g-premium-telecom',
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]);
-                $createdNumbers++;
-            } else {
-                $count = (int)$rec['range_end'] - (int)$rec['range_start'] + 1;
-                DB::table('did_ranges')->insert([
-                    'batch_name'    => ($rec['country'] ?? $prefixRow->country).' '.$prefixRow->prefix,
-                    'country_code'  => 'XX',
-                    'country_name'  => $rec['country'] ?? $prefixRow->country,
-                    'prefix'        => $prefixRow->prefix,
-                    'prefix_id'     => $prefixRow->id,
-                    'range_start'   => $rec['range_start'],
-                    'range_end'     => $rec['range_end'],
-                    'rate'          => $rec['price'] ?? $prefixRow->price,
-                    'selling_price' => $rec['price'] ?? $prefixRow->price,
-                    'currency'      => 'USDT',
-                    'payment_terms' => $rec['payment_term'] ?? $prefixRow->payment_term,
-                    'supplier_name' => $supplier->name,
-                    'supplier_id'   => $id,
-                    'default_ivr'   => 'custom/6g-premium-telecom',
-                    'total_count'   => $count,
-                    'is_active'     => 1,
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]);
-                $createdRanges++;
-            }
-        }
-
-        DB::table('audit_logs')->insert([
-            'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'IMPORT_NUMBERS',
-            'module'=>'Suppliers',
-            'details'=>"Imported for supplier #{$id} ({$supplier->name}): {$createdNumbers} numbers, {$createdRanges} ranges, {$createdPrefixes} new prefixes, {$skipped} skipped",
-            'ip_address'=>$r->ip(),'method'=>'POST','url'=>"/api/v1/supplier-accounts/{$id}/import/confirm",
-            'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
-        ]);
-
-        return response()->json([
-            'success'=>true,'created_prefixes'=>$createdPrefixes,'created_numbers'=>$createdNumbers,
-            'created_ranges'=>$createdRanges,'skipped'=>$skipped,
-        ]);
     });
 
     // Access History uses real CDRs against this supplier's test numbers.
@@ -2271,29 +1929,6 @@ Route::middleware('auth:sanctum')->group(function() {
 
 });
 
-// Add single DID
-Route::post('/v1/dids/add', function(Request $r) {
-    if(DB::table('dids')->where('number',$r->number)->exists())
-        return response()->json(['error'=>'Number already exists'],400);
-    $id = DB::table('dids')->insertGetId([
-        'number'          => $r->number,
-        'e164_number'     => $r->number,
-        'country_code'    => $r->country_code,
-        'country_name'    => $r->country_name,
-        'prefix'          => $r->prefix,
-        'tariff'          => $r->tariff ?? 0.063,
-        'selling_price'   => $r->selling_price ?? 0.07,
-        'currency'        => $r->currency ?? 'USDT',
-        'payment_terms'   => $r->payment_terms ?? 'Weekly',
-        'lifecycle_status'=> 'available',
-        'status'          => 'active',
-        'ivr_context'     => 'custom/6g-premium-telecom',
-        'trunk_id'        => $r->trunk_id ?? 1,
-        'created_at'      => now(),
-        'updated_at'      => now(),
-    ]);
-    return response()->json(['success'=>true,'id'=>$id,'number'=>$r->number]);
-});
 
 // Revenue by currency
 Route::get('/v1/billing/revenue-by-currency', function() {
@@ -2988,6 +2623,91 @@ Route::get('/v1/prefixes', function(Request $r) {
     return response()->json(['data'=>$out,'total'=>count($out)]);
 });
 
+// Prefix / Routes is the single master location for creating, editing and
+// deleting a Prefix - supersedes the old per-supplier prefix CRUD (Numbers
+// and ranges are never created from the Supplier page). A supplier is
+// selected from a dropdown here, same as Add Number / Add Range.
+Route::post('/v1/prefixes', function(Request $r) {
+    $supplier = DB::table('suppliers')->find($r->supplier_id);
+    if (!$supplier) return response()->json(['error'=>'Select a supplier'],422);
+    if (!$r->prefix || !$r->country || !$r->price || !$r->payment_term || !$r->test_number)
+        return response()->json(['error'=>'Prefix, country, price, payment term and test number are required'],422);
+    if (DB::table('supplier_prefixes')->where('supplier_id',$supplier->id)->where('prefix',$r->prefix)->exists())
+        return response()->json(['error'=>'This prefix already exists for this supplier'],409);
+
+    $ivrContext = $r->ivr_context ?: 'custom/6g-premium-telecom';
+    $prefixId = DB::table('supplier_prefixes')->insertGetId([
+        'supplier_id'   => $supplier->id,
+        'prefix'        => $r->prefix,
+        'country'       => $r->country,
+        'country_code'  => $r->country_code,
+        'price'         => $r->price,
+        'payment_term'  => $r->payment_term,
+        'test_number'   => $r->test_number,
+        'operator'      => $r->operator,
+        'ivr_context'   => $r->ivr_context,
+        'status'        => $r->status ?? 'active',
+        'created_at'    => now(),
+        'updated_at'    => now(),
+    ]);
+
+    // The Prefix's own required test number is immediately reflected as a
+    // real Test Number record too (same as the old per-supplier flow).
+    $num = '+'.ltrim(preg_replace('/[^0-9]/','',$r->test_number),'+');
+    if (!DB::table('dids')->where('number',$num)->exists()) {
+        $trunk = DB::table('trunks')->where('supplier_id',$supplier->id)->first();
+        DB::table('dids')->insert([
+            'number' => $num, 'trunk_id' => $trunk->id ?? null, 'supplier_id' => $supplier->id,
+            'prefix_id' => $prefixId, 'is_test' => 1, 'prefix' => $r->prefix,
+            'country_name' => $r->country, 'country_code' => 'XX', 'tariff' => $r->price,
+            'currency' => 'USDT', 'status' => 'active', 'ivr_context' => $ivrContext,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($prefixId)],201);
+});
+
+Route::put('/v1/prefixes/{id}', function(Request $r, $id) {
+    $prefix = DB::table('supplier_prefixes')->find($id);
+    if (!$prefix) return response()->json(['error'=>'Prefix not found'],404);
+    if ($r->filled('prefix') && $r->prefix !== $prefix->prefix
+        && DB::table('supplier_prefixes')->where('supplier_id',$prefix->supplier_id)->where('prefix',$r->prefix)->exists())
+        return response()->json(['error'=>'This prefix already exists for this supplier'],409);
+    $newIvrContext = $r->ivr_context ?? $prefix->ivr_context;
+    DB::table('supplier_prefixes')->where('id',$id)->update([
+        'supplier_id'  => $r->supplier_id ?? $prefix->supplier_id,
+        'prefix'       => $r->prefix ?? $prefix->prefix,
+        'country'      => $r->country ?? $prefix->country,
+        'country_code' => $r->country_code ?? $prefix->country_code,
+        'price'        => $r->price ?? $prefix->price,
+        'payment_term' => $r->payment_term ?? $prefix->payment_term,
+        'test_number'  => $r->test_number ?? $prefix->test_number,
+        'operator'     => $r->operator ?? $prefix->operator,
+        'ivr_context'  => $newIvrContext,
+        'status'       => $r->status ?? $prefix->status,
+        'updated_at'   => now(),
+    ]);
+
+    // Changing the prefix's IVR re-applies it to every number already
+    // created under this prefix - same cascade as the dedicated IVR routes.
+    if ($r->filled('ivr_context') && $newIvrContext !== $prefix->ivr_context) {
+        DB::table('dids')->where('prefix_id', $id)->update(['ivr_context' => $newIvrContext, 'updated_at' => now()]);
+        DB::table('did_ranges')->where('prefix_id', $id)->update(['default_ivr' => $newIvrContext, 'updated_at' => now()]);
+    }
+
+    return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($id)]);
+});
+
+Route::delete('/v1/prefixes/{id}', function($id) {
+    $prefix = DB::table('supplier_prefixes')->find($id);
+    if (!$prefix) return response()->json(['error'=>'Prefix not found'],404);
+    // DB-level ON DELETE CASCADE removes child dids/did_ranges rows;
+    // cdrs/invoices are untouched (no FK path from supplier_prefixes).
+    DB::table('supplier_prefixes')->where('id',$id)->delete();
+    return response()->json(['success'=>true]);
+});
+
 // Bulk update IVR for all Prefixes - cascades to every DID/range under each one
 Route::put('/v1/prefixes/bulk-ivr', function(Request $r) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
@@ -3235,51 +2955,6 @@ Route::post('/v1/dids/bulk-ivr', function(Request $r) {
     // Update Asterisk extensions
     $numbers = DB::table('dids')->whereIn('id',$ids)->pluck('number');
     return response()->json(['success'=>true,'updated'=>$updated,'numbers'=>$numbers]);
-});
-
-// Upload CSV/Excel of DIDs
-Route::post('/v1/dids/bulk-upload', function(Request $r) {
-    if(!$r->hasFile('file')) return response()->json(['error'=>'No file uploaded'],400);
-    $file = $r->file('file');
-    $content = file_get_contents($file->getRealPath());
-    $lines = array_filter(explode("\n", str_replace("\r","",$content)));
-    $imported=0; $skipped=0; $errors=[];
-    $trunkId = $r->trunk_id ?? null;
-    $rate = $r->rate ?? 0.07;
-    $currency = $r->currency ?? 'USDT';
-
-    foreach($lines as $i=>$line){
-        if($i===0 && stripos($line,'number')!==false) continue; // skip header
-        $cols = str_getcsv($line);
-        $num = trim($cols[0] ?? '');
-        if(!$num) continue;
-        $num = preg_replace('/[^0-9+]/','',$num);
-        if(!str_starts_with($num,'+')) $num='+'.$num;
-        if(strlen($num)<8){$errors[]=$num." (too short)";continue;}
-        if(DB::table('dids')->where('number',$num)->orWhere('number',ltrim($num,'+'))->exists()){$skipped++;continue;}
-
-        // Auto detect country
-        $countryCode='XX'; $countryName='Unknown';
-        $stripped=ltrim($num,'+');
-        $prefixMap=['39'=>['IT','Italy'],'44'=>['GB','UK'],'33'=>['FR','France'],
-            '49'=>['DE','Germany'],'1'=>['US','USA'],'966'=>['SA','Saudi Arabia'],
-            '90'=>['TR','Turkey'],'7'=>['RU','Russia'],'593'=>['EC','Ecuador'],
-            '998'=>['UZ','Uzbekistan'],'995'=>['GE','Georgia'],'882'=>['SAT','Satellite'],
-            '88'=>['SAT','Satellite']];
-        foreach([3,2,1] as $len){
-            $p=substr($stripped,0,$len);
-            if(isset($prefixMap[$p])){$countryCode=$prefixMap[$p][0];$countryName=$prefixMap[$p][1];break;}
-        }
-        DB::table('dids')->insert([
-            'number'=>$num,'trunk_id'=>$trunkId,'country_code'=>$countryCode,
-            'country_name'=>$countryName,'rate'=>$rate,'currency'=>$currency,
-            'status'=>'active','ivr_context'=>'custom/6g-premium-telecom',
-            'created_at'=>now(),'updated_at'=>now(),
-        ]);
-        $imported++;
-    }
-    return response()->json(['success'=>true,'imported'=>$imported,'skipped'=>$skipped,
-        'errors'=>array_slice($errors,0,10),'message'=>"$imported imported, $skipped skipped"]);
 });
 
 // Export DIDs as CSV

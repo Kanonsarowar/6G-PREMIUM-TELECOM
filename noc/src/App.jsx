@@ -1800,25 +1800,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
 
-  const [showAddPrefix,setShowAddPrefix]=useState(false);
-  const [editingPrefix,setEditingPrefix]=useState(null);
-  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});
-  const [showAddNum,setShowAddNum]=useState(false);
-  const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
-  const [showAddTest,setShowAddTest]=useState(false);
-  const [addTest,setAddTest]=useState({prefix_id:"",number:""});
-
-  // Upload and Paste share this exact same state/flow and the same
-  // backend engine (/import/preview, /import/confirm) - the only
-  // difference between them is how importText gets populated.
-  const [showImport,setShowImport]=useState(false);
-  const [importMode,setImportMode]=useState("upload");
-  const [importText,setImportText]=useState("");
-  const [importFileName,setImportFileName]=useState("");
-  const [importStep,setImportStep]=useState("input");
-  const [importPreviewData,setImportPreviewData]=useState(null);
-  const [importing,setImporting]=useState(false);
-
   const [showPayment,setShowPayment]=useState(false);
   const [payLoading,setPayLoading]=useState(false);
   const [currentPeriod,setCurrentPeriod]=useState(null);
@@ -1856,7 +1837,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [supplierCdr,setSupplierCdr]=useState([]);
 
   const liveCallRef=useRef(null);
-  const SAUDI_OPERATORS=["STC","Mobily","Zain KSA","Virgin Mobile","Lebara","Friendi Mobile","Red Bull MOBILE","Other"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
@@ -1958,44 +1938,15 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     else alert(`Apply ${r?.status||"failed"}: ${r?.summary||d?.error||d?.message||"unknown error"}`);
   };
 
-  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});setShowAddPrefix(true);};
-  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",country_code:p.country_code||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",ivr_context:p.ivr_context||"",status:p.status});setShowAddPrefix(true);};
-
-  const savePrefix=async()=>{
-    if(!prefixForm.prefix||!prefixForm.country||!prefixForm.price||!prefixForm.payment_term||(!editingPrefix&&!prefixForm.test_number)){
-      alert("Prefix, country, price, payment term and test number are required");return;
-    }
-    setSaving(true);
-    const d=editingPrefix
-      ?await apiFetch(`/supplier-accounts/${supplier.id}/prefixes/${editingPrefix.id}`,token,{method:"PUT",body:JSON.stringify(prefixForm)})
-      :await apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token,{method:"POST",body:JSON.stringify(prefixForm)});
-    setSaving(false);
-    if(d.success){
-      flash(editingPrefix?"Prefix updated":"Prefix added");
-      setShowAddPrefix(false); loadPrefixes(); loadTest();
-    } else alert(d.error||"Failed to save prefix");
-  };
-
+  // Prefixes, numbers/ranges and test numbers are created only from the
+  // Numbers & IVR module (Add Number / Add Range / Prefix / Routes) - this
+  // page can view and delete this supplier's own records, never add them.
   const delPrefix=async(p)=>{
     const msg2=`Deleting this prefix will also permanently remove ${p.number_count} number(s)/range(s) and ${p.test_number_count} test number(s) associated with this prefix. Continue?`;
     if(!window.confirm(msg2)) return;
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/prefixes/${p.id}`,token,{method:"DELETE"});
+    const d=await apiFetch(`/prefixes/${p.id}`,token,{method:"DELETE"});
     if(d.success){flash("Prefix deleted");loadPrefixes();loadNumbers();loadTest();loadAccessHistory();}
     else alert(d.error||"Failed to delete");
-  };
-
-  const addNumber=async()=>{
-    if(!addNum.prefix_id){alert("Select a Prefix first");return;}
-    if(addNum.mode==="single"&&!addNum.number){alert("Number is required");return;}
-    if(addNum.mode==="range"&&(!addNum.range_start||!addNum.range_end)){alert("Range start and end are required");return;}
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token,{method:"POST",body:JSON.stringify(addNum)});
-    setSaving(false);
-    if(d.success){
-      flash("Number"+(addNum.mode==="range"?" range":"")+" added");
-      setAddNum({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
-      setShowAddNum(false); loadNumbers(); loadPrefixes();
-    } else alert(d.error||"Failed to add");
   };
 
   const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
@@ -2025,76 +1976,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   }).filter(Boolean):numberGroups;
   const filteredRangesForSearch=numSearchLower?numbers.ranges.filter(r=>(r.prefix||"").toLowerCase().includes(numSearchLower)||(r.country_name||"").toLowerCase().includes(numSearchLower)):numbers.ranges;
 
-  const addTestNumber=async()=>{
-    if(!addTest.prefix_id){alert("Select a Prefix first");return;}
-    if(!addTest.number){alert("Test number is required");return;}
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token,{method:"POST",body:JSON.stringify(addTest)});
-    setSaving(false);
-    if(d.success){
-      flash("Test number added");
-      setAddTest({prefix_id:"",number:""});
-      setShowAddTest(false); loadTest(); loadPrefixes();
-    } else alert(d.error||"Failed to add");
-  };
   const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); loadPrefixes(); };
-
-  // ── Number Import: Upload + Paste share this one flow ───────────
-  const openImport=(mode)=>{
-    setImportMode(mode); setImportText(""); setImportFileName("");
-    setImportStep("input"); setImportPreviewData(null); setShowImport(true);
-  };
-
-  const handleImportFile=(e)=>{
-    const file=e.target.files?.[0];
-    if(!file) return;
-    if(!/\.(csv|txt|xlsx|xls)$/i.test(file.name)){ alert("Please choose a .csv, .txt, .xlsx or .xls file"); return; }
-    setImportFileName(file.name);
-    if(/\.(xlsx|xls)$/i.test(file.name)){
-      const reader=new FileReader();
-      reader.onload=async(ev)=>{
-        // Excel workbook -> tab-separated text, so it flows through the
-        // exact same parser/preview/confirm path as a pasted or .csv/.txt import.
-        // Loaded on demand (~350KB) so every visitor isn't paying for it upfront.
-        const XLSX=await import("xlsx");
-        const wb=XLSX.read(ev.target.result,{type:"array"});
-        const sheet=wb.Sheets[wb.SheetNames[0]];
-        const text=XLSX.utils.sheet_to_csv(sheet,{FS:"\t",blankrows:false});
-        setImportText(text);
-        runImportPreview(text);
-      };
-      reader.readAsArrayBuffer(file);
-      return;
-    }
-    const reader=new FileReader();
-    reader.onload=(ev)=>{
-      const text=ev.target.result;
-      setImportText(text);
-      runImportPreview(text);
-    };
-    reader.readAsText(file);
-  };
-
-  const runImportPreview=async(text)=>{
-    const raw=text!==undefined?text:importText;
-    if(!raw||!raw.trim()){alert("Nothing to preview yet");return;}
-    setImporting(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/import/preview`,token,{method:"POST",body:JSON.stringify({raw_text:raw})});
-    setImporting(false);
-    if(d.data){ setImportPreviewData(d.data); setImportStep("preview"); }
-    else alert(d.error||"Failed to parse import");
-  };
-
-  const runImportConfirm=async()=>{
-    setImporting(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/import/confirm`,token,{method:"POST",
-      body:JSON.stringify({records:importPreviewData.records})});
-    setImporting(false);
-    if(d.success){
-      flash(`Imported: ${d.created_numbers} number(s), ${d.created_ranges} range(s), ${d.created_prefixes} new prefix(es) — ${d.skipped} skipped`);
-      setShowImport(false); loadPrefixes(); loadNumbers(); loadTest();
-    } else alert(d.error||"Failed to import");
-  };
 
   // ── Payment: closed-period gating computed client-side from the
   // existing /supplier-payments/pending + /history endpoints (no backend
@@ -2305,11 +2187,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"14px 16px"}}>
         <div style={{display:"flex",flexWrap:"wrap",gap:10,justifyContent:"center"}}>
           <button onClick={()=>scrollTo(liveCallRef)} style={actionBtn("#2CADA6")}>+ LIVE CALL</button>
-          <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
-          <button onClick={()=>setShowAddNum(true)} style={actionBtn("#2CADA6")}>+ ADD NUMBER / RANGE</button>
-          <button onClick={()=>setShowAddTest(true)} style={actionBtn("#2CADA6")}>+ ADD TEST NUMBER</button>
-          <button onClick={()=>openImport("upload")} style={actionBtn("#F5A623")}>+ UPLOAD NUMBER</button>
-          <button onClick={()=>openImport("paste")} style={actionBtn("#F5A623")}>+ PASTE</button>
           <button onClick={openPaymentModal} style={actionBtn("#F5F5F5","#555")}>PAYMENT</button>
           <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
           <button onClick={applyAsterisk} disabled={saving} style={actionBtn("#D64545")}>{saving?"APPLYING...":"APPLY TO ASTERISK"}</button>
@@ -2376,7 +2253,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
               <thead><tr>{["Prefix","Country","Code","Price","Payment Term","IVR","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — add one for this supplier from Numbers & IVR → Prefix / Routes</td></tr>:
                 prefixes.map((p,i)=>(
                   <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
@@ -2387,8 +2264,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(p.ivr_context||"—").replace("custom/","")}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
                     <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
-                      <button onClick={()=>openEditPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
-                        background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Edit</button>
                       <button onClick={()=>delPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
                         background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
                     </td>
@@ -2474,7 +2349,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
               <thead><tr>{["Country","Prefix","Price","Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {testNumbers.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet — use "+ ADD TEST NUMBER" above</td></tr>:
+                {testNumbers.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No test numbers yet — set a Test Number when adding this supplier's prefix, range or number</td></tr>:
                 testNumbers.map((n,i)=>(
                   <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
@@ -2613,235 +2488,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>View Trunk</button>}
         </div>
       </div>
-
-      {showAddPrefix&&(
-        <div onClick={()=>setShowAddPrefix(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>{editingPrefix?"Edit Prefix":"Add Prefix"}</div>
-            <div style={{marginBottom:10}}><div style={lblS}>Prefix *</div>
-              <input style={inpS} value={prefixForm.prefix} onChange={e=>setPrefixForm({...prefixForm,prefix:e.target.value})} placeholder="919876XXXX"/></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Country *</div>
-              <select style={inpS} value={prefixForm.country} onChange={e=>{
-                const name=e.target.value;
-                const c=COUNTRIES.find(c=>c.name===name);
-                setPrefixForm({...prefixForm,country:name,country_code:c?c.prefix:prefixForm.country_code});
-              }}>
-                <option value="">— Select —</option>
-                {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Country Code</div>
-              <select style={inpS} value={prefixForm.country_code} onChange={e=>setPrefixForm({...prefixForm,country_code:e.target.value})}>
-                <option value="">— Select —</option>
-                {COUNTRIES.map(c=><option key={c.code} value={c.prefix}>{c.prefix} — {c.name}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Price / Min ($) *</div>
-              <input type="number" step="0.001" style={inpS} value={prefixForm.price} onChange={e=>setPrefixForm({...prefixForm,price:e.target.value})} placeholder="0.040"/></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Payment Term *</div>
-              <select style={inpS} value={prefixForm.payment_term} onChange={e=>setPrefixForm({...prefixForm,payment_term:e.target.value})}>
-                <option value="">— Select —</option>
-                {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}>
-              <div style={lblS}>Test Number {editingPrefix?"":"*"}</div>
-              <input style={inpS} value={prefixForm.test_number} onChange={e=>setPrefixForm({...prefixForm,test_number:e.target.value})} placeholder="+919876543210" disabled={!!editingPrefix}/>
-            </div>
-            <div style={{marginBottom:10}}><div style={lblS}>Operator (optional)</div>
-              <select style={inpS} value={prefixForm.operator} onChange={e=>setPrefixForm({...prefixForm,operator:e.target.value})}>
-                <option value="">— Select —</option>
-                {prefixForm.operator&&!SAUDI_OPERATORS.includes(prefixForm.operator)&&<option value={prefixForm.operator}>{prefixForm.operator}</option>}
-                {SAUDI_OPERATORS.map(o=><option key={o} value={o}>{o}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>IVR (optional)</div>
-              <select style={inpS} value={prefixForm.ivr_context} onChange={e=>setPrefixForm({...prefixForm,ivr_context:e.target.value})}>
-                <option value="">— Select —</option>
-                {ivrs.map(i=><option key={i.id} value={`custom/${i.name}`}>{i.display_name||i.name}</option>)}
-              </select>
-              <div style={{fontSize:10,color:"#999",marginTop:4}}>Applies to every number under this prefix — new and existing.</div>
-            </div>
-            <div style={{marginBottom:16}}><div style={lblS}>Status</div>
-              <select style={inpS} value={prefixForm.status} onChange={e=>setPrefixForm({...prefixForm,status:e.target.value})}>
-                <option value="active">Active</option><option value="inactive">Inactive</option>
-              </select></div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={savePrefix} disabled={saving}
-                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                {saving?"Saving...":editingPrefix?"✅ Save Changes":"✅ Add Prefix"}</button>
-              <button onClick={()=>setShowAddPrefix(false)}
-                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddNum&&(
-        <div onClick={()=>setShowAddNum(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Add Number / Range</div>
-            <div style={{marginBottom:10}}>
-              <div style={lblS}>Prefix *</div>
-              <select style={inpS} value={addNum.prefix_id} onChange={e=>setAddNum({...addNum,prefix_id:e.target.value})}>
-                <option value="">— Select Prefix —</option>
-                {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
-              </select>
-            </div>
-            {addNum.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addNum.prefix_id));return p&&(
-              <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555",flexWrap:"wrap"}}>
-                <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span><span>Term: <b>{p.payment_term}</b></span>
-              </div>
-            );})()}
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              {["single","range"].map(m=>(
-                <button key={m} onClick={()=>setAddNum({...addNum,mode:m})}
-                  style={{padding:"6px 14px",borderRadius:16,border:"1px solid "+(addNum.mode===m?"#2CADA6":"#E0E0E0"),
-                    background:addNum.mode===m?"rgba(44,173,166,0.1)":"#FFF",
-                    color:addNum.mode===m?"#2CADA6":"#666",fontSize:11,fontWeight:700,cursor:"pointer",textTransform:"capitalize"}}>{m}</button>
-              ))}
-            </div>
-            {addNum.mode==="single"?(
-              <div style={{marginBottom:10}}><div style={lblS}>Number *</div>
-                <input style={inpS} value={addNum.number} onChange={e=>setAddNum({...addNum,number:e.target.value})} placeholder="+9198760001"/></div>
-            ):(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div><div style={lblS}>From *</div>
-                <input style={inpS} value={addNum.range_start} onChange={e=>setAddNum({...addNum,range_start:e.target.value})} placeholder="9198760001"/></div>
-              <div><div style={lblS}>To *</div>
-                <input style={inpS} value={addNum.range_end} onChange={e=>setAddNum({...addNum,range_end:e.target.value})} placeholder="9198760100"/></div>
-            </div>)}
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={addNumber} disabled={saving}
-                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                {saving?"Saving...":"✅ Add"}</button>
-              <button onClick={()=>setShowAddNum(false)}
-                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddTest&&(
-        <div onClick={()=>setShowAddTest(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Add Test Number</div>
-            <div style={{marginBottom:10}}>
-              <div style={lblS}>Prefix *</div>
-              <select style={inpS} value={addTest.prefix_id} onChange={e=>setAddTest({...addTest,prefix_id:e.target.value})}>
-                <option value="">— Select Prefix —</option>
-                {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
-              </select>
-            </div>
-            {addTest.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addTest.prefix_id));return p&&(
-              <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555"}}>
-                <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span>
-              </div>
-            );})()}
-            <div style={{marginBottom:16}}>
-              <div style={lblS}>Number *</div>
-              <input style={inpS} value={addTest.number} onChange={e=>setAddTest({...addTest,number:e.target.value})} placeholder="+919876543210"/>
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={addTestNumber} disabled={saving}
-                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                {saving?"Saving...":"✅ Add Test Number"}</button>
-              <button onClick={()=>setShowAddTest(false)}
-                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showImport&&(
-        <div onClick={()=>setShowImport(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:820,maxWidth:"100%",padding:20,maxHeight:"92vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <div style={{fontSize:15,fontWeight:800}}>{importMode==="upload"?"Upload Number":"Paste Numbers"} — {numSupplier(supplier.name)}</div>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>{setImportMode("upload");setImportStep("input");}}
-                  style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="upload"?"#F5A623":"#E0E0E0"),
-                    background:importMode==="upload"?"rgba(245,166,35,0.1)":"#FFF",color:importMode==="upload"?"#F5A623":"#888",
-                    fontSize:10,fontWeight:700,cursor:"pointer"}}>Upload</button>
-                <button onClick={()=>{setImportMode("paste");setImportStep("input");}}
-                  style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="paste"?"#F5A623":"#E0E0E0"),
-                    background:importMode==="paste"?"rgba(245,166,35,0.1)":"#FFF",color:importMode==="paste"?"#F5A623":"#888",
-                    fontSize:10,fontWeight:700,cursor:"pointer"}}>Paste</button>
-              </div>
-            </div>
-            <div style={{fontSize:11,color:"#999",marginBottom:14}}>
-              Same intelligent parser either way — no fixed template required. Prices are always $/min; nothing is written until you confirm.
-            </div>
-
-            {importStep==="input"&&(<>
-              {importMode==="upload"?(
-                <div style={{...cardS,padding:20,textAlign:"center",border:"2px dashed #E0E0E0",marginBottom:14}}>
-                  <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleImportFile} id="import-file-input" style={{display:"none"}}/>
-                  <label htmlFor="import-file-input" style={{cursor:"pointer"}}>
-                    <div style={{fontSize:30,marginBottom:8}}>📄</div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#5B4FCF"}}>Click to choose a .csv, .txt, .xlsx or .xls file</div>
-                    {importFileName&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Selected: {importFileName}</div>}
-                  </label>
-                </div>
-              ):(
-                <textarea value={importText} onChange={e=>setImportText(e.target.value)}
-                  placeholder={"Paste numbers/ranges here, any format, e.g.:\n+919876543210, India, 0.040, 30/45, STC\n9779767851000  9779767851099  Nepal  0.06  Weekly  Ncell"}
-                  style={{...inpS,minHeight:220,resize:"vertical",fontFamily:"monospace",fontSize:12,marginBottom:12}}/>
-              )}
-              <div style={{display:"flex",gap:8}}>
-                {importMode==="paste"&&<button onClick={()=>runImportPreview()} disabled={importing}
-                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                  {importing?"Parsing...":"Preview"}</button>}
-                <button onClick={()=>setShowImport(false)}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-              </div>
-            </>)}
-
-            {importStep==="preview"&&importPreviewData&&(<>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-                {[["Total",importPreviewData.summary.total,"#555"],["New",importPreviewData.summary.new,"#10B981"],
-                  ["Duplicate",importPreviewData.summary.duplicate,"#F5A623"],["Error",importPreviewData.summary.error,"#EF4444"],
-                  ["New Prefixes",importPreviewData.summary.new_prefixes,"#5B4FCF"]].map(([k,v,c])=>(
-                  <div key={k} style={{...cardS,padding:"8px 14px",background:"#F9F9F9"}}>
-                    <div style={{fontSize:9,color:"#999",textTransform:"uppercase",fontWeight:700}}>{k}</div>
-                    <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{overflowX:"auto",maxHeight:340,overflowY:"auto",marginBottom:14,border:"1px solid #F0F0F0",borderRadius:8}}>
-                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-                  <thead><tr>{["Status","Number/Range","Country","Prefix","Price","Term","Operator","Note"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {importPreviewData.records.map((rec,i)=>(
-                      <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                        <td style={{padding:"6px 10px"}}>
-                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,
-                            background:rec.status==="new"?"rgba(16,185,129,0.1)":rec.status==="duplicate"?"rgba(245,166,35,0.12)":"rgba(239,68,68,0.1)",
-                            color:rec.status==="new"?"#10B981":rec.status==="duplicate"?"#F5A623":"#EF4444"}}>{rec.status.toUpperCase()}</span></td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>
-                          {rec.mode==="range"?`${rec.range_start||"?"} – ${rec.range_end||"?"}`:(rec.number||"—")}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.country||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>
-                          {rec.prefix||"—"}{rec.will_create_prefix?" (new)":""}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?"$"+parseFloat(rec.price).toFixed(4):"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.payment_term||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.operator||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:10,color:"#999"}}>{rec.reason||""}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </GTable>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={runImportConfirm} disabled={importing||importPreviewData.summary.new===0}
-                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",
-                    background:importPreviewData.summary.new===0?"#DDD":"#10B981",color:"#FFF",fontSize:13,fontWeight:800,
-                    cursor:importPreviewData.summary.new===0?"not-allowed":"pointer"}}>
-                  {importing?"Importing...":`✅ CONFIRM IMPORT (${importPreviewData.summary.new})`}</button>
-                <button onClick={()=>setImportStep("input")}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>← Back</button>
-                <button onClick={()=>setShowImport(false)}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-              </div>
-            </>)}
-          </div>
-        </div>
-      )}
 
       {showPayment&&(
         <div onClick={()=>setShowPayment(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -3863,8 +3509,8 @@ function AddNumberPage({token,setPage}){
 
   const submit=async()=>{
     setSaving(true);setMsg(null);
-    const d=await apiFetch(`/supplier-accounts/${f.supplier_id}/numbers`,token,{method:"POST",
-      body:JSON.stringify({mode:"single",prefix_id:f.prefix_id,number:digits,ivr_context:f.ivr_context||undefined})});
+    const d=await apiFetch(`/numbers`,token,{method:"POST",
+      body:JSON.stringify({supplier_id:f.supplier_id,prefix_id:f.prefix_id,number:digits,ivr_context:f.ivr_context||undefined})});
     setSaving(false);
     if(d.success){setMsg({ok:true,text:`Added ${digits}`});setF({...f,number:""});}
     else setMsg({ok:false,text:d.error||d.message||"Failed to add number"});
@@ -4051,14 +3697,21 @@ function AddRangePage({token,setPage}){
 
 // ── Prefix / Routes (Prefix → Supplier → IVR) ─────────────────────
 function PrefixRoutesPage({token}){
+  const emptyForm={supplier_id:"",country:"",country_code:"",prefix:"",operator:"",price:"",
+    payment_term:"",test_number:"",ivr_context:"",status:"active"};
   const [prefixes,setPrefixes]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState("");
   const [msg,setMsg]=useState(null);
+  const [showForm,setShowForm]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState(emptyForm);
+  const [saving,setSaving]=useState(false);
   const ivrs=useIvrList(token);
 
   const load=()=>apiFetch("/prefixes?all=1",token).then(d=>{setPrefixes(d.data||[]);setLoading(false);});
-  useEffect(()=>{load();},[token]);
+  useEffect(()=>{load();apiFetch("/supplier-accounts",token).then(d=>setSuppliers(d.data||[]));},[token]);
 
   const setIvr=async(p,ctx)=>{
     if(!ctx||ctx===p.ivr_context) return;
@@ -4067,27 +3720,59 @@ function PrefixRoutesPage({token}){
     setMsg(d.success?{ok:true,text:d.message||"IVR updated"}:{ok:false,text:d.error||"Failed to update IVR"});
     load();
   };
+
+  const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
+  const openAdd=()=>{setEditing(null);setForm(emptyForm);setShowForm(true);};
+  const openEdit=(p)=>{setEditing(p);setForm({supplier_id:p.supplier_id||"",country:p.country||"",country_code:p.country_code||"",
+    prefix:p.prefix||"",operator:p.operator||"",price:p.price||"",payment_term:p.payment_term||"",
+    test_number:p.test_number||"",ivr_context:p.ivr_context||"",status:p.status||"active"});setShowForm(true);};
+
+  const save=async()=>{
+    if(!form.supplier_id||!form.country||!form.prefix||!form.price||!form.payment_term||(!editing&&!form.test_number)){
+      alert("Supplier, country, prefix, price, payment term and test number are required");return;
+    }
+    setSaving(true);
+    const d=editing
+      ?await apiFetch(`/prefixes/${editing.id}`,token,{method:"PUT",body:JSON.stringify(form)})
+      :await apiFetch(`/prefixes`,token,{method:"POST",body:JSON.stringify(form)});
+    setSaving(false);
+    if(d.success){flash({ok:true,text:editing?"Prefix updated":"Prefix added"});setShowForm(false);load();}
+    else alert(d.error||"Failed to save prefix");
+  };
+
+  const del=async(p)=>{
+    if(!window.confirm(`Delete prefix ${p.prefix}? This also removes its numbers/ranges and test number(s).`)) return;
+    const d=await apiFetch(`/prefixes/${p.id}`,token,{method:"DELETE"});
+    if(d.success){flash({ok:true,text:"Prefix deleted"});load();}
+    else alert(d.error||"Failed to delete");
+  };
+
   const s=search.trim().toLowerCase();
   const shown=prefixes.filter(p=>!s||[p.prefix,p.country,p.supplier_name].some(v=>(v||"").toLowerCase().includes(s)));
 
   return(
-    <NumbersPageShell title="Prefix / Routes" subtitle="Prefix → Supplier → IVR. Changing an IVR applies to every number under the prefix.">
+    <NumbersPageShell title="Prefix / Routes" subtitle="The master list of every route: Supplier → Prefix → Tariff → IVR. Changing IVR applies to every number under the prefix."
+      action={<button onClick={openAdd} style={numBtn("primary")}>+ Add Prefix</button>}>
       {msg&&<Banner ok={msg.ok}>{msg.text}</Banner>}
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search prefix, country or supplier..."
         style={{...numInp,marginBottom:10}}/>
       <div style={{background:"#FFF",border:"1px solid #E0E0E0",borderRadius:4,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
-          <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:560,whiteSpace:"nowrap"}}>
-            <thead><tr>{["Prefix","Country","Supplier","Tariff","Numbers","IVR"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
+          <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:760,whiteSpace:"nowrap"}}>
+            <thead><tr>{["Prefix","Country","Supplier","Operator","Tariff","Payment Term","Test Number","Status","Numbers","IVR","Actions"].map(h=><th key={h} style={numTh}>{h}</th>)}</tr></thead>
             <tbody>
-              {loading&&<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
-              {!loading&&shown.length===0&&<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No prefixes found</td></tr>}
+              {loading&&<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>}
+              {!loading&&shown.length===0&&<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No prefixes found</td></tr>}
               {shown.map((p,i)=>(
                 <tr key={p.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
                   <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace",fontWeight:800}}>{p.prefix}</td>
                   <td style={{padding:"7px 10px",fontSize:12}}>{p.country||"—"}</td>
                   <td style={{padding:"7px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(p.supplier_name)}</td>
-                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(p.price||0)}</td>
+                  <td style={{padding:"7px 10px",fontSize:12}}>{p.operator||"—"}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
+                  <td style={{padding:"7px 10px",fontSize:12}}>{p.payment_term||"—"}</td>
+                  <td style={{padding:"7px 10px",fontSize:12,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
+                  <td style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:p.status==="active"?"#10B981":"#999"}}>{p.status||"active"}</td>
                   <td style={{padding:"7px 10px",fontSize:12}}>{(p.number_count||0).toLocaleString()}</td>
                   <td style={{padding:"7px 10px"}}>
                     <select value={p.ivr_context||""} onChange={e=>setIvr(p,e.target.value)}
@@ -4095,12 +3780,67 @@ function PrefixRoutesPage({token}){
                       <IvrOptions ivrs={ivrs} value={p.ivr_context}/>
                     </select>
                   </td>
+                  <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
+                    <button onClick={()=>openEdit(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                      background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Edit</button>
+                    <button onClick={()=>del(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
+                      background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </GTable>
         </div>
       </div>
+
+      {showForm&&(
+        <div onClick={()=>setShowForm(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#FFF",borderRadius:10,width:440,padding:20,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>{editing?"Edit Prefix":"Add Prefix"}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div><div style={numLbl}>Supplier *</div>
+                <select style={numInp} value={form.supplier_id} onChange={e=>setForm({...form,supplier_id:e.target.value})}>
+                  <option value="">— Select Supplier —</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.name)}</option>)}
+                </select></div>
+              <div><div style={numLbl}>Country *</div>
+                <input style={numInp} list="prefix-routes-countries" value={form.country} onChange={e=>{
+                  const c=COUNTRIES.find(c=>c.name===e.target.value);
+                  setForm({...form,country:e.target.value,country_code:c?c.prefix:form.country_code});
+                }} placeholder="Italy"/>
+                <datalist id="prefix-routes-countries">{COUNTRIES.map(c=><option key={c.code} value={c.name}/>)}</datalist></div>
+              <div><div style={numLbl}>Operator</div>
+                <input style={numInp} value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})} placeholder="e.g. STC"/></div>
+              <div><div style={numLbl}>Prefix *</div>
+                <input style={numInp} value={form.prefix} onChange={e=>setForm({...form,prefix:e.target.value})} placeholder="919876XXXX" disabled={!!editing}/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div><div style={numLbl}>Tariff / Supplier Rate *</div>
+                  <input type="number" step="0.001" style={numInp} value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="0.040"/></div>
+                <div><div style={numLbl}>Payment Term *</div>
+                  <select style={numInp} value={form.payment_term} onChange={e=>setForm({...form,payment_term:e.target.value})}>
+                    <option value="">— Select —</option>
+                    {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
+                  </select></div>
+              </div>
+              <div><div style={numLbl}>Test Number {editing?"":"*"}</div>
+                <input style={numInp} value={form.test_number} onChange={e=>setForm({...form,test_number:e.target.value})} placeholder="+919876543210" disabled={!!editing}/></div>
+              <div><div style={numLbl}>Default IVR</div>
+                <select style={numInp} value={form.ivr_context} onChange={e=>setForm({...form,ivr_context:e.target.value})}>
+                  <IvrOptions ivrs={ivrs} value={form.ivr_context}/></select>
+                <div style={{fontSize:10,color:"#999",marginTop:4}}>Applies to every number under this prefix — new and existing.</div></div>
+              <div><div style={numLbl}>Status</div>
+                <select style={numInp} value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+                  <option value="active">Active</option><option value="inactive">Inactive</option>
+                </select></div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:16}}>
+              <button onClick={save} disabled={saving} style={{...numBtn("primary"),flex:1}}>
+                {saving?"Saving...":editing?"Save Changes":"Add Prefix"}</button>
+              <button onClick={()=>setShowForm(false)} style={numBtn()}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </NumbersPageShell>
   );
 }
