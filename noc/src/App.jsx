@@ -1257,7 +1257,7 @@ function CDRPage({token}){
                       </td>
                       <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace",
                         color:"#10B981",fontWeight:600,whiteSpace:"nowrap"}}>
-                        {fmtUSDT(c.revenue)}
+                        {fmtUSDT(revUsdt(c))}
                       </td>
                       <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>
                         {numSupplier(c.trunk_name)}
@@ -2427,7 +2427,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{g.country_name||"—"}</td>
                         <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{g.prefix||"—"}</td>
                         <td style={{padding:"8px 10px",fontSize:11,color:"#333"}}>{g.items.length} number{g.items.length===1?"":"s"}</td>
-                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(first.tariff)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(first.tariff||0)*(first.currency==="EUR"?1.08:1))}</td>
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{first.payment_terms||"—"}</td>
                         <td style={{padding:"8px 10px",textAlign:"center"}}>
                           <button onClick={e=>{e.stopPropagation();toggleNumGroup(g.key);}} style={{background:"none",border:"1px solid #2CADA6",borderRadius:4,
@@ -2439,7 +2439,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                           <td style={{padding:"6px 10px"}}></td>
                           <td style={{padding:"6px 10px"}}></td>
                           <td style={{padding:"6px 10px 6px 26px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>└ {n.number}</td>
-                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{fmtUSDT(Number(n.tariff||0)*(n.currency==="EUR"?1.08:1))}</td>
                           <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
                           <td style={{padding:"6px 10px",textAlign:"center"}}>
                             <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
@@ -2454,7 +2454,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.country_name||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>{r.prefix||(r.range_start+" – "+r.range_end)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#333"}}>{r.total_count} numbers</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(r.rate)}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(r.rate||0)*(r.currency==="EUR"?1.08:1))}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"—"}</td>
                     <td style={{padding:"8px 10px",textAlign:"center"}}>
                       <button onClick={()=>delRange(r.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
@@ -2479,7 +2479,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{n.country_name||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{n.prefix||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(n.tariff||0)*(n.currency==="EUR"?1.08:1))}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{n.number}</td>
                     <td style={{padding:"8px 10px",textAlign:"center"}}>
                       <button onClick={()=>delTest(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
@@ -2558,7 +2558,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.prn||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.billsec||0}s</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(c.payout)}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(c.payout||0)*(c.currency_code==="EUR"?1.08:1))}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.sub_account||c.account||"—"}</td>
                   </tr>
                 ))}
@@ -3715,7 +3715,7 @@ function NumbersListPage({token,setPage}){
                       </div>
                     </div>
                     <span style={{fontSize:11,color:"#999"}}>{numSupplier(d.supplier_name)}</span>
-                    <span style={{fontSize:12,fontFamily:"monospace",color:"#333"}}>{fmtUSDT(d.tariff)}</span>
+                    <span style={{fontSize:12,fontFamily:"monospace",color:"#333"}}>{fmtUSDT(Number(d.tariff||0)*(d.currency==="EUR"?1.08:1))}</span>
                     <span style={{fontSize:12,color:"#333"}}>{d.country_name||"—"}</span>
                     <select value={cur} onClick={e=>e.stopPropagation()}
                       onChange={e=>{const v=e.target.value,orig=d.ivr_context||"";
@@ -3795,8 +3795,8 @@ function NumberDetailsModal({token,id,setPage,onClose,onChanged}){
   const val=(v)=>v===null||v===undefined||v===""?"—":v;
   const fields=n?[
     ["DID",n.number],["Supplier",numSupplier(n.supplier)],["Trunk",val(n.trunk)],["Country",val(n.country)],
-    ["Prefix",val(n.prefix)],["Range",val(n.range)],["Tariff",n.tariff!=null?fmtUSDT(n.tariff):"—"],
-    ["Selling Price",editing?null:(n.selling_price!=null?fmtUSDT(n.selling_price):"—")],
+    ["Prefix",val(n.prefix)],["Range",val(n.range)],["Tariff",n.tariff!=null?fmtUSDT(Number(n.tariff)*(n.currency==="EUR"?1.08:1)):"—"],
+    ["Selling Price",editing?null:(n.selling_price!=null?fmtUSDT(Number(n.selling_price)*(n.currency==="EUR"?1.08:1)):"—")],
     ["Payment Term",val(n.payment_term)],["IVR",editing?null:ivrName(n.ivr_context)],
     ["Test Number",editing?null:(n.is_test?"Yes":"No")],
     ["Status",n.status==="disabled"?"Disabled":"Available"],
@@ -4627,7 +4627,7 @@ function ResellerPortalPage({token}){
                       <td style={{padding:"8px 12px",fontSize:12,fontFamily:"monospace"}}>{c.src||c.caller||"—"}</td>
                       <td style={{padding:"8px 12px",fontSize:12,color:"#2CADA6",fontFamily:"monospace"}}>{c.did||"—"}</td>
                       <td style={{padding:"8px 12px",fontSize:12,color:"#555"}}>{c.billsec||0}s</td>
-                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>{fmtUSDT(c.revenue)}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>{fmtUSDT(revUsdt(c))}</td>
                     </tr>
                   ))
                 }
@@ -5350,7 +5350,7 @@ function TestLabsPage({token}){
                         <td style={{padding:"10px 10px",fontSize:11,color:"#333"}}>{r.country_name||"—"}</td>
                         <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,
                           color:"#10B981",fontFamily:"monospace"}}>
-                          {fmtUSDT(r.rate,3)}/min
+                          {fmtUSDT(Number(r.rate||0)*(r.currency==="EUR"?1.08:1),3)}/min
                         </td>
                         <td style={{padding:"10px 10px",fontSize:11,color:"#2CADA6",fontWeight:600}}>
                           {numSupplier(r.supplier_name)}
@@ -6518,7 +6518,7 @@ function TestNumbersPage({token}){
                         <tr key={r.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
                           <td style={{padding:"6px 8px",fontSize:11,color:"#999",fontWeight:600,whiteSpace:"nowrap"}}>{i+1}</td>
                           <td style={{padding:"6px 8px",fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",whiteSpace:"nowrap"}}>{r.prefix}</td>
-                          <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtUSDT(r.rate,3)}</td>
+                          <td style={{padding:"6px 8px",fontSize:11,fontWeight:700,color:"#10B981",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtUSDT(Number(r.rate||0)*(r.currency==="EUR"?1.08:1),3)}</td>
                           <td style={{padding:"6px 8px",fontSize:11,color:"#2CADA6",fontWeight:600,whiteSpace:"nowrap"}}>{numSupplier(r.supplier_name)}</td>
                           <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
                             <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A",marginRight:6}}>{testNum}</span>
