@@ -65,6 +65,11 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
         ->leftJoin('supplier_prefixes', 'dids.prefix_id', '=', 'supplier_prefixes.id')
         ->where('dids.supplier_id', $supplierId)
         ->whereBetween('cdrs.call_start', [$from, $to])
+        // A CDR already swept into a Weekly entry (see WeeklyEntries::sync)
+        // must not also show up as Pending - Pending only ever reflects the
+        // not-yet-settled remainder, or the same calls get counted (and can
+        // get paid) through both tracks independently.
+        ->whereNull('cdrs.invoice_ref')
         ->select('cdrs.id', 'cdrs.billsec',
             DB::raw('COALESCE(supplier_prefixes.price, dids.tariff) as rate'),
             // supplier_prefixes has no currency column of its own (an
@@ -86,7 +91,7 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
 
     $rangeMatches = collect();
     if ($ranges->isNotEmpty()) {
-        $q = DB::table('cdrs')->whereBetween('call_start', [$from, $to]);
+        $q = DB::table('cdrs')->whereBetween('call_start', [$from, $to])->whereNull('invoice_ref');
         if (!empty($matchedIds)) $q->whereNotIn('id', $matchedIds);
         foreach ($q->get(['id', 'did', 'billsec']) as $c) {
             $digits = ltrim($c->did ?? '', '+');
@@ -114,6 +119,10 @@ function computeSupplierPayable($supplierId, $from, $to, $defaultTerm = 'Net 30'
             'minutes'      => round($minutes, 2),
             'amount'       => round($amount, 4),
             'rate'         => $minutes > 0 ? round($amount / $minutes, 6) : 0,
+            // The exact CDR ids behind this bucket, so a payment made against
+            // it can tag them with invoice_ref - otherwise WeeklyEntries::sync
+            // sweeps these same already-paid calls into a fresh unpaid entry.
+            'cdr_ids'      => $rows->pluck('id')->all(),
         ];
     }
     return $out;
@@ -2139,6 +2148,16 @@ Route::middleware('auth:sanctum')->group(function() {
             'created_at'        => now(),
             'updated_at'        => now(),
         ]);
+
+        // Tag the CDRs this payment actually covers with this invoice's
+        // number - otherwise WeeklyEntries::sync (Monday cron) has no way to
+        // know they've already been paid and sweeps them into a fresh
+        // unpaid Weekly entry for the same money.
+        if (!empty($rows['cdr_ids'])) {
+            foreach (array_chunk($rows['cdr_ids'], 500) as $chunk) {
+                DB::table('cdrs')->whereIn('id', $chunk)->update(['invoice_ref' => $invNum]);
+            }
+        }
 
         DB::table('audit_logs')->insert([
             'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'MARK_PAID',
