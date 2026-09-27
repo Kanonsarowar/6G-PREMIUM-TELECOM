@@ -2497,7 +2497,6 @@ Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
             exec("chmod 644 {$altDst} 2>/dev/null");
         }
     }
-    DB::table('did_ranges')->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
 });
 
@@ -2562,7 +2561,6 @@ Route::put('/v1/prefixes/bulk-ivr', function(Request $r) {
             exec("chmod 644 {$altDst} 2>/dev/null");
         }
     }
-    DB::table('did_ranges')->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
 });
 
