@@ -1779,6 +1779,7 @@ Route::middleware('auth:sanctum')->group(function() {
             $operator = trim($sup->operator ?? '') ?: $cliOperator($c->src);
             return [
                 'date'        => $c->call_start,
+                'country'     => ($prefix->country ?? '') ?: (($tn->country_name ?? '') ?: '—'),
                 'prefix'      => $prefix->prefix ?? ($tn->prefix ?? '—'),
                 'price'       => $prefix->price ?? ($tn->tariff ?? 0),
                 'currency'    => $prefix ? 'USDT' : ($tn->currency ?? 'USDT'),

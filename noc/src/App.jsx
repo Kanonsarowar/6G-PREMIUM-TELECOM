@@ -2555,12 +2555,13 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
           <div style={{overflowX:"auto"}}>
             <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-              <thead><tr>{["Date & Time","Prefix","Price","Test Number","Operator"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Date","Country","Prefix","Price","Test Number","Operator"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {accessHistory.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
+                {accessHistory.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
                 accessHistory.map((h,i)=>(
                   <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(h.date||"").slice(0,16).replace("T"," ")}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(h.date||"").slice(0,10)}</td>
+                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{h.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{h.test_number}</td>
