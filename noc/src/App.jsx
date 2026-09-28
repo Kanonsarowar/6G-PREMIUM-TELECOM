@@ -2451,21 +2451,26 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         {/* ACCESS HISTORY */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
-          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>"Access From" is the caller/operator origin — never the supplier's SIP IP.</div>
+          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>One row per test number + caller. "Access From" is the caller/operator origin — never the supplier's SIP IP.</div>
           <div style={{overflowX:"auto"}}>
-            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-              <thead><tr>{["Date","Prefix","Price","Test Number","Access From"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:760}}>
+              <thead><tr>{["Last Call","Test Number","Access From","Calls","Prefix","Price","First Call"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {accessHistory.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
-                accessHistory.map((h,i)=>(
+                {accessHistory.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
+                accessHistory.map((h,i)=>{
+                  const td={padding:"8px 10px",whiteSpace:"nowrap"};
+                  const dt=v=>(v||"").slice(0,16).replace("T"," ");
+                  return(
                   <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(h.date||"").slice(0,16).replace("T"," ")}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(h.price||0)*(h.currency==="EUR"?1.08:1))}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{h.test_number}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{h.access_from}</td>
-                  </tr>
-                ))}
+                    <td style={{...td,fontSize:11,color:"#555"}}>{dt(h.date)}</td>
+                    <td style={{...td,fontSize:12,fontFamily:"monospace",fontWeight:700}}>{h.test_number}</td>
+                    <td style={{...td,fontSize:12,fontFamily:"monospace"}}>{h.access_from}</td>
+                    <td style={{...td,fontSize:12,fontWeight:700}}>{h.calls??1}</td>
+                    <td style={{...td,fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
+                    <td style={{...td,fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(h.price||0)*(h.currency==="EUR"?1.08:1))}</td>
+                    <td style={{...td,fontSize:11,color:"#555"}}>{dt(h.first_call||h.date)}</td>
+                  </tr>);
+                })}
               </tbody>
             </GTable>
           </div>

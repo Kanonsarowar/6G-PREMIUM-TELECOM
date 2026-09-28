@@ -1749,21 +1749,26 @@ Route::middleware('auth:sanctum')->group(function() {
             ->keyBy(fn($d) => ltrim($d->number, '+'));
         if ($testNumbers->isEmpty()) return response()->json(['data'=>[]]);
         $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('id');
+        // One row per test number + caller, not per call: a caller that
+        // re-tests every few minutes would otherwise fill the whole list.
         $rows = DB::table('cdrs')->whereIn(DB::raw("REPLACE(did,'+','')"), $testNumbers->keys())
-            ->orderByDesc('call_start')->limit(200)->get();
+            ->selectRaw("REPLACE(did,'+','') as tn, src, COUNT(*) as calls, MIN(call_start) as first_call, MAX(call_start) as last_call")
+            ->groupBy('tn','src')->orderByDesc('last_call')->limit(200)->get();
         $out = $rows->map(function($c) use ($testNumbers, $prefixes) {
-            $tn = $testNumbers[ltrim($c->did,'+')] ?? null;
+            $tn = $testNumbers[$c->tn] ?? null;
             $prefix = $tn && $tn->prefix_id ? ($prefixes[$tn->prefix_id] ?? null) : null;
             // supplier_prefixes has no currency column (an override price is
             // always entered in USDT); only the dids.tariff fallback carries
             // a real currency to report - without this, the frontend has no
             // way to tell a EUR-priced fallback from a USDT one.
             return [
-                'date'        => $c->call_start,
+                'date'        => $c->last_call,
+                'first_call'  => $c->first_call,
+                'calls'       => (int)$c->calls,
                 'prefix'      => $prefix->prefix ?? ($tn->prefix ?? '—'),
                 'price'       => $prefix->price ?? ($tn->tariff ?? 0),
                 'currency'    => $prefix ? 'USDT' : ($tn->currency ?? 'USDT'),
-                'test_number' => $c->did,
+                'test_number' => $tn->number ?? $c->tn,
                 'access_from' => $c->src ?? '—',
             ];
         });
