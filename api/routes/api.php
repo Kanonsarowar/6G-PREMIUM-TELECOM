@@ -1753,7 +1753,7 @@ Route::middleware('auth:sanctum')->group(function() {
         if ($testNumbers->isEmpty()) return response()->json(['data'=>[]]);
         $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('id');
         $rows = DB::table('cdrs')->whereIn(DB::raw("REPLACE(did,'+','')"), $testNumbers->keys())
-            ->orderByDesc('call_start')->limit(200)->get();
+            ->orderByDesc('call_start')->limit(5000)->get();
         $digits = fn($v) => preg_replace('/[^0-9]/', '', (string)$v);
         $supOps = DB::table('supplier_cdrs')->where('supplier_id',$id)->whereNotNull('operator')->where('operator','!=','')
             ->whereIn(DB::raw("REPLACE(prn,'+','')"), $testNumbers->keys())
@@ -1787,6 +1787,10 @@ Route::middleware('auth:sanctum')->group(function() {
                 'operator'    => $operator !== '' ? strtoupper($operator) : 'Unknown',
             ];
         });
+        // One line per day: calls on the same date with identical
+        // country/prefix/price/test number/operator collapse into one row.
+        $out = $out->map(fn($r) => array_merge($r, ['date' => substr((string)$r['date'], 0, 10)]))
+            ->unique(fn($r) => implode('|', [$r['date'], $r['country'], $r['prefix'], $r['price'], $r['test_number'], $r['operator']]));
         return response()->json(['data'=>$out->values()]);
     });
 
