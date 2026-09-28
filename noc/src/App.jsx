@@ -2033,8 +2033,35 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       if(!map[key]) map[key]={key,country_name:n.country_name,prefix:n.prefix||n.number,items:[]};
       map[key].items.push(n);
     });
+    // Attach each did_ranges row to its DID group (by batch_id, else by
+    // prefix) so a range is listed once, not once as DIDs and again as a range.
+    numbers.ranges.forEach(r=>{
+      const g=Object.values(map).find(g=>g.items.some(n=>n.batch_id===r.id))||map[(r.country_name||"—")+"|"+(r.prefix||"")];
+      if(g) (g.ranges=g.ranges||[]).push(r);
+      else map["r"+r.id]={key:"r"+r.id,country_name:r.country_name,prefix:r.prefix||(r.range_start+" – "+r.range_end),items:[],ranges:[r]};
+    });
     return Object.values(map);
   })();
+  // Price/term come from the group's prefix (what billing uses), falling
+  // back to the DID/range values.
+  const groupPrefix=(g)=>{const f=g.items[0]||{},r=(g.ranges||[])[0]||{};
+    return prefixes.find(p=>p.id===f.prefix_id||p.id===r.prefix_id)||prefixes.find(p=>p.prefix===g.prefix)||null;};
+  const delNumberGroup=async(g)=>{
+    const count=g.items.length||(g.ranges||[]).reduce((a,r)=>a+(+r.total_count||0),0);
+    if(!window.confirm(`Delete ${g.prefix} and all ${count} number(s) in it?`)) return;
+    const rangeIds=new Set((g.ranges||[]).map(r=>r.id));
+    for(const r of g.ranges||[]) await apiFetch("/did-ranges/"+r.id,token,{method:"DELETE"});
+    for(const n of g.items) if(!rangeIds.has(n.batch_id)) await apiFetch("/dids/"+n.id,token,{method:"DELETE"});
+    flash("Deleted "+g.prefix); loadNumbers(); loadPrefixes();
+  };
+  const [editNum,setEditNum]=useState(null);
+  const saveEditNum=async()=>{
+    setSaving(true);
+    const d=await apiFetch("/numbers/"+editNum.id,token,{method:"PUT",body:JSON.stringify({ivr_context:editNum.ivr_context,status:editNum.status})});
+    setSaving(false);
+    if(d.success){flash("Number "+editNum.number+" updated");setEditNum(null);loadNumbers();}
+    else alert(d.error||"Failed to update");
+  };
   const numSearchLower=numSearch.trim().toLowerCase();
   const filteredNumberGroups=numSearchLower?numberGroups.map(g=>{
     const prefixMatch=(g.prefix||"").toLowerCase().includes(numSearchLower)||(g.country_name||"").toLowerCase().includes(numSearchLower);
@@ -2042,7 +2069,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     const items=g.items.filter(n=>(n.number||"").toLowerCase().includes(numSearchLower));
     return items.length?{...g,items}:null;
   }).filter(Boolean):numberGroups;
-  const filteredRangesForSearch=numSearchLower?numbers.ranges.filter(r=>(r.prefix||"").toLowerCase().includes(numSearchLower)||(r.country_name||"").toLowerCase().includes(numSearchLower)):numbers.ranges;
 
   const addTestNumber=async()=>{
     if(!addTest.prefix_id){alert("Select a Prefix first");return;}
@@ -2433,52 +2459,45 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
               <thead><tr>{["Country","Prefix / Range","Numbers","Price","Term","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {filteredNumberGroups.length===0&&filteredRangesForSearch.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>:<>
-                {filteredNumberGroups.map((g,gi)=>{
+                {filteredNumberGroups.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>:
+                filteredNumberGroups.map((g,gi)=>{
                   const isExp=numSearchLower?true:!!expandedNumGroups[g.key];
-                  const first=g.items[0]||{};
+                  const first=g.items[0]||{},rng=(g.ranges||[])[0]||{},pfx=groupPrefix(g);
+                  const price=pfx?pfx.price:(first.tariff??rng.rate);
+                  const term=(pfx&&pfx.payment_term)||first.payment_terms||rng.payment_terms||"—";
+                  const count=g.items.length||rng.total_count||0;
+                  const btn=(c)=>({padding:"3px 8px",borderRadius:4,border:"1px solid "+c,background:"transparent",color:c,fontSize:10,fontWeight:700,cursor:"pointer"});
+                  const sub={padding:"3px 10px",fontSize:11,lineHeight:"16px"};
                   return(
                     <React.Fragment key={g.key}>
-                      <tr onClick={()=>toggleNumGroup(g.key)} style={{borderBottom:"1px solid #F5F5F5",
-                        background:isExp?"#F0FAFA":(gi%2?"#FAFAFA":"#FFF"),cursor:"pointer"}}>
-                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{g.country_name||"—"}</td>
+                      <tr onClick={()=>g.items.length&&toggleNumGroup(g.key)} title={g.items.length?(isExp?"Click to collapse":"Click to expand"):undefined}
+                        style={{borderBottom:"1px solid #F0F0F0",background:isExp?"#E6F6F5":(gi%2?"#FAFAFA":"#FFF"),cursor:g.items.length?"pointer":"default"}}>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{g.items.length>0&&<span style={{color:"#2CADA6",marginRight:6}}>{isExp?"▾":"▸"}</span>}{g.country_name||"—"}</td>
                         <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{g.prefix||"—"}</td>
-                        <td style={{padding:"8px 10px",fontSize:11,color:"#333"}}>{g.items.length} number{g.items.length===1?"":"s"}</td>
-                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(first.tariff)}</td>
-                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{first.payment_terms||"—"}</td>
-                        <td style={{padding:"8px 10px",textAlign:"center"}}>
-                          <button onClick={e=>{e.stopPropagation();toggleNumGroup(g.key);}} style={{background:"none",border:"1px solid #2CADA6",borderRadius:4,
-                            cursor:"pointer",fontSize:10,color:"#2CADA6",padding:"2px 8px",fontWeight:700}}>{isExp?"Collapse":"Expand"}</button>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#333"}}>{count}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(price)}</td>
+                        <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{term}</td>
+                        <td style={{padding:"8px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                          {pfx&&<button onClick={()=>openEditPrefix(pfx)} title="Edit prefix price / term / IVR" style={{...btn("#2CADA6"),marginRight:6}}>Edit</button>}
+                          <button onClick={()=>delNumberGroup(g)} style={btn("#EF4444")}>Delete</button>
                         </td>
                       </tr>
                       {isExp&&g.items.map((n,i)=>(
-                        <tr key={n.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#EFFFFE":"#F5FFFE"}}>
-                          <td style={{padding:"6px 10px"}}></td>
-                          <td style={{padding:"6px 10px"}}></td>
-                          <td style={{padding:"6px 10px 6px 26px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>└ {n.number}</td>
-                          <td style={{padding:"6px 10px",fontSize:11,color:"#555",fontFamily:"monospace"}}>{fmtUSDT(n.tariff)}</td>
-                          <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{n.payment_terms||"—"}</td>
-                          <td style={{padding:"6px 10px",textAlign:"center"}}>
-                            <button onClick={()=>delNumber(n.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                              cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
+                        <tr key={n.id} style={{borderBottom:"1px solid #EEF7F6",background:i%2?"#F3FBFA":"#FAFEFE"}}>
+                          <td colSpan={3} style={{...sub,paddingLeft:26,fontFamily:"monospace",fontWeight:700}}>{n.number}
+                            {n.status==="disabled"&&<span style={{marginLeft:8,fontSize:9,color:"#EF4444",fontWeight:700,fontFamily:"Arial,Helvetica,sans-serif"}}>DISABLED</span>}</td>
+                          <td style={{...sub,color:"#555",fontFamily:"monospace"}}>{fmtUSDT(price)}</td>
+                          <td style={{...sub,color:"#555"}}>{term}</td>
+                          <td style={{...sub,whiteSpace:"nowrap"}}>
+                            <button onClick={()=>setEditNum({id:n.id,number:n.number,ivr_context:n.ivr_context||"",status:n.status==="disabled"?"disabled":"available"})}
+                              style={{...btn("#2CADA6"),padding:"1px 6px",marginRight:6}}>Edit</button>
+                            <button onClick={()=>delNumber(n.id)} style={{...btn("#EF4444"),padding:"1px 6px"}}>Delete</button>
+                          </td>
                         </tr>
                       ))}
                     </React.Fragment>
                   );
                 })}
-                {filteredRangesForSearch.map((r,i)=>(
-                  <tr key={"r"+r.id} style={{borderBottom:"1px solid #F5F5F5",background:"#FFFBEA"}}>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.country_name||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>{r.prefix||(r.range_start+" – "+r.range_end)}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#333"}}>{r.total_count} numbers</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(r.rate)}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"—"}</td>
-                    <td style={{padding:"8px 10px",textAlign:"center"}}>
-                      <button onClick={()=>delRange(r.id)} style={{background:"none",border:"1px solid #EF4444",borderRadius:4,
-                        cursor:"pointer",fontSize:10,color:"#EF4444",padding:"2px 6px"}}>Del</button></td>
-                  </tr>
-                ))}
-                </>}
               </tbody>
             </GTable>
           </div>
@@ -2713,6 +2732,31 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         </div>
       )}
 
+      {editNum&&(
+        <div onClick={()=>setEditNum(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Edit Number <span style={{fontFamily:"monospace"}}>{editNum.number}</span></div>
+            <div style={{marginBottom:10}}><div style={lblS}>IVR</div>
+              <select style={inpS} value={editNum.ivr_context} onChange={e=>setEditNum({...editNum,ivr_context:e.target.value})}>
+                {!editNum.ivr_context&&<option value="">— Select —</option>}
+                {editNum.ivr_context&&!ivrs.some(i=>"custom/"+i.name===editNum.ivr_context)&&<option value={editNum.ivr_context}>{editNum.ivr_context.replace("custom/","")}</option>}
+                {ivrs.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
+              </select></div>
+            <div style={{marginBottom:16}}><div style={lblS}>Status</div>
+              <select style={inpS} value={editNum.status} onChange={e=>setEditNum({...editNum,status:e.target.value})}>
+                <option value="available">Active</option>
+                <option value="disabled">Disabled (blocks calls)</option>
+              </select></div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveEditNum} disabled={saving||!editNum.ivr_context}
+                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                {saving?"Saving...":"✅ Save"}</button>
+              <button onClick={()=>setEditNum(null)}
+                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showAddTest&&(
         <div onClick={()=>setShowAddTest(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
