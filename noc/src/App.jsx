@@ -2508,6 +2508,35 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
+        {/* ACCESS HISTORY */}
+        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
+          <div style={{overflowX:"auto"}}>
+            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+              <thead><tr>{["Date","Country","Prefix","Price","Operator","Test Number"].map((h,i)=><th key={i} style={{...thSup,whiteSpace:"nowrap",...(i===0?{minWidth:100}:{})}}>{h}</th>)}</tr></thead>
+              <tbody>
+                {accessHistory.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
+                accessHistory.map((h,i)=>(
+                  <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",minWidth:100,fontSize:11,color:"#555"}}>{(h.date||"").slice(0,10)}</td>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:11,color:"#555"}}>{h.country||"—"}</td>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.price)}</td>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:12,fontWeight:700,color:h.operator&&h.operator!=="Unknown"?"#1A1A1A":"#999"}}>{h.operator||"Unknown"}</td>
+                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
+                      {h.test_number}
+                      <button onClick={()=>copyText(h.test_number)} title="Copy test number" style={{marginLeft:8,padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                        background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"Arial,Helvetica,sans-serif"}}>Copy</button>
+                      <a href={"tel:"+h.test_number} title="Call test number" style={{marginLeft:6,padding:"2px 8px",borderRadius:4,border:"1px solid #10B981",
+                        background:"rgba(16,185,129,0.1)",color:"#10B981",fontSize:10,fontWeight:700,textDecoration:"none",fontFamily:"Arial,Helvetica,sans-serif"}}>📞 Call</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </GTable>
+          </div>
+        </div>
+
         {/* UPLOAD CDR */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>UPLOAD CDR</div>
@@ -2556,35 +2585,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:600,whiteSpace:"pre-wrap",wordBreak:"break-word",userSelect:"text",color:cdrImportResult.success?"#10B981":"#EF4444"}}>
               {cdrImportResult.success?"✅ "+cdrImportResult.message:"❌ "+cdrImportResult.error+(cdrImportResult.main_added||cdrImportResult.main_replaced?` (done before error: ${cdrImportResult.main_added} new, ${cdrImportResult.main_replaced} replaced in main CDR)`:"")}</div>
           )}
-        </div>
-
-        {/* ACCESS HISTORY */}
-        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
-          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
-          <div style={{overflowX:"auto"}}>
-            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-              <thead><tr>{["Date","Country","Prefix","Price","Operator","Test Number"].map((h,i)=><th key={i} style={{...thSup,whiteSpace:"nowrap",...(i===0?{minWidth:100}:{})}}>{h}</th>)}</tr></thead>
-              <tbody>
-                {accessHistory.length===0?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
-                accessHistory.map((h,i)=>(
-                  <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",minWidth:100,fontSize:11,color:"#555"}}>{(h.date||"").slice(0,10)}</td>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:11,color:"#555"}}>{h.country||"—"}</td>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.price)}</td>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:12,fontWeight:700,color:h.operator&&h.operator!=="Unknown"?"#1A1A1A":"#999"}}>{h.operator||"Unknown"}</td>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
-                      {h.test_number}
-                      <button onClick={()=>copyText(h.test_number)} title="Copy test number" style={{marginLeft:8,padding:"2px 8px",borderRadius:4,border:"1px solid #2CADA6",
-                        background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"Arial,Helvetica,sans-serif"}}>Copy</button>
-                      <a href={"tel:"+h.test_number} title="Call test number" style={{marginLeft:6,padding:"2px 8px",borderRadius:4,border:"1px solid #10B981",
-                        background:"rgba(16,185,129,0.1)",color:"#10B981",fontSize:10,fontWeight:700,textDecoration:"none",fontFamily:"Arial,Helvetica,sans-serif"}}>📞 Call</a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </GTable>
-          </div>
         </div>
 
         {/* SUPPLIER INFORMATION */}
