@@ -1739,26 +1739,21 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['success' => true, 'enforcement' => $enforce]);
     });
 
-    // Access History uses real CDRs against this supplier's test numbers.
-    // It shows the originating OPERATOR name, never the caller's number
-    // (cdrs.src is only read server-side) and never the supplier's SIP IP.
-    // Operator source, first hit wins: the supplier's uploaded CDR for the
-    // same call (supplier_cdrs.operator), then the caller CLI's operator
-    // code (config/cli_operators.php, longest prefix), else "Unknown".
+    // Access History: one row per supplier prefix that has a test number
+    // (supplier_prefixes.test_number, entered with the prefix), showing the
+    // latest call to that test number. Country/prefix/price/test number all
+    // come from the prefix. It shows the originating OPERATOR, never the
+    // caller's number (cdrs.src is only read server-side) and never the
+    // supplier's SIP IP. Operator, first hit wins: the supplier's uploaded
+    // CDR for the same call (supplier_cdrs.operator), then the caller CLI's
+    // operator code (config/cli_operators.php, longest prefix), else "Unknown".
     Route::get('/v1/supplier-accounts/{id}/access-history', function($id) {
-        // Keyed by the number with any leading '+' stripped, since Asterisk
-        // CDRs (cdrs.did) never carry one while dids.number always does.
-        $testNumbers = DB::table('dids')->where('supplier_id',$id)->where('is_test',1)->get()
-            ->keyBy(fn($d) => ltrim($d->number, '+'));
-        if ($testNumbers->isEmpty()) return response()->json(['data'=>[]]);
-        $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()->keyBy('id');
-        $rows = DB::table('cdrs')->whereIn(DB::raw("REPLACE(did,'+','')"), $testNumbers->keys())
-            ->orderByDesc('call_start')->limit(5000)->get();
         $digits = fn($v) => preg_replace('/[^0-9]/', '', (string)$v);
-        $supOps = DB::table('supplier_cdrs')->where('supplier_id',$id)->whereNotNull('operator')->where('operator','!=','')
-            ->whereIn(DB::raw("REPLACE(prn,'+','')"), $testNumbers->keys())
-            ->get(['cli','prn','call_date','operator'])
-            ->keyBy(fn($s) => $digits($s->cli).'|'.$digits($s->prn).'|'.substr((string)$s->call_date,0,16));
+        $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)
+            ->whereNotNull('test_number')->where('test_number','!=','')->get()
+            ->filter(fn($p) => $digits($p->test_number) !== '');
+        if ($prefixes->isEmpty()) return response()->json(['data'=>[]]);
+
         $cliOps = config('cli_operators', []);
         uksort($cliOps, fn($a, $b) => strlen($b) - strlen($a));
         $cliOperator = function($cli) use ($cliOps, $digits) {
@@ -1768,31 +1763,32 @@ Route::middleware('auth:sanctum')->group(function() {
             foreach ($cliOps as $code => $op) if (str_starts_with($n, (string)$code)) return $op;
             return '';
         };
-        $out = $rows->map(function($c) use ($testNumbers, $prefixes, $supOps, $digits, $cliOperator) {
-            $tn = $testNumbers[ltrim($c->did,'+')] ?? null;
-            $prefix = $tn && $tn->prefix_id ? ($prefixes[$tn->prefix_id] ?? null) : null;
-            // supplier_prefixes has no currency column (an override price is
-            // always entered in USDT); only the dids.tariff fallback carries
-            // a real currency to report - without this, the frontend has no
-            // way to tell a EUR-priced fallback from a USDT one.
-            $sup = $supOps[$digits($c->src).'|'.$digits($c->did).'|'.substr((string)$c->call_start,0,16)] ?? null;
-            $operator = trim($sup->operator ?? '') ?: $cliOperator($c->src);
-            return [
-                'date'        => $c->call_start,
-                'country'     => ($prefix->country ?? '') ?: (($tn->country_name ?? '') ?: '—'),
-                'prefix'      => $prefix->prefix ?? ($tn->prefix ?? '—'),
-                'price'       => $prefix->price ?? ($tn->tariff ?? 0),
-                'currency'    => $prefix ? 'USDT' : ($tn->currency ?? 'USDT'),
-                'test_number' => '+'.ltrim($c->did,'+'),
+
+        $out = [];
+        foreach ($prefixes as $p) {
+            $tn = $digits($p->test_number);
+            // Asterisk CDRs store the dialled number with or without '+'.
+            $c = DB::table('cdrs')->where(DB::raw("REPLACE(did,'+','')"), $tn)->orderByDesc('call_start')->first();
+            if (!$c) continue;
+            $sup = DB::table('supplier_cdrs')->where('supplier_id',$id)
+                ->where(DB::raw("REPLACE(prn,'+','')"), $tn)
+                ->where(DB::raw("REPLACE(cli,'+','')"), $digits($c->src))
+                ->whereBetween('call_date', [substr((string)$c->call_start,0,16).':00', substr((string)$c->call_start,0,16).':59'])
+                ->whereNotNull('operator')->where('operator','!=','')->value('operator');
+            $operator = trim((string)$sup) ?: $cliOperator($c->src);
+            $out[] = [
+                'date'        => substr((string)$c->call_start, 0, 10),
+                'last_call'   => (string)$c->call_start,
+                'country'     => $p->country ?: '—',
+                'prefix'      => $p->prefix,
+                'price'       => $p->price ?? 0,
+                'currency'    => 'USDT',
+                'test_number' => '+'.$tn,
                 'operator'    => $operator !== '' ? strtoupper($operator) : 'Unknown',
             ];
-        });
-        // One line per prefix + test number, showing its most recent call
-        // (rows are newest-first, so unique() keeps the latest). A new call
-        // on the prefix simply moves that row's date forward.
-        $out = $out->map(fn($r) => array_merge($r, ['date' => substr((string)$r['date'], 0, 10)]))
-            ->unique(fn($r) => $r['prefix'].'|'.$r['test_number']);
-        return response()->json(['data'=>$out->values()]);
+        }
+        usort($out, fn($a, $b) => strcmp($b['last_call'], $a['last_call']));
+        return response()->json(['data'=>array_map(fn($r) => array_diff_key($r, ['last_call'=>1]), $out)]);
     });
 
     // ── Supplier Payments (reuses invoices table, invoice_type='supplier_payment') ──
