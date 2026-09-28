@@ -1791,6 +1791,150 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['data'=>array_map(fn($r) => array_diff_key($r, ['last_call'=>1]), $out)]);
     });
 
+    // Supplier -> Asterisk configuration (READ ONLY). For every trunk linked
+    // to the supplier: the trunk record, the live pjsip.conf sections for its
+    // endpoint/aor/identify/auth, its inbound dialplan context, the
+    // number-routing lines for this supplier's prefixes, live contact status,
+    // and warnings where the trunk record and the live config disagree.
+    // Nothing here writes to Asterisk; secrets are masked.
+    Route::get('/v1/supplier-accounts/{id}/asterisk-config', function($id) {
+        $sections = function(string $path) {
+            $text = is_readable($path) ? (string)file_get_contents($path) : '';
+            $out = []; $cur = null;
+            foreach (preg_split('/\r?\n/', $text) as $line) {
+                if (preg_match('/^\[([^\]]+)\]/', $line, $m)) { $cur = $m[1]; $out[$cur] = [$line]; continue; }
+                if ($cur !== null) $out[$cur][] = $line;
+            }
+            // Drop trailing blank lines / comments that belong to the next section.
+            foreach ($out as $k => $lines) {
+                while ($lines && (trim(end($lines)) === '' || str_starts_with(ltrim(end($lines)), ';'))) array_pop($lines);
+                $out[$k] = $lines;
+            }
+            return [$out, $text !== ''];
+        };
+        $mask = fn(array $lines) => array_map(fn($l) => preg_replace('/^(\s*(password|secret)\s*=\s*).*/i', '$1********', $l), $lines);
+        $vals = function(array $lines, string $key) {
+            $v = [];
+            foreach ($lines as $l) if (preg_match('/^\s*'.preg_quote($key,'/').'\s*=\s*(.*?)\s*$/i', $l, $m)) $v[] = $m[1];
+            return $v;
+        };
+        $csv = fn($s) => array_values(array_filter(array_map('trim', explode(',', (string)$s)), fn($x) => $x !== ''));
+
+        [$pj, $pjOk] = $sections(config('asterisk.pjsip_conf', '/etc/asterisk/pjsip.conf'));
+        [$ex, $exOk] = $sections(config('asterisk.extensions_conf', '/etc/asterisk/extensions.conf'));
+        $prefixes = DB::table('supplier_prefixes')->where('supplier_id', $id)->pluck('prefix')
+            ->map(fn($p) => preg_replace('/\D/', '', $p))->filter()->values();
+
+        // number-routing lines whose pattern covers one of this supplier's prefixes
+        $routes = [];
+        foreach ($ex as $ctx => $lines) {
+            $block = null;
+            foreach ($lines as $l) {
+                if (preg_match('/^\s*exten\s*=>\s*_?([^,]+),/', $l, $m)) {
+                    $digits = preg_replace('/\D.*$/', '', ltrim($m[1], '+'));
+                    $hit = $digits !== '' && $prefixes->contains(fn($p) => str_starts_with($p, $digits) || str_starts_with($digits, $p));
+                    if ($block) $routes[] = $block;
+                    $block = $hit ? ['context' => $ctx, 'lines' => [$l]] : null;
+                } elseif ($block && preg_match('/^\s*same\s*=>/', $l)) {
+                    $block['lines'][] = $l;
+                }
+            }
+            if ($block) $routes[] = $block;
+        }
+
+        $trunks = DB::table('trunks')->where('supplier_id', $id)->orderBy('id')->get();
+        $out = [];
+        foreach ($trunks as $t) {
+            $name = $t->pjsip_name ?: strtoupper(preg_replace('/[^A-Za-z0-9]+/', '-', $t->name));
+            $ep = $pj[$name] ?? null;
+            $aorName = $ep ? ($vals($ep, 'aors')[0] ?? $name.'-aor') : $name.'-aor';
+            $aor = $pj[$aorName] ?? null;
+            $identify = null;
+            foreach ($pj as $sec => $lines) {
+                if (in_array('identify', $vals($lines, 'type'), true) && in_array($name, $vals($lines, 'endpoint'), true)) { $identify = [$sec, $lines]; break; }
+            }
+            $authName = $ep ? ($vals($ep, 'auth')[0] ?? $vals($ep, 'outbound_auth')[0] ?? null) : null;
+            $auth = $authName ? ($pj[$authName] ?? null) : null;
+            $context = $ep ? ($vals($ep, 'context')[0] ?? null) : null;
+
+            // Live contact status from Asterisk (read-only CLI query).
+            $contacts = [];
+            $state = null;
+            if ($ep) {
+                exec('asterisk -rx '.escapeshellarg("pjsip show endpoint $name").' 2>/dev/null', $cli, $rc);
+                // The CLI truncates long URIs, so the full address comes from
+                // the aor's contact= lines and the CLI only supplies status.
+                $cliRows = [];
+                foreach ($cli as $l) {
+                    if (preg_match('/^\s*Endpoint:\s+\S+\s+(.+?)\s{2,}/', $l, $m) && !str_contains($l, '<')) $state = trim($m[1]);
+                    if (preg_match('/^\s*Contact:\s+\S+\/sip:(\S+)\s+\S+\s+(\S+)\s+([\d.]+|nan)/', $l, $m))
+                        $cliRows[] = ['uri' => $m[1], 'status' => $m[2], 'rtt_ms' => is_numeric($m[3]) ? round((float)$m[3], 1) : null];
+                }
+                unset($cli);
+                foreach ($aor ? $vals($aor, 'contact') : [] as $full) {
+                    $uri = preg_replace('/^sips?:/', '', $full);
+                    $row = collect($cliRows)->first(fn($r) => str_starts_with($uri, $r['uri']));
+                    $contacts[] = ['uri' => $uri, 'status' => $row['status'] ?? 'Unknown', 'rtt_ms' => $row['rtt_ms'] ?? null];
+                }
+                if (!$contacts) $contacts = $cliRows;
+            }
+
+            // Trunk record vs live config.
+            $warnings = [];
+            if (!$pjOk) $warnings[] = 'pjsip.conf could not be read';
+            if (!$ep) $warnings[] = "Endpoint [$name] is not in pjsip.conf - calls from this trunk will not be accepted";
+            else {
+                $dbHosts = $csv($t->host ?: $t->ip);
+                $liveHosts = $identify ? $vals($identify[1], 'match') : [];
+                $liveHosts = array_map(fn($h) => preg_replace('#/32$#', '', $h), $liveHosts);
+                if ($t->auth_type !== 'userpass' && !$identify) $warnings[] = 'No identify section - IP-authenticated calls cannot be matched to this trunk';
+                if ($dbHosts && $liveHosts && array_diff($dbHosts, $liveHosts)) $warnings[] = 'IP(s) in trunk record but not in live identify: '.implode(', ', array_diff($dbHosts, $liveHosts));
+                if ($dbHosts && $liveHosts && array_diff($liveHosts, $dbHosts)) $warnings[] = 'IP(s) in live identify but not in trunk record: '.implode(', ', array_diff($liveHosts, $dbHosts));
+                $dbCodecs = $csv($t->codecs); $liveCodecs = $vals($ep, 'allow');
+                $liveCodecs = array_merge(...array_map($csv, $liveCodecs ?: ['']));
+                if ($dbCodecs && array_diff($dbCodecs, $liveCodecs)) $warnings[] = 'Codec(s) in trunk record but not allowed live: '.implode(', ', array_diff($dbCodecs, $liveCodecs));
+                if ($t->dialplan_context && $context && $t->dialplan_context !== $context) $warnings[] = "Context differs: trunk record '{$t->dialplan_context}', live '$context'";
+                if ($context && !isset($ex[$context])) $warnings[] = "Context [$context] does not exist in extensions.conf";
+                $qualified = array_filter($contacts, fn($c) => $c['status'] !== 'NonQual');
+                if ($qualified && !array_filter($qualified, fn($c) => $c['status'] === 'Avail')) $warnings[] = 'No contact is reachable (qualify)';
+            }
+            if ($prefixes->isNotEmpty() && !$routes) $warnings[] = 'No dialplan route found for this supplier\'s prefixes';
+
+            $cfg = [];
+            if ($ep) $cfg[] = implode("\n", $mask($ep));
+            if ($aor) $cfg[] = implode("\n", $mask($aor));
+            if ($identify) $cfg[] = implode("\n", $mask($identify[1]));
+            if ($auth) $cfg[] = implode("\n", $mask($auth));
+
+            $out[] = [
+                'trunk_id'      => $t->id,
+                'name'          => $t->nickname ?: $t->name,
+                'endpoint'      => $name,
+                'status'        => $t->status,
+                'state'         => $state,
+                'hosts'         => $csv($t->host ?: $t->ip),
+                'port'          => $t->port,
+                'transport'     => $t->transport,
+                'codecs'        => $t->codecs,
+                'live_codecs'   => $ep ? implode(',', array_merge(...array_map($csv, $vals($ep, 'allow') ?: ['']))) : null,
+                'auth_type'     => $t->auth_type,
+                'sip_username'  => $t->sip_username,
+                'context'       => $context ?: $t->dialplan_context,
+                'max_channels'  => $t->max_channels,
+                'max_call_duration' => $t->max_call_duration,
+                'qualify'       => $t->qualify,
+                'contacts'      => $contacts,
+                'pjsip'         => implode("\n\n", $cfg),
+                'dialplan'      => ($context && isset($ex[$context])) ? implode("\n", $ex[$context]) : null,
+                'warnings'      => $warnings,
+            ];
+        }
+        return response()->json(['data' => [
+            'trunks' => $out,
+            'routes' => array_map(fn($r) => ['context' => $r['context'], 'text' => implode("\n", $r['lines'])], $routes),
+        ]]);
+    });
+
     // ── Supplier Payments (reuses invoices table, invoice_type='supplier_payment') ──
     // Rate always comes from the supplier's Number/Prefix/Range records
     // (see computeSupplierPayable above), never from customer revenue.

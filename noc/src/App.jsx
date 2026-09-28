@@ -1884,10 +1884,13 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
   const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
   const loadAccessHistory=()=>apiFetch(`/supplier-accounts/${supplier.id}/access-history`,token).then(d=>setAccessHistory(d.data||[]));
+  const [astConf,setAstConf]=useState(null);
+  const [showAstRaw,setShowAstRaw]=useState({});
+  const loadAstConf=()=>apiFetch(`/supplier-accounts/${supplier.id}/asterisk-config`,token).then(d=>setAstConf(d.data||{trunks:[],routes:[]}));
   const [ivrs,setIvrs]=useState([]);
   const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
 
-  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); },[supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); loadAstConf(); },[supplier.id]);
   // Keep Access History current: a new call on a prefix moves its date.
   useEffect(()=>{ const t=setInterval(loadAccessHistory,15000); return ()=>clearInterval(t); },[supplier.id]);
 
@@ -2579,6 +2582,65 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           {supplier.linked_trunk&&<button onClick={()=>setPage&&setPage("ast-trunks")}
             style={{marginTop:10,padding:"6px 14px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
               color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>View Trunk</button>}
+
+          {/* ASTERISK CONFIGURATION — read-only view of this supplier's live trunk config */}
+          <div style={{marginTop:18,paddingTop:14,borderTop:"2px solid #F0F0F0"}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>ASTERISK CONFIGURATION</span>
+              <button onClick={loadAstConf} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+                background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
+            </div>
+            {!astConf?<div style={{fontSize:12,color:"#999",padding:"8px 0"}}>Loading...</div>:
+            astConf.trunks.length===0?<div style={{fontSize:12,color:"#999",padding:"8px 0"}}>No SIP trunk linked to this supplier.</div>:
+            astConf.trunks.map(t=>{
+              const up=t.contacts.filter(c=>c.status==="Avail").length;
+              const stColor=t.state==="Unavailable"?"#EF4444":up>0||t.contacts.some(c=>c.status==="NonQual")?"#10B981":"#F5A623";
+              const row=(k,v)=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
+                  <span style={{color:"#888",fontWeight:600,whiteSpace:"nowrap"}}>{k}</span>
+                  <span style={{color:"#1A1A1A",fontWeight:600,textAlign:"right",wordBreak:"break-all"}}>{v}</span>
+                </div>);
+              const raw=[t.pjsip&&"; ── pjsip.conf ──\n"+t.pjsip,t.dialplan&&"; ── extensions.conf ──\n"+t.dialplan,
+                astConf.routes.length&&"; ── routes for this supplier's prefixes ──\n"+astConf.routes.map(r=>"["+r.context+"]\n"+r.text).join("\n\n")].filter(Boolean).join("\n\n");
+              return(
+                <div key={t.trunk_id} style={{marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <span style={{fontSize:13,fontWeight:800}}>{numSupplier(t.name)} <span style={{fontFamily:"monospace",color:"#888",fontWeight:600}}>[{t.endpoint}]</span></span>
+                    <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:700,background:stColor+"1A",color:stColor}}>● {t.state||"Not loaded"}</span>
+                  </div>
+                  {t.warnings.map((w,i)=>(
+                    <div key={i} style={{padding:"6px 10px",borderRadius:6,marginBottom:6,background:"rgba(245,166,35,0.1)",
+                      border:"1px solid #F5A623",fontSize:11,color:"#B7791F",fontWeight:600}}>⚠ {w}</div>
+                  ))}
+                  {row("Endpoint",<span style={{fontFamily:"monospace"}}>{t.endpoint}</span>)}
+                  {row("Auth",t.auth_type==="userpass"?"Username / password"+(t.sip_username?" ("+t.sip_username+")":""):"IP")}
+                  {row("IP / Host",<span style={{fontFamily:"monospace"}}>{t.hosts.join(", ")||"—"}</span>)}
+                  {row("Port / Transport",(t.port||"—")+" / "+(t.transport||"—").toUpperCase())}
+                  {row("Codecs",<span style={{fontFamily:"monospace"}}>{t.live_codecs??t.codecs??"—"}</span>)}
+                  {row("Context",<span style={{fontFamily:"monospace"}}>{t.context||"—"}</span>)}
+                  {row("Max Channels",t.max_channels??"—")}
+                  {row("Max Call Duration",t.max_call_duration?t.max_call_duration+" s":"—")}
+                  {row("Qualify",t.qualify?t.qualify+" s":"Off")}
+                  {row("Contacts",t.contacts.length===0?"—":
+                    <span style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+                      {t.contacts.map(c=>{const col=c.status==="Avail"?"#10B981":c.status==="NonQual"?"#888":"#EF4444";return(
+                        <span key={c.uri} style={{fontFamily:"monospace"}}>{c.uri} <span style={{color:col,fontFamily:"Arial,Helvetica,sans-serif"}}>
+                          ● {c.status==="Avail"?"Up"+(c.rtt_ms!=null?" "+c.rtt_ms+" ms":""):c.status==="NonQual"?"No qualify":"Down"}</span></span>);})}
+                    </span>)}
+                  {row("Routes",astConf.routes.length===0?"—":
+                    <span style={{fontFamily:"monospace",fontSize:11}}>{astConf.routes.map(r=>(r.text.match(/exten\s*=>\s*([^,]+)/)||[])[1]).filter(Boolean).join(", ")}</span>)}
+                  <div style={{display:"flex",gap:8,marginTop:10}}>
+                    <button onClick={()=>setShowAstRaw(v=>({...v,[t.trunk_id]:!v[t.trunk_id]}))} style={{padding:"6px 14px",borderRadius:6,border:"1px solid #5B4FCF",
+                      background:"rgba(91,79,207,0.08)",color:"#5B4FCF",fontSize:11,fontWeight:700,cursor:"pointer"}}>{showAstRaw[t.trunk_id]?"Hide":"Show"} Config</button>
+                    {showAstRaw[t.trunk_id]&&<button onClick={()=>copyText(raw)} style={{padding:"6px 14px",borderRadius:6,border:"1px solid #2CADA6",
+                      background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy</button>}
+                  </div>
+                  {showAstRaw[t.trunk_id]&&<pre style={{marginTop:8,padding:12,borderRadius:8,background:"#1A1A1A",color:"#E5E5E5",fontSize:11,
+                    lineHeight:1.5,overflowX:"auto",maxHeight:420,whiteSpace:"pre"}}>{raw}</pre>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
