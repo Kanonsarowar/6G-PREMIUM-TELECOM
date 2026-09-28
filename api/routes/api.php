@@ -1741,10 +1741,10 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // Access History uses real CDRs against this supplier's test numbers.
     // It shows the originating OPERATOR name, never the caller's number
-    // (cdrs.src is only used server-side to match supplier_cdrs) and never
-    // the supplier's SIP IP. Operator source, first hit wins: the supplier's
-    // uploaded CDR for the same call (supplier_cdrs.operator), then the
-    // prefix's operator / access_from mapping, else "Unknown".
+    // (cdrs.src is only read server-side) and never the supplier's SIP IP.
+    // Operator source, first hit wins: the supplier's uploaded CDR for the
+    // same call (supplier_cdrs.operator), then the caller CLI's operator
+    // code (config/cli_operators.php, longest prefix), else "Unknown".
     Route::get('/v1/supplier-accounts/{id}/access-history', function($id) {
         // Keyed by the number with any leading '+' stripped, since Asterisk
         // CDRs (cdrs.did) never carry one while dids.number always does.
@@ -1759,7 +1759,16 @@ Route::middleware('auth:sanctum')->group(function() {
             ->whereIn(DB::raw("REPLACE(prn,'+','')"), $testNumbers->keys())
             ->get(['cli','prn','call_date','operator'])
             ->keyBy(fn($s) => $digits($s->cli).'|'.$digits($s->prn).'|'.substr((string)$s->call_date,0,16));
-        $out = $rows->map(function($c) use ($testNumbers, $prefixes, $supOps, $digits) {
+        $cliOps = config('cli_operators', []);
+        uksort($cliOps, fn($a, $b) => strlen($b) - strlen($a));
+        $cliOperator = function($cli) use ($cliOps, $digits) {
+            $n = $digits($cli);
+            if (str_starts_with($n, '00')) $n = substr($n, 2);
+            elseif (str_starts_with($n, '05') && strlen($n) === 10) $n = '966'.substr($n, 1);
+            foreach ($cliOps as $code => $op) if (str_starts_with($n, (string)$code)) return $op;
+            return '';
+        };
+        $out = $rows->map(function($c) use ($testNumbers, $prefixes, $supOps, $digits, $cliOperator) {
             $tn = $testNumbers[ltrim($c->did,'+')] ?? null;
             $prefix = $tn && $tn->prefix_id ? ($prefixes[$tn->prefix_id] ?? null) : null;
             // supplier_prefixes has no currency column (an override price is
@@ -1767,7 +1776,7 @@ Route::middleware('auth:sanctum')->group(function() {
             // a real currency to report - without this, the frontend has no
             // way to tell a EUR-priced fallback from a USDT one.
             $sup = $supOps[$digits($c->src).'|'.$digits($c->did).'|'.substr((string)$c->call_start,0,16)] ?? null;
-            $operator = trim($sup->operator ?? '') ?: trim($prefix->operator ?? '') ?: trim($prefix->access_from ?? '');
+            $operator = trim($sup->operator ?? '') ?: $cliOperator($c->src);
             return [
                 'date'        => $c->call_start,
                 'prefix'      => $prefix->prefix ?? ($tn->prefix ?? '—'),
