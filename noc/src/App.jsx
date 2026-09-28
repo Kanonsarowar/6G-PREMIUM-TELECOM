@@ -80,10 +80,31 @@ const getNavGroups=(role)=>{
   ]},
 ]};
 
+// Friendly name of this device, sent as X-Device-Name so Audit Log → Login
+// Devices can show it (the User-Agent alone usually hides the model).
+let DEVICE_NAME="";
+(async()=>{
+  const ua=navigator.userAgent;
+  let model="",platform="",ver="";
+  try{
+    if(navigator.userAgentData?.getHighEntropyValues){
+      const h=await navigator.userAgentData.getHighEntropyValues(["model","platform","platformVersion"]);
+      model=h.model||"";platform=h.platform||"";ver=h.platformVersion||"";
+    }
+  }catch(e){}
+  if(!model){const m=ua.match(/Android [\d.]+; (?:[a-z]{2}[-_][a-z]{2}; )?([^;)]+?)(?: Build\/[^;)]*)?[;)]/i);if(m&&m[1]!=="K")model=m[1];}
+  if(/^SM-/.test(model)) model="Samsung "+model;
+  DEVICE_NAME=/iPhone/.test(ua)?"iPhone":/iPad/.test(ua)?"iPad":model
+    ?model:(platform==="Windows"||/Windows NT/.test(ua))?(parseInt(ver)>=13?"Windows 11 PC":"Windows PC")
+    :/Macintosh/.test(ua)?"Mac":/CrOS/.test(ua)?"Chromebook":/Android/.test(ua)?"Android device"
+    :/Linux/.test(ua)?"Linux PC":"";
+})();
+const deviceHeader=()=>DEVICE_NAME?{"X-Device-Name":DEVICE_NAME}:{};
+
 const apiFetch=async(path,token,opts={})=>{
   try{
     const r=await fetch(`${API}${path}`,{
-      headers:{Authorization:`Bearer ${token}`,Accept:"application/json","Content-Type":"application/json"},
+      headers:{Authorization:`Bearer ${token}`,Accept:"application/json","Content-Type":"application/json",...deviceHeader()},
       ...opts
     });
     if(r.status===401){
@@ -97,7 +118,7 @@ const apiFetch=async(path,token,opts={})=>{
 // Binary endpoints (PDF, audio) need the token too, so they can't be plain
 // href/src URLs: fetch with the token and hand back a blob: URL instead.
 const apiBlobUrl=async(path,token)=>{
-  const r=await fetch(`${API}${path}`,{headers:{Authorization:`Bearer ${token}`}});
+  const r=await fetch(`${API}${path}`,{headers:{Authorization:`Bearer ${token}`,...deviceHeader()}});
   if(!r.ok) throw new Error(r.status===401?"Unauthenticated":"Request failed ("+r.status+")");
   return URL.createObjectURL(await r.blob());
 };
@@ -4725,17 +4746,28 @@ function AuditLogPage({token}){
   );
 }
 
-// Rough device/browser/OS from a User-Agent string, good enough to tell sessions apart.
-const describeUA=(ua)=>{
-  if(!ua) return {icon:"❔",device:"Unknown device",browser:"",os:""};
-  const os=/Windows NT/.test(ua)?"Windows":/iPhone|iPad|iPod/.test(ua)?"iOS":/Android/.test(ua)?"Android"
+// Device/browser/OS (with versions) from a User-Agent string, good enough to tell sessions apart.
+const describeUA=(ua,deviceName)=>{
+  if(!ua) return {icon:"❔",device:deviceName||"Unknown device",browser:"",os:""};
+  const v=(re)=>{const m=ua.match(re);return m?m[1]:"";};
+  const os=/Windows NT/.test(ua)?"Windows"+(v(/Windows NT ([\d.]+)/)==="6.1"?" 7":/Windows NT 10/.test(ua)?" 10/11":"")
+    :/iPhone|iPad|iPod/.test(ua)?"iOS "+v(/OS (\d+(?:_\d+)?)/).replace("_",".")
+    :/Android/.test(ua)?"Android "+v(/Android ([\d.]+)/)
     :/Mac OS X|Macintosh/.test(ua)?"macOS":/CrOS/.test(ua)?"ChromeOS":/Linux/.test(ua)?"Linux":"";
-  const browser=/Edg\//.test(ua)?"Edge":/OPR\/|Opera/.test(ua)?"Opera":/SamsungBrowser/.test(ua)?"Samsung Internet"
-    :/Firefox\//.test(ua)?"Firefox":/CriOS|Chrome\//.test(ua)?"Chrome":/Safari\//.test(ua)?"Safari"
-    :/curl|python|okhttp|PostmanRuntime/i.test(ua)?"API client":"";
-  const mobile=/Mobi|iPhone|Android(?!.*Tablet)/.test(ua), tablet=/iPad|Tablet/.test(ua);
-  return {icon:tablet?"📟":mobile?"📱":browser==="API client"?"🔧":"💻",
-    device:tablet?"Tablet":mobile?"Mobile":browser==="API client"?"Script / API":"Desktop",browser,os};
+  const [bn,bv]=/Edg\//.test(ua)?["Edge",v(/Edg\/(\d+)/)]:/OPR\/|Opera/.test(ua)?["Opera",v(/OPR\/(\d+)/)]
+    :/SamsungBrowser/.test(ua)?["Samsung Internet",v(/SamsungBrowser\/(\d+)/)]
+    :/Firefox\//.test(ua)?["Firefox",v(/Firefox\/(\d+)/)]:/FxiOS/.test(ua)?["Firefox",v(/FxiOS\/(\d+)/)]
+    :/CriOS/.test(ua)?["Chrome",v(/CriOS\/(\d+)/)]:/Chrome\//.test(ua)?["Chrome",v(/Chrome\/(\d+)/)]
+    :/Safari\//.test(ua)?["Safari",v(/Version\/(\d+)/)]
+    :/curl|python|okhttp|PostmanRuntime|Guzzle/i.test(ua)?["API client",""]:["",""];
+  const browser=bn+(bv?" "+bv:"");
+  const tablet=/iPad|Tablet/.test(ua), mobile=!tablet&&/Mobi|iPhone|Android/.test(ua);
+  const model=v(/Android [\d.]+; (?:[a-z]{2}[-_][a-z]{2}; )?([^;)]+?)(?: Build\/[^;)]*)?[;)]/i);
+  const fallback=/iPhone/.test(ua)?"iPhone":/iPad/.test(ua)?"iPad"
+    :/Android/.test(ua)?(model&&model!=="K"?(/^SM-/.test(model)?"Samsung ":"")+model:tablet?"Android tablet":"Android phone")
+    :tablet?"Tablet":mobile?"Mobile":bn==="API client"?"Script / API":/Macintosh/.test(ua)?"Mac"
+    :/Windows/.test(ua)?"Windows PC":/Linux|CrOS/.test(ua)?"Linux PC":"Desktop";
+  return {icon:tablet?"📟":mobile?"📱":bn==="API client"?"🔧":"💻",device:deviceName||fallback,browser,os};
 };
 const timeAgo=(ts)=>{
   if(!ts) return "never";
@@ -4764,7 +4796,7 @@ function LoginDevicesPanel({token}){
   useEffect(()=>{load();},[token]);
 
   const revoke=async(s)=>{
-    const {device,browser}=describeUA(s.user_agent);
+    const {device,browser}=describeUA(s.user_agent,s.device_name);
     if(!window.confirm("Log out this device?\n\n"+(s.user_name||"User")+" · "+device+(browser?" · "+browser:"")+(s.ip_address?" · "+s.ip_address:""))) return;
     setBusy(s.id);
     const d=await apiFetch("/auth/sessions/"+s.id,token,{method:"DELETE"});
@@ -4856,7 +4888,7 @@ function LoginDevicesPanel({token}){
           </button>
         </div>
         {sessions.map(s=>{
-          const ua=describeUA(s.user_agent), online=isOnline(s);
+          const ua=describeUA(s.user_agent,s.device_name), online=isOnline(s);
           return(
             <div key={s.id} style={{background:"#FFF",borderRadius:14,padding:14,
               boxShadow:"0 2px 8px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
@@ -4867,9 +4899,7 @@ function LoginDevicesPanel({token}){
               <div style={{fontSize:28,width:40,textAlign:"center"}}>{ua.icon}</div>
               <div style={{flex:1,minWidth:180}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  <span style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>
-                    {[ua.browser,ua.os].filter(Boolean).join(" on ")||ua.device}
-                  </span>
+                  <span style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>{ua.device}</span>
                   {s.current&&<span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
                     background:"rgba(44,173,166,0.12)",color:"#2CADA6"}}>THIS DEVICE</span>}
                   <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
@@ -4877,6 +4907,12 @@ function LoginDevicesPanel({token}){
                     {online?"● Online":"Idle"}
                   </span>
                 </div>
+                {(ua.browser||ua.os)&&<div style={{fontSize:12,color:"#2CADA6",fontWeight:600,marginTop:3}}>
+                  {[ua.browser,ua.os].filter(Boolean).join(" · ")}
+                </div>}
+                {!s.user_agent&&<div style={{fontSize:11,color:"#BBB",marginTop:3}}>
+                  Browser not recorded yet — fills in next time this device opens the panel
+                </div>}
                 <div style={{fontSize:12,color:"#555",marginTop:3}}>
                   <b>{s.user_name||"—"}</b>
                   {s.role&&<span style={{marginLeft:6,padding:"1px 7px",borderRadius:10,fontSize:10,fontWeight:700,
@@ -6898,7 +6934,7 @@ export default function App(){
     setLoading(true);setError("");
     try{
       const r=await fetch(`${API}/auth/login`,{method:"POST",
-        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        headers:{"Content-Type":"application/json",Accept:"application/json",...deviceHeader()},
         body:JSON.stringify({username,email:username,password:pass})});
       const d=await r.json();
       if(d.token){localStorage.setItem("noc_token",d.token);setToken(d.token);setUser(d.user);}

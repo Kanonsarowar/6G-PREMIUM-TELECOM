@@ -376,6 +376,7 @@ Route::post('/v1/auth/login', function(Request $request) {
     $newToken->accessToken->forceFill([
         'ip_address' => $request->ip(),
         'user_agent' => substr((string)$request->userAgent(), 0, 1000),
+        'device_name'=> trim(substr((string)$request->header('X-Device-Name'), 0, 100)) ?: null,
     ])->save();
     // Log login
     DB::table('audit_logs')->insert([
@@ -435,7 +436,7 @@ Route::middleware('auth:sanctum')->group(function() {
         $currentId = $r->user()->currentAccessToken()->id ?? null;
         $rows = $sessionQuery($r)
             ->select('t.id','t.tokenable_id as user_id','u.name as user_name','u.role',
-                't.ip_address','t.user_agent','t.created_at','t.last_used_at')
+                't.ip_address','t.user_agent','t.device_name','t.created_at','t.last_used_at')
             ->orderByRaw('COALESCE(t.last_used_at, t.created_at) DESC')
             ->get();
         // Tokens issued before device info was recorded: recover the login IP
