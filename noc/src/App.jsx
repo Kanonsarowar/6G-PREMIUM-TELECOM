@@ -1888,6 +1888,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
 
   useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); },[supplier.id]);
+  // Keep Access History current: a new call on a prefix moves its date.
+  useEffect(()=>{ const t=setInterval(loadAccessHistory,15000); return ()=>clearInterval(t); },[supplier.id]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -2333,7 +2335,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         <div ref={liveCallRef} style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>LIVE CALL</span>
-            <button onClick={loadLiveCalls} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+            <button onClick={()=>{loadLiveCalls();loadAccessHistory();}} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
               background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
           </div>
           <div style={{overflowX:"auto"}}>

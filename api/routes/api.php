@@ -1787,10 +1787,11 @@ Route::middleware('auth:sanctum')->group(function() {
                 'operator'    => $operator !== '' ? strtoupper($operator) : 'Unknown',
             ];
         });
-        // One line per day: calls on the same date with identical
-        // country/prefix/price/test number/operator collapse into one row.
+        // One line per prefix + test number, showing its most recent call
+        // (rows are newest-first, so unique() keeps the latest). A new call
+        // on the prefix simply moves that row's date forward.
         $out = $out->map(fn($r) => array_merge($r, ['date' => substr((string)$r['date'], 0, 10)]))
-            ->unique(fn($r) => implode('|', [$r['date'], $r['country'], $r['prefix'], $r['price'], $r['test_number'], $r['operator']]));
+            ->unique(fn($r) => $r['prefix'].'|'.$r['test_number']);
         return response()->json(['data'=>$out->values()]);
     });
 
