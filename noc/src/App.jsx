@@ -2553,10 +2553,9 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         {/* ACCESS HISTORY */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACCESS HISTORY</div>
-          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>"Access From" is the caller/operator origin — never the supplier's SIP IP.</div>
           <div style={{overflowX:"auto"}}>
             <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-              <thead><tr>{["Date","Prefix","Price","Test Number","Access From"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Date & Time","Prefix","Price","Test Number","Operator"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
                 {accessHistory.length===0?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No access history yet</td></tr>:
                 accessHistory.map((h,i)=>(
@@ -2565,7 +2564,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>{h.prefix}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(h.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{h.test_number}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{h.access_from}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:h.operator&&h.operator!=="Unknown"?"#1A1A1A":"#999"}}>{h.operator||"Unknown"}</td>
                   </tr>
                 ))}
               </tbody>
