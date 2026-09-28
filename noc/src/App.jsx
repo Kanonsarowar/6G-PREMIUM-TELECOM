@@ -2559,56 +2559,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* UPLOAD CDR */}
-        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
-          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>UPLOAD CDR</div>
-          <div style={{padding:"10px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"center"}}>
-            <label style={{padding:"7px 14px",borderRadius:20,border:"2px solid #2CADA6",color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-              ⬆ Choose file (.csv / .xlsx / .pdf)
-              <input type="file" accept=".csv,.txt,.xlsx,.xls,.pdf" onChange={handleCdrFile} style={{display:"none"}}/>
-            </label>
-            {cdrFileName&&<span style={{fontSize:11,color:"#555"}}>{cdrFileName} — {cdrSummary?"weekly report read":`${cdrRows.length} rows ready`}{cdrInfo?" · "+cdrInfo:""}</span>}
-            {cdrRows.length>0&&!cdrDateCertain&&(
-              <select value={cdrDayFirst===null?"auto":cdrDayFirst?"dmy":"mdy"}
-                onChange={e=>changeCdrDayFirst(e.target.value==="dmy"?true:e.target.value==="mdy"?false:null)}
-                style={{padding:"6px 8px",borderRadius:6,border:"1px solid #F5A623",fontSize:11,fontFamily:"inherit"}}>
-                <option value="auto">Dates: MM/DD/YYYY (assumed)</option>
-                <option value="mdy">Dates are MM/DD/YYYY</option>
-                <option value="dmy">Dates are DD/MM/YYYY</option>
-              </select>)}
-            <select value={cdrMode} onChange={e=>setCdrMode(e.target.value)}
-              style={{padding:"6px 8px",borderRadius:6,border:"1px solid #CCC",fontSize:11,fontFamily:"inherit"}}>
-              <option value="skip">If already recorded: Skip</option>
-              <option value="replace">If already recorded: Replace</option>
-            </select>
-            <button onClick={importCdrRows} disabled={cdrImporting||(cdrRows.length===0&&!cdrSummary)}
-              style={{padding:"7px 14px",borderRadius:20,border:"none",background:(cdrRows.length>0||cdrSummary)&&!cdrImporting?"#2CADA6":"#CCC",color:"#FFF",fontSize:11,fontWeight:700,cursor:(cdrRows.length>0||cdrSummary)&&!cdrImporting?"pointer":"default"}}>
-              {cdrImporting?"Uploading...":"Upload CDR"}</button>
-          </div>
-          {cdrSummary&&(()=>{
-            const wk=weekOf(new Date(cdrSummary.weekStart+"T00:00:00"));
-            return(
-            <div style={{padding:"0 14px 8px",fontSize:12,color:"#333"}}>
-              <div><b>Weekly report</b> · {cdrSummary.total.lines} lines · {cdrSummary.total.calls} calls · {cdrSummary.total.minutes} min · payout <b>{fmtUSDT(cdrSummary.total.payout)}</b>
-                {cdrSummary.currencies.length>1?" · currencies: "+cdrSummary.currencies.join(", ")+" (one entry each)":""}</div>
-              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:6}}>
-                <span>Week:</span>
-                <input type="date" value={cdrSummary.weekStart} onChange={e=>e.target.value&&setCdrSummary({...cdrSummary,weekStart:e.target.value,weekFromFile:true})}
-                  style={{padding:"4px 6px",borderRadius:6,border:"1px solid #CCC",fontSize:12,fontFamily:"inherit"}}/>
-                <span>→ {wk.start} to {wk.end} (Mon–Sun)</span>
-                <span style={{color:cdrSummary.weekFromFile?"#10B981":"#F5A623",fontWeight:700}}>{cdrSummary.weekFromFile?"":"no dates in the file — last week assumed, change if needed"}</span>
-              </div>
-              <div style={{color:"#666",marginTop:4}}>Will be added as one unpaid weekly entry (Supplier Payments → Weekly).</div>
-            </div>);
-          })()}
-          {cdrPreview&&<div style={{fontSize:11,color:"#555",padding:"0 14px 6px"}}>{cdrPreview}</div>}
-          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>Columns: date, cli, prn (number), billsec/duration, payout, country, operator, account. Rows are saved to this supplier's CDR and, when the call was billable, to the main CDR; calls from weeks that have ended are added to unpaid weekly entries (Supplier Payments → Weekly). A row is a duplicate when date + CLI + number match an existing CDR: new rows are added, duplicates are skipped or replaced.</div>
-          {cdrImportResult&&(
-            <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:600,whiteSpace:"pre-wrap",wordBreak:"break-word",userSelect:"text",color:cdrImportResult.success?"#10B981":"#EF4444"}}>
-              {cdrImportResult.success?"✅ "+cdrImportResult.message:"❌ "+cdrImportResult.error+(cdrImportResult.main_added||cdrImportResult.main_replaced?` (done before error: ${cdrImportResult.main_added} new, ${cdrImportResult.main_replaced} replaced in main CDR)`:"")}</div>
-          )}
-        </div>
-
         {/* SUPPLIER INFORMATION */}
         <div style={{...cardS,padding:16}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
