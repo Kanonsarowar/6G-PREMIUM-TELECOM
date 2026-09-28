@@ -1358,33 +1358,19 @@ Route::middleware('auth:sanctum')->group(function() {
         $trunk = DB::table('trunks')->where('supplier_id',$id)->first();
 
         if ($r->mode === 'range') {
-            if (!$r->range_start || !$r->range_end) return response()->json(['error'=>'range_start and range_end are required'],422);
-            $start = preg_replace('/[^0-9]/','',$r->range_start);
-            $end   = preg_replace('/[^0-9]/','',$r->range_end);
-            $count = (int)$end - (int)$start + 1;
-            if ($count < 1) return response()->json(['error'=>'range_end must be >= range_start'],422);
-            $rangeId = DB::table('did_ranges')->insertGetId([
-                'batch_name'    => $r->batch_name ?? ($prefix->country.' '.$prefix->prefix),
-                'country_code'  => 'XX',
-                'country_name'  => $prefix->country,
-                'prefix'        => $prefix->prefix,
-                'prefix_id'     => $prefix->id,
-                'range_start'   => $start,
-                'range_end'     => $end,
-                'rate'          => $prefix->price,
-                'selling_price' => $prefix->price,
-                'currency'      => 'USDT',
-                'payment_terms' => $prefix->payment_term,
-                'supplier_name' => $supplier->name,
-                'supplier_id'   => $id,
-                'trunk_id'      => $trunk->id ?? null,
-                'default_ivr'   => $r->ivr_context ?? $prefix->ivr_context ?? 'custom/6g-premium-telecom',
-                'total_count'   => $count,
-                'is_active'     => 1,
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ]);
-            return response()->json(['success'=>true,'data'=>DB::table('did_ranges')->find($rangeId)],201);
+            // Creates the did_ranges row AND every individual DID in it, in
+            // one transaction; total_count comes from the created DIDs.
+            try {
+                $res = app(\App\Services\DidRangeService::class)->createRange(
+                    (int)$id, (int)$prefix->id, (string)$r->range_start, (string)$r->range_end,
+                    array_filter(['ivr_context'=>$r->ivr_context, 'batch_name'=>$r->batch_name]));
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['error'=>$e->getMessage()],422);
+            }
+            $msg = "Range {$res['range']->range_start}–{$res['range']->range_end}: {$res['created']} numbers created"
+                 .($res['skipped'] ? ', '.count($res['skipped']).' already existed' : '');
+            return response()->json(['success'=>true,'data'=>$res['range'],'created'=>$res['created'],
+                'skipped'=>$res['skipped'],'message'=>$msg],$res['reused'] ? 200 : 201);
         }
 
         // Single number
@@ -2477,7 +2463,7 @@ Route::get('/v1/live-calls', function() {
 }, ['middleware'=>['auth:sanctum']]);
 
 // Bulk update IVR for all DIDs
-Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
+Route::middleware('auth:sanctum')->put('/v1/did-ranges/bulk-ivr', function(Request $r) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
     $count = DB::table('dids')->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
     // Copy selected IVR file as default
@@ -2501,17 +2487,29 @@ Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
 });
 
 // Update IVR for specific range
-Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
+Route::middleware('auth:sanctum')->put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
-    $range = DB::table('did_ranges')->find($id);
-    if(!$range) return response()->json(['error'=>'Range not found'],404);
-
-    // Update DIDs in this range
-    $count = DB::table('dids')
-        ->where('prefix',$range->prefix)
-        ->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
-
-    DB::table('did_ranges')->where('id',$id)->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
+    // Only this range's own DIDs: those linked by batch_id, or for legacy
+    // ranges created before batch_id was set, unlinked DIDs of the same
+    // prefix whose number lies inside range_start..range_end. Never match
+    // by prefix alone, other ranges can share the same prefix.
+    $count = DB::transaction(function() use ($id, $ivr) {
+        $range = DB::table('did_ranges')->where('id',$id)->lockForUpdate()->first();
+        if(!$range) return null;
+        $q = DB::table('dids');
+        if (DB::table('dids')->where('batch_id',$range->id)->exists()) {
+            $q->where('batch_id',$range->id);
+        } else {
+            $q->whereNull('batch_id')->where('prefix',$range->prefix)
+              ->whereRaw("TRIM(LEADING '+' FROM number) BETWEEN ? AND ?", [$range->range_start, $range->range_end])
+              ->whereRaw("CHAR_LENGTH(TRIM(LEADING '+' FROM number)) = ?", [strlen((string)$range->range_start)]);
+            if ($range->prefix_id) $q->where('prefix_id',$range->prefix_id);
+        }
+        $count = $q->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
+        DB::table('did_ranges')->where('id',$range->id)->update(['default_ivr'=>$ivr,'updated_at'=>now()]);
+        return $count;
+    });
+    if($count === null) return response()->json(['error'=>'Range not found'],404);
     return response()->json(['success'=>true,'message'=>"IVR applied to {$count} numbers",'count'=>$count]);
 });
 
@@ -3437,23 +3435,26 @@ Route::delete('/v1/test/access-list/{id}', function($id) {
 });
 
 // ── Delete DID Range (and its numbers) ─────────────────────────
-Route::delete('/v1/did-ranges/{id}', function($id) {
-    $range = DB::table('did_ranges')->find($id);
+Route::middleware('auth:sanctum')->delete('/v1/did-ranges/{id}', function($id) {
+    // Only this range's own DIDs (dids.batch_id = did_ranges.id) are removed;
+    // never match by prefix, other ranges can share the same prefix.
+    [$range, $didCount] = DB::transaction(function() use ($id) {
+        $range = DB::table('did_ranges')->where('id',$id)->lockForUpdate()->first();
+        if(!$range) return [null, 0];
+        $didCount = DB::table('dids')->where('batch_id',$range->id)->delete();
+        DB::table('did_ranges')->where('id',$range->id)->delete();
+        DB::table('audit_logs')->insert([
+            'user'=>'admin','action'=>'range_deleted','module'=>'Numbers',
+            'details'=>"Deleted range #{$range->id} {$range->range_start}-{$range->range_end} ({$range->country_name}) and {$didCount} DIDs",
+            'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return [$range, $didCount];
+    });
     if(!$range) return response()->json(['error'=>'Range not found'],404);
-
-    $didCount = DB::table('dids')->where('prefix',$range->prefix)->count();
-    DB::table('dids')->where('prefix',$range->prefix)->delete();
-    DB::table('did_ranges')->where('id',$id)->delete();
-
-    DB::table('audit_logs')->insert([
-        'user'=>'admin','action'=>'range_deleted','module'=>'Numbers',
-        'details'=>"Deleted range {$range->prefix} ({$range->country_name}) and {$didCount} DIDs",
-        'created_at'=>now(),'updated_at'=>now(),
-    ]);
 
     return response()->json([
         'success'=>true,
-        'message'=>"Deleted range {$range->prefix} and {$didCount} numbers",
+        'message'=>"Deleted range {$range->range_start}-{$range->range_end} and {$didCount} numbers",
         'dids_deleted'=>$didCount,
     ]);
 });

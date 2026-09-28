@@ -1970,7 +1970,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     const d=await apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token,{method:"POST",body:JSON.stringify(addNum)});
     setSaving(false);
     if(d.success){
-      flash("Number"+(addNum.mode==="range"?" range":"")+" added");
+      flash(d.message||("Number"+(addNum.mode==="range"?" range":"")+" added"));
       setAddNum({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
       setShowAddNum(false); loadNumbers(); loadPrefixes();
     } else alert(d.error||"Failed to add");
@@ -3475,13 +3475,23 @@ function NumberInventoryPage({token}){
     </select>
   );
 
-  const getNumbers=(r)=>dids.filter(d=>{
-    const n=(d.number||"").replace("+","");
-    return n.startsWith(r.prefix?.replace(/\s/g,"")||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
-  });
+  // DIDs created by Add Range carry batch_id = did_ranges.id, so a range
+  // lists exactly its own numbers. Legacy ranges without batch-linked DIDs
+  // fall back to matching unbatched DIDs by prefix/span.
+  const rangeIds=new Set(ranges.map(r=>r.id));
+  const getNumbers=(r)=>{
+    const own=dids.filter(d=>d.batch_id===r.id);
+    if(own.length) return own.sort((a,b)=>(a.number||"").replace("+","").localeCompare((b.number||"").replace("+","")));
+    return dids.filter(d=>{
+      if(d.batch_id&&rangeIds.has(d.batch_id)) return false;
+      const n=(d.number||"").replace("+","");
+      return n.startsWith(r.prefix?.replace(/\s/g,"")||"")||(n>=(r.range_start||"")&&n<=(r.range_end||""));
+    });
+  };
 
-  const filteredRanges=search?ranges.filter(r=>(r.prefix||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase())):ranges;
+  const filteredRanges=search?ranges.filter(r=>(r.prefix||"").includes(search)||(r.range_start||"").includes(search)||(r.country_name||"").toLowerCase().includes(search.toLowerCase())||getNumbers(r).some(d=>(d.number||"").includes(search))):ranges;
   const ungroupedDids=dids.filter(d=>{
+    if(d.batch_id&&rangeIds.has(d.batch_id)) return false;
     const n=(d.number||"").replace("+","");
     return !ranges.some(r=>n.startsWith(r.prefix?.replace(/\s/g,"")||""));
   });
@@ -3622,7 +3632,7 @@ function NumberInventoryPage({token}){
                                 <span style={{fontSize:12,fontWeight:800,color:"#1A1A1A",fontFamily:"monospace",whiteSpace:"nowrap"}}>
                                   {r.prefix||r.range_start}
                                 </span>
-                                <span style={{fontSize:11,color:"#AAA"}}>({r.total_count||nums.length})</span>
+                                <span style={{fontSize:11,color:"#AAA"}}>({nums.length})</span>
                               </div>
                             </td>
                             <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
@@ -5267,7 +5277,6 @@ function TestLabsPage({token}){
                         <td style={{padding:"10px 10px",fontSize:11,color:"#999",fontWeight:600}}>{i+1}</td>
                         <td style={{padding:"10px 10px"}}>
                           <div style={{fontSize:12,fontFamily:"monospace",fontWeight:700}}>{r.prefix}</div>
-                          <div style={{fontSize:9,color:"#999"}}>{r.range_start}–{r.range_end}</div>
                         </td>
                         <td style={{padding:"10px 10px",fontSize:11,color:"#333"}}>{r.country_name||"—"}</td>
                         <td style={{padding:"10px 10px",fontSize:12,fontWeight:700,
