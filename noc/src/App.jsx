@@ -86,9 +86,20 @@ const apiFetch=async(path,token,opts={})=>{
       headers:{Authorization:`Bearer ${token}`,Accept:"application/json","Content-Type":"application/json"},
       ...opts
     });
-    if(r.status===401){return{error:"Unauthenticated",status:401};}
+    if(r.status===401){
+      // Token revoked (e.g. logged out from Audit Log → Login Devices): back to login
+      window.dispatchEvent(new Event("noc:unauthenticated"));
+      return{error:"Unauthenticated",status:401};
+    }
     return r.json();
   }catch(e){return{error:e.message};}
+};
+// Binary endpoints (PDF, audio) need the token too, so they can't be plain
+// href/src URLs: fetch with the token and hand back a blob: URL instead.
+const apiBlobUrl=async(path,token)=>{
+  const r=await fetch(`${API}${path}`,{headers:{Authorization:`Bearer ${token}`}});
+  if(!r.ok) throw new Error(r.status===401?"Unauthenticated":"Request failed ("+r.status+")");
+  return URL.createObjectURL(await r.blob());
 };
 const Card=({children,style={}})=>(
   <div style={{background:"#FFFFFF",border:"1px solid rgba(60,47,143,0.1)",borderRadius:12,
@@ -1589,8 +1600,11 @@ function RevenuePage({token}){
                           {fmtUSDT(inv.total_amount)}
                         </td>
                         <td style={{padding:"10px 14px"}}>
-                          <a href={"https://6g-premium-telecom.com/api/v1/invoices/"+inv.id+"/pdf"}
-                            target="_blank" rel="noreferrer"
+                          <a href="#" onClick={async e=>{e.preventDefault();
+                              try{const url=await apiBlobUrl("/invoices/"+inv.id+"/pdf",token);
+                                const a=document.createElement("a");a.href=url;a.download="invoice-"+inv.invoice_number+".pdf";a.click();
+                                setTimeout(()=>URL.revokeObjectURL(url),10000);
+                              }catch(err){alert("PDF download failed: "+err.message);}}}
                             style={{padding:"4px 10px",borderRadius:10,fontSize:11,fontWeight:700,
                               background:"rgba(44,173,166,0.1)",color:"#2CADA6",
                               textDecoration:"none",border:"1px solid rgba(44,173,166,0.3)"}}>
@@ -4051,17 +4065,20 @@ function NumberInventoryPage({token}){
 function IVRPage({token,setPage}){
   const [playingId,setPlayingId]=React.useState(null);
   const audioRef=React.useRef(null);
-  const playPause=(ivr)=>{
+  const playPause=async(ivr)=>{
     if(playingId===ivr.id){
       audioRef.current?.pause();
       setPlayingId(null);
     } else {
       if(audioRef.current) audioRef.current.pause();
-      const a=new Audio("https://6g-premium-telecom.com/api/v1/ivr-lib/preview/"+ivr.id);
-      a.onended=()=>setPlayingId(null);
-      a.play();
-      audioRef.current=a;
       setPlayingId(ivr.id);
+      try{
+        const url=await apiBlobUrl("/ivr-lib/preview/"+ivr.id,token);
+        const a=new Audio(url);
+        a.onended=()=>{setPlayingId(null);URL.revokeObjectURL(url);};
+        audioRef.current=a;
+        await a.play();
+      }catch(err){setPlayingId(null);alert("Preview failed: "+err.message);}
     }
   };
   const [ivrs,setIvrs]=useState([]);
@@ -4688,6 +4705,173 @@ function CustomersPage({token}){
 
 // ── Audit Log ─────────────────────────────────────────────────────
 function AuditLogPage({token}){
+  const [tab,setTab]=useState("activity");
+  const tabs=[{id:"activity",label:"📜 Activity"},{id:"devices",label:"💻 Login Devices"}];
+  return(
+    <div>
+      <div style={{display:"flex",gap:4,padding:"16px 16px 0",overflowX:"auto",fontFamily:"'Poppins',sans-serif"}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{padding:"7px 14px",borderRadius:20,border:"none",whiteSpace:"nowrap",
+              background:tab===t.id?"#2CADA6":"#F0F0F0",
+              color:tab===t.id?"#FFFFFF":"#555",
+              fontSize:12,fontWeight:tab===t.id?700:500,cursor:"pointer",fontFamily:"inherit"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab==="activity"?<AuditActivityLog token={token}/>:<LoginDevicesPanel token={token}/>}
+    </div>
+  );
+}
+
+// Rough device/browser/OS from a User-Agent string, good enough to tell sessions apart.
+const describeUA=(ua)=>{
+  if(!ua) return {icon:"❔",device:"Unknown device",browser:"",os:""};
+  const os=/Windows NT/.test(ua)?"Windows":/iPhone|iPad|iPod/.test(ua)?"iOS":/Android/.test(ua)?"Android"
+    :/Mac OS X|Macintosh/.test(ua)?"macOS":/CrOS/.test(ua)?"ChromeOS":/Linux/.test(ua)?"Linux":"";
+  const browser=/Edg\//.test(ua)?"Edge":/OPR\/|Opera/.test(ua)?"Opera":/SamsungBrowser/.test(ua)?"Samsung Internet"
+    :/Firefox\//.test(ua)?"Firefox":/CriOS|Chrome\//.test(ua)?"Chrome":/Safari\//.test(ua)?"Safari"
+    :/curl|python|okhttp|PostmanRuntime/i.test(ua)?"API client":"";
+  const mobile=/Mobi|iPhone|Android(?!.*Tablet)/.test(ua), tablet=/iPad|Tablet/.test(ua);
+  return {icon:tablet?"📟":mobile?"📱":browser==="API client"?"🔧":"💻",
+    device:tablet?"Tablet":mobile?"Mobile":browser==="API client"?"Script / API":"Desktop",browser,os};
+};
+const timeAgo=(ts)=>{
+  if(!ts) return "never";
+  const d=(Date.now()-new Date(ts.replace(" ","T")+"Z").getTime())/1000;
+  if(isNaN(d)) return ts;
+  if(d<60) return "just now";
+  if(d<3600) return Math.floor(d/60)+" min ago";
+  if(d<86400) return Math.floor(d/3600)+" h ago";
+  return Math.floor(d/86400)+" d ago";
+};
+
+function LoginDevicesPanel({token}){
+  const [sessions,setSessions]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(null);
+  const [result,setResult]=useState(null);
+
+  const load=()=>{
+    setLoading(true);
+    apiFetch("/auth/sessions",token).then(d=>{
+      if(d.error) setResult({success:false,error:d.error});
+      setSessions(d.data||[]);setLoading(false);
+    });
+  };
+  useEffect(()=>{load();},[token]);
+
+  const revoke=async(s)=>{
+    const {device,browser}=describeUA(s.user_agent);
+    if(!window.confirm("Log out this device?\n\n"+(s.user_name||"User")+" · "+device+(browser?" · "+browser:"")+(s.ip_address?" · "+s.ip_address:""))) return;
+    setBusy(s.id);
+    const d=await apiFetch("/auth/sessions/"+s.id,token,{method:"DELETE"});
+    setBusy(null);setResult(d);
+    if(s.current&&d.success){window.dispatchEvent(new Event("noc:unauthenticated"));return;}
+    load();
+  };
+  const revokeOthers=async()=>{
+    if(!window.confirm("Log out ALL other devices? Only this browser stays logged in.")) return;
+    setBusy("all");
+    const d=await apiFetch("/auth/sessions/revoke-others",token,{method:"POST"});
+    setBusy(null);setResult(d);load();
+  };
+
+  // Seen in the last 15 minutes = actively in use
+  const isOnline=(s)=>s.last_used_at&&(Date.now()-new Date(s.last_used_at.replace(" ","T")+"Z").getTime())<15*60*1000;
+  const others=sessions.filter(s=>!s.current).length;
+
+  return(
+    <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Login Devices</div>
+          <div style={{fontSize:11,color:"#999"}}>Every browser/device currently holding a login session</div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={revokeOthers} disabled={busy||others===0}
+            style={{padding:"6px 12px",borderRadius:20,border:"1px solid #EF4444",
+              background:"#FFF",color:"#EF4444",fontSize:11,fontWeight:700,
+              cursor:others===0?"not-allowed":"pointer",opacity:others===0?0.5:1}}>
+            {busy==="all"?"Logging out...":"Log out all other devices"}
+          </button>
+          <button onClick={load}
+            style={{padding:"6px 14px",borderRadius:20,border:"none",background:"#2CADA6",
+              color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer"}}>⟳ Refresh</button>
+        </div>
+      </div>
+
+      {result&&(
+        <div style={{padding:"10px 14px",borderRadius:10,marginBottom:12,
+          background:result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.1)",
+          border:"1px solid "+(result.success?"#10B981":"#EF4444"),fontSize:12,
+          color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
+          {result.message||result.error}
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {label:"Sessions",value:sessions.length,color:"#2CADA6"},
+          {label:"Online (15 min)",value:sessions.filter(isOnline).length,color:"#10B981"},
+          {label:"Other Devices",value:others,color:"#F5A623"},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#FFF",borderRadius:12,padding:"12px 14px",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.06)",borderLeft:"4px solid "+s.color}}>
+            <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+            <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading sessions...</div>
+      :sessions.length===0?<div style={{textAlign:"center",padding:40,color:"#999"}}>No active sessions</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {sessions.map(s=>{
+          const ua=describeUA(s.user_agent), online=isOnline(s);
+          return(
+            <div key={s.id} style={{background:"#FFF",borderRadius:14,padding:14,
+              boxShadow:"0 2px 8px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
+              border:s.current?"1.5px solid #2CADA6":"1px solid transparent"}}>
+              <div style={{fontSize:28,width:40,textAlign:"center"}}>{ua.icon}</div>
+              <div style={{flex:1,minWidth:180}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>
+                    {[ua.browser,ua.os].filter(Boolean).join(" on ")||ua.device}
+                  </span>
+                  {s.current&&<span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                    background:"rgba(44,173,166,0.12)",color:"#2CADA6"}}>THIS DEVICE</span>}
+                  <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
+                    background:online?"rgba(16,185,129,0.12)":"#F0F0F0",color:online?"#10B981":"#999"}}>
+                    {online?"● Online":"Idle"}
+                  </span>
+                </div>
+                <div style={{fontSize:12,color:"#555",marginTop:3}}>
+                  <b>{s.user_name||"—"}</b>
+                  {s.role&&<span style={{marginLeft:6,padding:"1px 7px",borderRadius:10,fontSize:10,fontWeight:700,
+                    background:"rgba(107,47,191,0.1)",color:"#6B2FBF",textTransform:"capitalize"}}>{s.role}</span>}
+                  <span style={{marginLeft:8,fontFamily:"monospace",color:"#999"}}>{s.ip_address||"IP unknown"}</span>
+                </div>
+                <div style={{fontSize:11,color:"#999",marginTop:3}}>
+                  Logged in {(s.created_at||"").slice(0,16)} · Last active {timeAgo(s.last_used_at)}
+                </div>
+              </div>
+              <button onClick={()=>revoke(s)} disabled={!!busy}
+                style={{padding:"7px 14px",borderRadius:20,border:"none",flexShrink:0,
+                  background:s.current?"#F0F0F0":"#EF4444",color:s.current?"#EF4444":"#FFF",
+                  fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                {busy===s.id?"...":s.current?"Log out":"⏻ Log out device"}
+              </button>
+            </div>
+          );
+        })}
+      </div>}
+    </div>
+  );
+}
+
+function AuditActivityLog({token}){
   const [logs,setLogs]=useState([]);
   const [stats,setStats]=useState(null);
   const [loading,setLoading]=useState(true);
@@ -6693,7 +6877,17 @@ export default function App(){
     setLoading(false);
   };
 
-  const logout=()=>{localStorage.removeItem("noc_token");setToken("");setUser(null);};
+  const logout=()=>{
+    // Revoke the token server-side too, so it drops off Login Devices
+    const t=localStorage.getItem("noc_token");
+    if(t) apiFetch("/auth/logout",t,{method:"POST"});
+    localStorage.removeItem("noc_token");setToken("");setUser(null);
+  };
+  useEffect(()=>{
+    const onUnauth=()=>{localStorage.removeItem("noc_token");setToken("");setUser(null);};
+    window.addEventListener("noc:unauthenticated",onUnauth);
+    return()=>window.removeEventListener("noc:unauthenticated",onUnauth);
+  },[]);
 
   if(!ready)return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",

@@ -370,7 +370,13 @@ Route::post('/v1/auth/login', function(Request $request) {
         ->first();
     if(!$user || !Hash::check($request->password, $user->password))
         return response()->json(['message'=>'Invalid credentials'], 401);
-    $token = $user->createToken('api')->plainTextToken;
+    $newToken = $user->createToken('api');
+    $token = $newToken->plainTextToken;
+    // Remember which device this session belongs to (Audit Log → Login Devices)
+    $newToken->accessToken->forceFill([
+        'ip_address' => $request->ip(),
+        'user_agent' => substr((string)$request->userAgent(), 0, 1000),
+    ])->save();
     // Log login
     DB::table('audit_logs')->insert([
         'user'       => $user->name,
@@ -402,6 +408,74 @@ Route::get('/v1/system/health', function() {
 Route::middleware('auth:sanctum')->group(function() {
 
     Route::get('/v1/auth/me', fn(Request $r)=>response()->json(['data'=>$r->user()]));
+
+    // ── Login Devices (active sessions = Sanctum tokens) ──────
+    // A superadmin sees/revokes every user's sessions, anyone else only
+    // their own.
+    $sessionQuery = function(Request $r) {
+        $me = $r->user();
+        $q = DB::table('personal_access_tokens as t')
+            ->leftJoin('users as u', function($j) {
+                $j->on('u.id','=','t.tokenable_id')->where('t.tokenable_type','=',User::class);
+            });
+        if(($me->role??'') !== 'superadmin')
+            $q->where('t.tokenable_type', User::class)->where('t.tokenable_id', $me->id);
+        return $q;
+    };
+    $logSession = function(Request $r, string $action, string $details) {
+        $me = $r->user();
+        DB::table('audit_logs')->insert([
+            'user'=>$me->name, 'role'=>$me->role??'unknown', 'action'=>$action, 'module'=>'Auth',
+            'details'=>$details, 'ip_address'=>$r->ip(), 'method'=>$r->method(),
+            'url'=>'/'.$r->path(), 'status_code'=>200, 'created_at'=>now(), 'updated_at'=>now(),
+        ]);
+    };
+
+    Route::get('/v1/auth/sessions', function(Request $r) use ($sessionQuery) {
+        $currentId = $r->user()->currentAccessToken()->id ?? null;
+        $rows = $sessionQuery($r)
+            ->select('t.id','t.tokenable_id as user_id','u.name as user_name','u.role',
+                't.ip_address','t.user_agent','t.created_at','t.last_used_at')
+            ->orderByRaw('COALESCE(t.last_used_at, t.created_at) DESC')
+            ->get();
+        // Tokens issued before device info was recorded: recover the login IP
+        // from the matching LOGIN audit entry (same user, same second).
+        $loginIps = DB::table('audit_logs')->where('action','LOGIN')->where('module','Auth')
+            ->whereIn('created_at', $rows->whereNull('ip_address')->pluck('created_at')->all())
+            ->get(['user','created_at','ip_address'])
+            ->mapWithKeys(fn($l)=>[$l->user.'|'.$l->created_at => $l->ip_address]);
+        $rows->transform(function($s) use ($currentId, $loginIps) {
+            $s->ip_address = $s->ip_address ?? $loginIps[$s->user_name.'|'.$s->created_at] ?? null;
+            $s->current = (int)$s->id === (int)$currentId;
+            return $s;
+        });
+        return response()->json(['data'=>$rows]);
+    });
+
+    // Log out one device
+    Route::delete('/v1/auth/sessions/{id}', function(Request $r, $id) use ($sessionQuery, $logSession) {
+        $s = $sessionQuery($r)->where('t.id',$id)->first(['t.id','u.name as user_name','t.ip_address']);
+        if(!$s) return response()->json(['error'=>'Session not found'],404);
+        DB::table('personal_access_tokens')->where('id',$s->id)->delete();
+        $logSession($r, 'LOGOUT_DEVICE', "Logged out session #{$s->id} of {$s->user_name}".($s->ip_address?" ({$s->ip_address})":''));
+        return response()->json(['success'=>true,'message'=>'Device logged out']);
+    });
+
+    // Log out every device except the one making the request
+    Route::post('/v1/auth/sessions/revoke-others', function(Request $r) use ($sessionQuery, $logSession) {
+        $currentId = $r->user()->currentAccessToken()->id ?? 0;
+        $ids = $sessionQuery($r)->where('t.id','!=',$currentId)->pluck('t.id');
+        $n = DB::table('personal_access_tokens')->whereIn('id',$ids)->delete();
+        $logSession($r, 'LOGOUT_ALL', "Logged out $n other session(s)");
+        return response()->json(['success'=>true,'revoked'=>$n,'message'=>"$n other device(s) logged out"]);
+    });
+
+    // Log out this device (revokes the token, not just the browser's copy)
+    Route::post('/v1/auth/logout', function(Request $r) use ($logSession) {
+        $r->user()->currentAccessToken()?->delete();
+        $logSession($r, 'LOGOUT', 'User logged out from '.$r->ip());
+        return response()->json(['success'=>true]);
+    });
 
     // ── Live Calls ────────────────────────────────────────────
 
@@ -1864,6 +1938,9 @@ Route::middleware('auth:sanctum')->group(function() {
 
 });
 
+// Everything below requires a Sanctum token too; only /v1/auth/login is public.
+Route::middleware('auth:sanctum')->group(function() {
+
 // Import Range — store range and generate numbers
 Route::post('/v1/did-ranges/import-range', function(Request $r) {
     $start  = preg_replace('/[^0-9]/','',$r->range_start);
@@ -2463,7 +2540,7 @@ Route::get('/v1/live-calls', function() {
 }, ['middleware'=>['auth:sanctum']]);
 
 // Bulk update IVR for all DIDs
-Route::middleware('auth:sanctum')->put('/v1/did-ranges/bulk-ivr', function(Request $r) {
+Route::put('/v1/did-ranges/bulk-ivr', function(Request $r) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
     $count = DB::table('dids')->update(['ivr_context'=>$ivr,'updated_at'=>now()]);
     // Copy selected IVR file as default
@@ -2487,7 +2564,7 @@ Route::middleware('auth:sanctum')->put('/v1/did-ranges/bulk-ivr', function(Reque
 });
 
 // Update IVR for specific range
-Route::middleware('auth:sanctum')->put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
+Route::put('/v1/did-ranges/{id}/ivr', function(Request $r, $id) {
     $ivr = $r->ivr_context ?? 'custom/6g-premium-telecom';
     // Only this range's own DIDs: those linked by batch_id, or for legacy
     // ranges created before batch_id was set, unlinked DIDs of the same
@@ -3435,7 +3512,7 @@ Route::delete('/v1/test/access-list/{id}', function($id) {
 });
 
 // ── Delete DID Range (and its numbers) ─────────────────────────
-Route::middleware('auth:sanctum')->delete('/v1/did-ranges/{id}', function($id) {
+Route::delete('/v1/did-ranges/{id}', function($id) {
     // Only this range's own DIDs (dids.batch_id = did_ranges.id) are removed;
     // never match by prefix, other ranges can share the same prefix.
     [$range, $didCount] = DB::transaction(function() use ($id) {
@@ -3458,3 +3535,5 @@ Route::middleware('auth:sanctum')->delete('/v1/did-ranges/{id}', function($id) {
         'dids_deleted'=>$didCount,
     ]);
 });
+
+}); // end auth:sanctum
