@@ -1,0 +1,9 @@
+[Unit]
+Description=Re-export SIP allow-list when ufw rules change
+
+[Path]
+PathChanged=/etc/ufw/user.rules
+PathChanged=/etc/ufw/user6.rules
+
+[Install]
+WantedBy=multi-user.target

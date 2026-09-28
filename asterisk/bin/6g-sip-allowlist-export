@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+# Export which sources ufw lets reach SIP (UDP 5060), for the NOC API to read.
+# Read-only view: one source per line (an IP/CIDR, or 0.0.0.0/0 when open to
+# all). Run by 6g-sip-allowlist.path whenever the ufw rules files change.
+import os, re, tempfile
+out = set()
+for f in ("/etc/ufw/user.rules", "/etc/ufw/user6.rules"):
+    try:
+        lines = open(f).read().splitlines()
+    except OSError:
+        continue
+    for l in lines:
+        m = re.match(r"^### tuple ### (\S+) (\S+) (\S+) (\S+) (\S+) (\S+) (\S+)", l)
+        if not m: continue
+        action, proto, dport, dst, sport, src, direction = m.groups()
+        if action != "allow" or direction != "in": continue
+        if proto not in ("udp", "any"): continue
+        ports = dport.split(",")
+        hit = dport == "any" or "5060" in ports or any(
+            ":" in p and int(p.split(":")[0]) <= 5060 <= int(p.split(":")[1]) for p in ports)
+        if hit:
+            out.add("0.0.0.0/0" if src in ("0.0.0.0/0", "::/0") else src)
+d = "/var/lib/6g-asterisk-config"
+os.makedirs(d, exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=d)
+with os.fdopen(fd, "w") as fh:
+    fh.write("\n".join(sorted(out)) + "\n")
+os.chmod(tmp, 0o644)
+os.replace(tmp, d + "/sip-allowlist.txt")

@@ -1,0 +1,6 @@
+[Unit]
+Description=Export ufw SIP (5060) allow-list for the NOC dashboard
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/6g-sip-allowlist-export
