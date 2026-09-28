@@ -1,18 +1,31 @@
 <?php
 
-// ── Auto-whitelist helper ──────────────────────────────────────
-function autoWhitelistSupplierIPs($host){
-    if(empty($host)) return;
-    $ips = array_filter(array_map('trim', explode(',', $host)));
-    foreach($ips as $ip){
-        if(!filter_var($ip, FILTER_VALIDATE_IP)) continue;
-        // UFW whitelist
-        exec("ufw allow from {$ip} to any port 5060 proto udp 2>/dev/null");
-        exec("ufw allow from {$ip} 2>/dev/null");
-        // Log
-        file_put_contents('/tmp/whitelist.log',
-            date('Y-m-d H:i:s')." Whitelisted: {$ip}\n", FILE_APPEND);
-    }
+// ── SIP firewall check ─────────────────────────────────────────
+// Port 5060 is closed to the internet; only IPs with a ufw allow rule can
+// reach Asterisk. The API (www-data) cannot run ufw, so it reads the
+// read-only allow-list that root's 6g-sip-allowlist.path unit re-exports to
+// /var/lib/6g-asterisk-config/sip-allowlist.txt whenever the ufw rules change.
+// Returns the IPs from $host that ufw would block, or null if the allow-list
+// is unavailable (the check could not be done).
+function sipFirewallMissing($host){
+    $ips = is_array($host) ? $host : array_filter(array_map('trim', explode(',', (string)$host)));
+    $ips = array_values(array_filter($ips, fn($ip) => filter_var($ip, FILTER_VALIDATE_IP)));
+    $file = '/var/lib/6g-asterisk-config/sip-allowlist.txt';
+    if (!is_readable($file)) return null;
+    $allowed = array_filter(array_map('trim', file($file)));
+    if (in_array('0.0.0.0/0', $allowed, true)) return [];
+    $covers = function($cidr, $ip) {
+        if (!str_contains($cidr, '/')) return $cidr === $ip;
+        [$net, $bits] = explode('/', $cidr);
+        $a = @inet_pton($ip); $b = @inet_pton($net);
+        if ($a === false || $b === false || strlen($a) !== strlen($b)) return false;
+        $bytes = intdiv((int)$bits, 8); $rem = (int)$bits % 8;
+        if (substr($a, 0, $bytes) !== substr($b, 0, $bytes)) return false;
+        if ($rem === 0) return true;
+        $mask = chr(0xFF << (8 - $rem) & 0xFF);
+        return (($a[$bytes] & $mask) === ($b[$bytes] & $mask));
+    };
+    return array_values(array_filter($ips, fn($ip) => !array_filter($allowed, fn($c) => $covers($c, $ip))));
 }
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -768,8 +781,8 @@ Route::middleware('auth:sanctum')->group(function() {
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        autoWhitelistSupplierIPs($r->host);
-        return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true]);
+        return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true,
+            'firewall_missing'=>sipFirewallMissing($r->host)]);
     });
 
     Route::put('/v1/suppliers/{id}', function(Request $r, $id) {
@@ -807,7 +820,8 @@ Route::middleware('auth:sanctum')->group(function() {
             $data['sip_password'] = \Illuminate\Support\Facades\Crypt::encryptString($r->sip_password);
         }
         DB::table('trunks')->where('id',$id)->update($data);
-        return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true]);
+        return response()->json(['data'=>redactTrunk(DB::table('trunks')->find($id)),'success'=>true,
+            'firewall_missing'=>sipFirewallMissing($r->host)]);
     });
 
     Route::delete('/v1/suppliers/{id}', function(Request $r, $id) {
@@ -1899,6 +1913,14 @@ Route::middleware('auth:sanctum')->group(function() {
                 if ($qualified && !array_filter($qualified, fn($c) => $c['status'] === 'Avail')) $warnings[] = 'No contact is reachable (qualify)';
             }
             if ($prefixes->isNotEmpty() && !$routes) $warnings[] = 'No dialplan route found for this supplier\'s prefixes';
+            // Firewall: every IP Asterisk accepts calls from needs a ufw rule on 5060.
+            $fwIps = array_values(array_unique(array_merge($csv($t->host ?: $t->ip),
+                $identify ? array_map(fn($h) => preg_replace('#/32$#', '', $h), $vals($identify[1], 'match')) : [])));
+            $fwMissing = sipFirewallMissing($fwIps);
+            if ($fwMissing === null) $warnings[] = 'Firewall rules could not be checked (SIP allow-list file missing)';
+            elseif ($fwMissing) $warnings[] = 'Firewall blocks SIP from '.implode(', ', $fwMissing)
+                .' - calls from '.(count($fwMissing) > 1 ? 'these IPs' : 'this IP').' will be dropped. Fix on the server: '
+                .implode(' ; ', array_map(fn($ip) => "ufw allow proto udp from $ip to any port 5060", $fwMissing));
 
             $cfg = [];
             if ($ep) $cfg[] = implode("\n", $mask($ep));

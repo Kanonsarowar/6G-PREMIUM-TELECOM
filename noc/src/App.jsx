@@ -5864,12 +5864,14 @@ function AsteriskConfigPage({token,user}){
     const f=supplierModal.form;
     if(!f.supplier_id){alert("Select a supplier first");return;}
     setBusy(true);
+    let saved=null;
     if(supplierModal.mode==="add"){
       const created=await apiFetch("/suppliers",token,{method:"POST",
         body:JSON.stringify({supplier_id:f.supplier_id,name:f.name,host:f.host,port:f.port})});
       const newId=created?.data?.id;
+      saved=created;
       if(newId){
-        await apiFetch(`/suppliers/${newId}`,token,{method:"PUT",body:JSON.stringify({
+        saved=await apiFetch(`/suppliers/${newId}`,token,{method:"PUT",body:JSON.stringify({
           ...created.data,supplier_id:f.supplier_id,nickname:f.nickname||f.name,auth_type:f.auth_type,
           sip_username:f.sip_username,sip_password:f.sip_password||undefined,
           qualify:f.qualify,transport:f.transport,pjsip_name:f.pjsip_name,
@@ -5878,10 +5880,14 @@ function AsteriskConfigPage({token,user}){
       }
     } else {
       const current=suppliers.find(s=>s.id===supplierModal.id)||{};
-      await apiFetch(`/suppliers/${supplierModal.id}`,token,{method:"PUT",body:JSON.stringify({
+      saved=await apiFetch(`/suppliers/${supplierModal.id}`,token,{method:"PUT",body:JSON.stringify({
         ...current,...f,sip_password:f.sip_password||undefined})});
     }
     setBusy(false);setSupplierModal(null);loadSuppliers();
+    // SIP port 5060 only accepts whitelisted IPs; the API cannot add ufw rules itself.
+    const fw=saved?.firewall_missing;
+    if(fw&&fw.length) alert("⚠ Firewall blocks SIP from: "+fw.join(", ")+"\n\nCalls from "+(fw.length>1?"these IPs":"this IP")+
+      " will be dropped until a server admin runs:\n\n"+fw.map(ip=>"ufw allow proto udp from "+ip+" to any port 5060").join("\n"));
   };
   const toggleSupplierActive=async(s)=>{
     setBusy(true);
