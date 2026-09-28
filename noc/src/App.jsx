@@ -1834,19 +1834,17 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [cdrSummary,setCdrSummary]=useState(null); // weekly report (calls / minutes / payout per number), not per-call rows
   const [checkingLive,setCheckingLive]=useState(false);
   const [checkLiveResult,setCheckLiveResult]=useState(null);
-  const [supplierCdr,setSupplierCdr]=useState([]);
 
   const liveCallRef=useRef(null);
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
-  const loadSupplierCdr=()=>apiFetch(`/supplier-accounts/${supplier.id}/cdr?pageSize=50`,token).then(d=>setSupplierCdr(d.data||[]));
   const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
   const loadAccessHistory=()=>apiFetch(`/supplier-accounts/${supplier.id}/access-history`,token).then(d=>setAccessHistory(d.data||[]));
   const [ivrs,setIvrs]=useState([]);
   const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
 
-  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadSupplierCdr(); loadIvrs(); },[supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); },[supplier.id]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -2133,7 +2131,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       const d=await apiFetch(`/supplier-accounts/${supplier.id}/weekly-report`,token,{method:"POST",
         body:JSON.stringify({mode:cdrMode,week_start:cdrSummary.weekStart,lines:cdrSummary.lines})});
       setCdrImporting(false);
-      if(d.success){setCdrImportResult({success:true,message:d.message});setCdrSummary(null);setCdrFileName("");loadSupplierCdr();}
+      if(d.success){setCdrImportResult({success:true,message:d.message});setCdrSummary(null);setCdrFileName("");}
       else setCdrImportResult({success:false,error:d.error||d.message||"Upload failed"});
       return;
     }
@@ -2143,18 +2141,17 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     for(let i=0;i<cdrRows.length;i+=1000){
       const d=await apiFetch(`/supplier-accounts/${supplier.id}/cdr-import`,token,{method:"POST",
         body:JSON.stringify({mode:cdrMode,rows:cdrRows.slice(i,i+1000)})});
-      if(!d.success){setCdrImportResult({...tot,success:false,error:d.error||d.message||"Upload failed"});setCdrImporting(false);loadSupplierCdr();return;}
+      if(!d.success){setCdrImportResult({...tot,success:false,error:d.error||d.message||"Upload failed"});setCdrImporting(false);return;}
       tot.added+=d.added;tot.replaced+=d.replaced;tot.skipped+=d.skipped;tot.invalid+=d.invalid;tot.main_added+=d.main_added||0;tot.main_replaced+=d.main_replaced||0;tot.main_skipped+=d.main_skipped||0;tot.weekly_created+=d.weekly_created||0;tot.weekly_updated+=d.weekly_updated||0;
     }
-    tot.message=`Supplier CDR: ${tot.added} new, ${tot.replaced} replaced, ${tot.skipped} skipped · Main CDR: ${tot.main_added} new, ${tot.main_replaced} replaced, ${tot.main_skipped} skipped · Weekly entries: ${tot.weekly_created} new, ${tot.weekly_updated} updated · ${tot.invalid} invalid`;
-    setCdrImportResult(tot);setCdrImporting(false);setCdrRows([]);setCdrFileName("");setCdrInfo("");loadSupplierCdr();
+    tot.message=`Main CDR: ${tot.main_added} new, ${tot.main_replaced} replaced, ${tot.main_skipped} skipped · Weekly entries: ${tot.weekly_created} new, ${tot.weekly_updated} updated · ${tot.invalid} invalid`;
+    setCdrImportResult(tot);setCdrImporting(false);setCdrRows([]);setCdrFileName("");setCdrInfo("");
   };
 
   const syncApiCdr=async()=>{
     setSyncingCdr(true);setSyncCdrResult(null);
     const d=await apiFetch(`/supplier-accounts/${supplier.id}/api-sync-cdr`,token,{method:"POST"});
     setSyncCdrResult(d);setSyncingCdr(false);
-    if(d.success){loadSupplierCdr();}
   };
 
   const checkApiLiveCalls=async()=>{
@@ -2405,43 +2402,16 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 <span>→ {wk.start} to {wk.end} (Mon–Sun)</span>
                 <span style={{color:cdrSummary.weekFromFile?"#10B981":"#F5A623",fontWeight:700}}>{cdrSummary.weekFromFile?"":"no dates in the file — last week assumed, change if needed"}</span>
               </div>
-              <div style={{color:"#666",marginTop:4}}>Will be added as one unpaid weekly entry (Supplier Payments → Weekly) and these lines on this supplier's CDR page.</div>
+              <div style={{color:"#666",marginTop:4}}>Will be added as one unpaid weekly entry (Supplier Payments → Weekly).</div>
             </div>);
           })()}
           {cdrPreview&&<div style={{fontSize:11,color:"#555",padding:"0 14px 6px"}}>{cdrPreview}</div>}
           <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>Columns: date, cli, prn (number), billsec/duration, payout, country, operator, account. Rows are saved to this supplier's CDR and, when the call was billable, to the main CDR; calls from weeks that have ended are added to unpaid weekly entries (Supplier Payments → Weekly). A row is a duplicate when date + CLI + number match an existing CDR: new rows are added, duplicates are skipped or replaced.</div>
           {cdrImportResult&&(
             <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:600,whiteSpace:"pre-wrap",wordBreak:"break-word",userSelect:"text",color:cdrImportResult.success?"#10B981":"#EF4444"}}>
-              {cdrImportResult.success?"✅ "+cdrImportResult.message:"❌ "+cdrImportResult.error+(cdrImportResult.added||cdrImportResult.replaced?` (done before error: ${cdrImportResult.added} new, ${cdrImportResult.replaced} replaced)`:"")}</div>
+              {cdrImportResult.success?"✅ "+cdrImportResult.message:"❌ "+cdrImportResult.error+(cdrImportResult.main_added||cdrImportResult.main_replaced?` (done before error: ${cdrImportResult.main_added} new, ${cdrImportResult.main_replaced} replaced in main CDR)`:"")}</div>
           )}
         </div>
-
-        {/* SUPPLIER CDR (API) */}
-        {(apiEnabled||supplierCdr.length>0)&&(
-        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
-          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>SUPPLIER CDR (API)</div>
-          <div style={{fontSize:10,color:"#999",padding:"0 14px 8px"}}>From the supplier's /cdr API sync or an uploaded file — separate from Asterisk call records.</div>
-          <div style={{overflowX:"auto"}}>
-            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-              <thead><tr>{["Date","CLI","PRN","Country","Duration","Payout","Account"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
-              <tbody>
-                {supplierCdr.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No CDR yet — upload a file above or use "Sync CDR" in the API settings</td></tr>:
-                supplierCdr.map((c,i)=>(
-                  <tr key={c.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(c.call_date||"").replace("T"," ").slice(0,19)||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.cli||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace"}}>{c.prn||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.country||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.billsec||0}s</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(Number(c.payout||0)*(c.currency_code==="EUR"?1.08:1))}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{c.sub_account||c.account||"—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </GTable>
-          </div>
-        </div>
-        )}
 
         {/* ACCESS HISTORY */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
