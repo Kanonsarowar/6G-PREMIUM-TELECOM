@@ -4752,9 +4752,10 @@ function LoginDevicesPanel({token}){
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(null);
   const [result,setResult]=useState(null);
+  const [selected,setSelected]=useState([]);
 
   const load=()=>{
-    setLoading(true);
+    setLoading(true);setSelected([]);
     apiFetch("/auth/sessions",token).then(d=>{
       if(d.error) setResult({success:false,error:d.error});
       setSessions(d.data||[]);setLoading(false);
@@ -4777,10 +4778,19 @@ function LoginDevicesPanel({token}){
     const d=await apiFetch("/auth/sessions/revoke-others",token,{method:"POST"});
     setBusy(null);setResult(d);load();
   };
+  const revokeSelected=async()=>{
+    if(!window.confirm("Log out and delete "+selected.length+" selected device(s)?")) return;
+    setBusy("sel");
+    const d=await apiFetch("/auth/sessions/revoke",token,{method:"POST",body:JSON.stringify({ids:selected})});
+    setBusy(null);setResult(d);load();
+  };
+  const toggle=(id)=>setSelected(sel=>sel.includes(id)?sel.filter(x=>x!==id):[...sel,id]);
 
   // Seen in the last 15 minutes = actively in use
   const isOnline=(s)=>s.last_used_at&&(Date.now()-new Date(s.last_used_at.replace(" ","T")+"Z").getTime())<15*60*1000;
   const others=sessions.filter(s=>!s.current).length;
+  const otherIds=sessions.filter(s=>!s.current).map(s=>s.id);
+  const allSelected=otherIds.length>0&&otherIds.every(id=>selected.includes(id));
 
   return(
     <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
@@ -4828,12 +4838,32 @@ function LoginDevicesPanel({token}){
       {loading?<div style={{textAlign:"center",padding:40,color:"#999"}}>Loading sessions...</div>
       :sessions.length===0?<div style={{textAlign:"center",padding:40,color:"#999"}}>No active sessions</div>
       :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 14px",
+          background:"#FFF",borderRadius:14,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
+          position:"sticky",top:0,zIndex:2}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:600,color:"#4A4A4A",cursor:"pointer"}}>
+            <input type="checkbox" checked={allSelected} disabled={otherIds.length===0}
+              onChange={()=>setSelected(allSelected?[]:otherIds)} style={{width:16,height:16,cursor:"pointer"}}/>
+            Select all other devices ({otherIds.length})
+          </label>
+          <span style={{flex:1}}/>
+          <span style={{fontSize:12,color:"#999"}}>{selected.length} selected</span>
+          <button onClick={revokeSelected} disabled={!!busy||selected.length===0}
+            style={{padding:"7px 14px",borderRadius:20,border:"none",
+              background:selected.length?"#EF4444":"#F0F0F0",color:selected.length?"#FFF":"#999",
+              fontSize:12,fontWeight:700,cursor:selected.length?"pointer":"not-allowed"}}>
+            {busy==="sel"?"Logging out...":"🗑 Log out & delete selected"}
+          </button>
+        </div>
         {sessions.map(s=>{
           const ua=describeUA(s.user_agent), online=isOnline(s);
           return(
             <div key={s.id} style={{background:"#FFF",borderRadius:14,padding:14,
               boxShadow:"0 2px 8px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
-              border:s.current?"1.5px solid #2CADA6":"1px solid transparent"}}>
+              border:s.current?"1.5px solid #2CADA6":selected.includes(s.id)?"1.5px solid #EF4444":"1px solid transparent"}}>
+              <input type="checkbox" checked={selected.includes(s.id)} disabled={s.current}
+                onChange={()=>toggle(s.id)} title={s.current?"This device - use Log out":"Select"}
+                style={{width:16,height:16,cursor:s.current?"not-allowed":"pointer"}}/>
               <div style={{fontSize:28,width:40,textAlign:"center"}}>{ua.icon}</div>
               <div style={{flex:1,minWidth:180}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>

@@ -461,6 +461,16 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['success'=>true,'message'=>'Device logged out']);
     });
 
+    // Log out the selected devices
+    Route::post('/v1/auth/sessions/revoke', function(Request $r) use ($sessionQuery, $logSession) {
+        $ids = array_filter(array_map('intval', (array)($r->ids ?? [])));
+        if(!$ids) return response()->json(['error'=>'No sessions selected'],400);
+        $ids = $sessionQuery($r)->whereIn('t.id',$ids)->pluck('t.id');
+        $n = DB::table('personal_access_tokens')->whereIn('id',$ids)->delete();
+        $logSession($r, 'LOGOUT_DEVICE', "Logged out $n selected session(s)");
+        return response()->json(['success'=>true,'revoked'=>$n,'message'=>"$n device(s) logged out"]);
+    });
+
     // Log out every device except the one making the request
     Route::post('/v1/auth/sessions/revoke-others', function(Request $r) use ($sessionQuery, $logSession) {
         $currentId = $r->user()->currentAccessToken()->id ?? 0;
