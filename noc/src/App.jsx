@@ -2328,11 +2328,11 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     loadLiveCalls();
   };
 
-  // Top action buttons: a 2-row x 4-column grid, equal widths; labels may
-  // wrap to two lines on narrow screens instead of breaking the grid.
-  const actionBtn=(bg,border)=>({padding:"10px 6px",borderRadius:8,border:border?`1px solid ${border}`:"none",
-    background:bg,color:border?border:"#FFF",fontSize:"clamp(10px,2.6vw,12px)",fontWeight:700,cursor:"pointer",
-    width:"100%",minHeight:40,lineHeight:1.2,textAlign:"center"});
+  // Top action buttons: 3 per line (3 + 3 + 2, last line centered), equal
+  // widths; long labels wrap inside the button on narrow screens.
+  const actionBtn=(bg,border)=>({padding:"12px 8px",borderRadius:8,border:border?`1px solid ${border}`:"none",
+    background:bg,color:border?border:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",
+    flex:"0 0 calc((100% - 16px) / 3)",minHeight:46,lineHeight:1.25,textAlign:"center"});
 
   return(
     <div style={{minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
@@ -2350,7 +2350,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       </div>
 
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"14px 16px"}}>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:8,maxWidth:760,margin:"0 auto"}}>
+        <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:8,maxWidth:640,margin:"0 auto"}}>
           <button onClick={()=>scrollTo(liveCallRef)} style={actionBtn("#2CADA6")}>+ LIVE CALL</button>
           <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
           <button onClick={()=>setShowAddNum(true)} style={actionBtn("#2CADA6")}>+ ADD NUMBER / RANGE</button>
