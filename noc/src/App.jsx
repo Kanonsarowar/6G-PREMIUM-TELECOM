@@ -2562,33 +2562,18 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* SUPPLIER INFORMATION */}
+        {/* ASTERISK CONFIGURATION card (supplier information fields removed) */}
         <div style={{...cardS,padding:16}}>
-          <div style={{fontSize:12,fontWeight:700,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>SUPPLIER INFORMATION</span>
-            <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:700,
-              background:supplier.status==="active"?"rgba(16,185,129,0.1)":"rgba(153,153,153,0.15)",
-              color:supplier.status==="active"?"#10B981":"#888"}}>● {supplier.status==="active"?"Active":"Inactive"}</span>
-          </div>
-          {[["Code",supplier.code||"—"],["Country",supplier.country||"—"],["Contact",supplier.contact_name||"—"],
-            ["Email",supplier.email||"—"],["Phone",supplier.phone||"—"],
-            ["SIP Trunk",supplier.linked_trunk?numSupplier(supplier.linked_trunk.nickname):"No trunk linked"]].map(([k,v])=>(
-            <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",
-              borderBottom:"1px solid #F5F5F5",fontSize:12}}>
-              <span style={{color:"#888",fontWeight:600}}>{k}</span>
-              <span style={{color:"#1A1A1A",fontWeight:600}}>{v}</span>
-            </div>
-          ))}
-          {supplier.linked_trunk&&<button onClick={()=>setPage&&setPage("ast-trunks")}
-            style={{marginTop:10,padding:"6px 14px",borderRadius:6,border:"1px solid #2CADA6",background:"rgba(44,173,166,0.1)",
-              color:"#2CADA6",fontSize:11,fontWeight:700,cursor:"pointer"}}>View Trunk</button>}
-
           {/* ASTERISK CONFIGURATION — read-only view of this supplier's live trunk config */}
-          <div style={{marginTop:18,paddingTop:14,borderTop:"2px solid #F0F0F0"}}>
+          <div>
             <div style={{fontSize:12,fontWeight:700,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span>ASTERISK CONFIGURATION</span>
-              <button onClick={loadAstConf} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
-                background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
+              <span style={{display:"flex",gap:6}}>
+                {supplier.linked_trunk&&<button onClick={()=>setPage&&setPage("ast-trunks")} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+                  background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>View Trunk</button>}
+                <button onClick={loadAstConf} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+                  background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
+              </span>
             </div>
             {!astConf?<div style={{fontSize:12,color:"#999",padding:"8px 0"}}>Loading...</div>:
             astConf.trunks.length===0?<div style={{fontSize:12,color:"#999",padding:"8px 0"}}>No SIP trunk linked to this supplier.</div>:
