@@ -2978,6 +2978,7 @@ Route::post('/v1/prefixes', function(Request $r) {
         'price'         => $r->price,
         'payment_term'  => $r->payment_term,
         'test_number'   => $r->test_number,
+        'operator'      => $r->operator ?: null,
         'access_from'   => is_array($r->access_from) ? implode(',', $r->access_from) : $r->access_from,
         'ivr_context'   => $r->ivr_context,
         'status'        => $r->status ?? 'active',
@@ -3017,6 +3018,7 @@ Route::put('/v1/prefixes/{id}', function(Request $r, $id) {
         'price'        => $r->price ?? $prefix->price,
         'payment_term' => $r->payment_term ?? $prefix->payment_term,
         'test_number'  => $r->test_number ?? $prefix->test_number,
+        'operator'     => $r->has('operator') ? ($r->operator ?: null) : $prefix->operator,
         'access_from'  => $r->has('access_from')
             ? (is_array($r->access_from) ? implode(',', $r->access_from) : $r->access_from)
             : $prefix->access_from,

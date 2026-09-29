@@ -2006,8 +2006,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     }
     setSaving(true);
     const d=editingPrefix
-      ?await apiFetch(`/supplier-accounts/${supplier.id}/prefixes/${editingPrefix.id}`,token,{method:"PUT",body:JSON.stringify(prefixForm)})
-      :await apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token,{method:"POST",body:JSON.stringify(prefixForm)});
+      ?await apiFetch(`/prefixes/${editingPrefix.id}`,token,{method:"PUT",body:JSON.stringify(prefixForm)})
+      :await apiFetch(`/prefixes`,token,{method:"POST",body:JSON.stringify({...prefixForm,supplier_id:supplier.id})});
     setSaving(false);
     if(d.success){
       flash(editingPrefix?"Prefix updated":"Prefix added");
@@ -2018,7 +2018,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const delPrefix=async(p)=>{
     const msg2=`Deleting this prefix will also permanently remove ${p.number_count} number(s)/range(s) and ${p.test_number_count} test number(s) associated with this prefix. Continue?`;
     if(!window.confirm(msg2)) return;
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/prefixes/${p.id}`,token,{method:"DELETE"});
+    const d=await apiFetch(`/prefixes/${p.id}`,token,{method:"DELETE"});
     if(d.success){flash("Prefix deleted");loadPrefixes();loadNumbers();loadTest();loadAccessHistory();}
     else alert(d.error||"Failed to delete");
   };
@@ -3669,7 +3669,7 @@ function NumberInventoryPage({token}){
     const n=getNumbers(r).length;
     if(!window.confirm("Apply this IVR to all "+n+" numbers in "+(r.prefix||r.range_start)+"?")) return;
     // Prefix-level IVR lives on supplier_prefixes; the block route re-applies it to every number under it
-    if(r.supplier_id&&r.prefix_id) await apiFetch("/supplier-accounts/"+r.supplier_id+"/prefixes/"+r.prefix_id,token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
+    if(r.prefix_id) await apiFetch("/prefixes/"+r.prefix_id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
     const d=await apiFetch("/did-ranges/"+r.id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
     setResult(d.success?{success:true,message:d.message||"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
     load();
