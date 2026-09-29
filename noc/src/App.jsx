@@ -1884,13 +1884,22 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
   const loadTest=()=>apiFetch(`/supplier-accounts/${supplier.id}/test-numbers`,token).then(d=>setTestNumbers(d.data||[]));
   const loadAccessHistory=()=>apiFetch(`/supplier-accounts/${supplier.id}/access-history`,token).then(d=>setAccessHistory(d.data||[]));
+  // Payment History: this supplier's weekly payment entries (invoices of type supplier_payment).
+  const [payHist,setPayHist]=useState(null);
+  const [payStatus,setPayStatus]=useState("all");
+  const isoDay=(d)=>d.toISOString().slice(0,10);
+  const [payFrom,setPayFrom]=useState(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return isoDay(d);});
+  const [payTo,setPayTo]=useState(()=>isoDay(new Date()));
+  const loadPayHist=()=>apiFetch(`/supplier-payments/history?status=all&supplier_id=${supplier.id}`,token).then(d=>setPayHist(d.data||[]));
+  const curSym={USD:"$",EUR:"€",GBP:"£"};
+  const fmtAmt=(v,c)=>{const n=Number(v||0).toFixed(4);return curSym[c]?curSym[c]+n:n+" "+(c||"");};
   const [astConf,setAstConf]=useState(null);
   const [showAstRaw,setShowAstRaw]=useState({});
   const loadAstConf=()=>apiFetch(`/supplier-accounts/${supplier.id}/asterisk-config`,token).then(d=>setAstConf(d.data||{trunks:[],routes:[]}));
   const [ivrs,setIvrs]=useState([]);
   const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
 
-  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); loadAstConf(); },[supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); loadAstConf(); loadPayHist(); },[supplier.id]);
   // Keep Access History current: a new call on a prefix moves its date.
   // Once a minute and only while the tab is visible - every open tab shares
   // the user's API rate limit.
@@ -2562,6 +2571,61 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               </tbody>
             </GTable>
           </div>
+        </div>
+
+        {/* PAYMENT HISTORY — this supplier's weekly payment entries */}
+        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
+          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>PAYMENT HISTORY</span>
+            <button onClick={loadPayHist} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+              background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
+          </div>
+          {(()=>{
+            const rows=(payHist||[]).filter(p=>{
+              const created=String(p.created_at||"").slice(0,10);
+              return (payStatus==="all"||p.status===payStatus)&&(!payFrom||created>=payFrom)&&(!payTo||created<=payTo);
+            });
+            // Balance = what is still owed: all unpaid entries, per currency.
+            const bal={};(payHist||[]).filter(p=>p.status!=="paid").forEach(p=>{bal[p.currency]=(bal[p.currency]||0)+Number(p.total_amount||0);});
+            const balTxt=Object.keys(bal).length?Object.entries(bal).map(([c,v])=>fmtAmt(v,c)).join(", "):"$0.0000";
+            const chip=(k,l)=>(
+              <button key={k} onClick={()=>setPayStatus(k)} style={{padding:"5px 12px",borderRadius:16,fontSize:11,fontWeight:700,cursor:"pointer",
+                border:"1px solid "+(payStatus===k?"#2CADA6":"#DDD"),background:payStatus===k?"#2CADA6":"#FFF",color:payStatus===k?"#FFF":"#555"}}>{l}</button>);
+            const cell={padding:"8px 10px",whiteSpace:"nowrap",fontSize:12};
+            return(<>
+              <div style={{padding:"10px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #F0F0F0"}}>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"#888",fontWeight:600,marginRight:2}}>Status</span>
+                  {chip("all","All")}{chip("unpaid","Unpaid")}{chip("paid","Paid")}
+                </div>
+                <div style={{fontSize:12,fontWeight:700,color:"#1A1A1A"}}>Balance: <span style={{fontFamily:"monospace",color:Object.keys(bal).length?"#F5A623":"#10B981"}}>{balTxt}</span></div>
+              </div>
+              <div style={{padding:"8px 14px",display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",borderBottom:"1px solid #F0F0F0"}}>
+                <span style={{fontSize:11,color:"#888",fontWeight:600}}>Created</span>
+                <input type="date" value={payFrom} onChange={e=>setPayFrom(e.target.value)} style={{...inpS,width:140,fontSize:11}}/>
+                <span style={{fontSize:11,color:"#888"}}>to</span>
+                <input type="date" value={payTo} onChange={e=>setPayTo(e.target.value)} style={{...inpS,width:140,fontSize:11}}/>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
+                  <thead><tr>{["Invoice Number","Status","Amount"].map((h,i)=><th key={i} style={{...thSup,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {payHist===null?<tr><td colSpan={3} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
+                    rows.length===0?<tr><td colSpan={3} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No payment history for this filter</td></tr>:
+                    rows.map((p,i)=>(
+                      <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:700}} title={"Period "+p.period_start+" → "+p.period_end}>{p.invoice_number}</td>
+                        <td style={cell}><span style={{padding:"2px 10px",borderRadius:12,fontSize:11,fontWeight:700,
+                          background:p.status==="paid"?"rgba(16,185,129,0.1)":"rgba(245,166,35,0.12)",color:p.status==="paid"?"#10B981":"#B7791F"}}>
+                          {p.status==="paid"?"Paid":"Unpaid"}</span></td>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>{fmtAmt(p.total_amount,p.currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </GTable>
+              </div>
+            </>);
+          })()}
         </div>
 
         {/* ASTERISK CONFIGURATION card (supplier information fields removed) */}
