@@ -15,7 +15,10 @@ const SUP_COLORS=[
   {bg:"#FDE3E3",accent:"#EF4444"},{bg:"#EBE4FB",accent:"#8B5CF6"},{bg:"#DEF5E8",accent:"#10B981"},
   {bg:"#FFE7D6",accent:"#F97316"},{bg:"#DAF1F7",accent:"#06B6D4"},
 ];
-const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals);
+const fmtUSDT=(v,decimals=4)=>parseFloat(v||0).toFixed(decimals)+" USDT";
+// Amounts stored in another currency (EUR/USD rows from imports) convert to
+// USDT at the app-wide fixed rate before display: 1 EUR = 1.08, USD 1:1.
+const toUSDT=(v,cur)=>parseFloat(v||0)*(cur==="EUR"?1.08:1);
 class ErrorBoundary extends React.Component {
   constructor(props){ super(props); this.state={hasError:false,error:""}; }
   static getDerivedStateFromError(e){ return {hasError:true,error:e.message}; }
@@ -1891,8 +1894,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [payFrom,setPayFrom]=useState(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return isoDay(d);});
   const [payTo,setPayTo]=useState(()=>isoDay(new Date()));
   const loadPayHist=()=>apiFetch(`/supplier-payments/history?status=all&supplier_id=${supplier.id}`,token).then(d=>setPayHist(d.data||[]));
-  const curSym={USD:"$",EUR:"€",GBP:"£"};
-  const fmtAmt=(v,c)=>{const n=Number(v||0).toFixed(4);return curSym[c]?curSym[c]+n:n+" "+(c||"");};
   const [astConf,setAstConf]=useState(null);
   const [showAstRaw,setShowAstRaw]=useState({});
   const loadAstConf=()=>apiFetch(`/supplier-accounts/${supplier.id}/asterisk-config`,token).then(d=>setAstConf(d.data||{trunks:[],routes:[]}));
@@ -2585,9 +2586,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               const created=String(p.created_at||"").slice(0,10);
               return (payStatus==="all"||p.status===payStatus)&&(!payFrom||created>=payFrom)&&(!payTo||created<=payTo);
             });
-            // Balance = what is still owed: all unpaid entries, per currency.
-            const bal={};(payHist||[]).filter(p=>p.status!=="paid").forEach(p=>{bal[p.currency]=(bal[p.currency]||0)+Number(p.total_amount||0);});
-            const balTxt=Object.keys(bal).length?Object.entries(bal).map(([c,v])=>fmtAmt(v,c)).join(", "):"$0.0000";
+            // Balance = what is still owed: all unpaid entries, in USDT.
+            const balance=(payHist||[]).filter(p=>p.status!=="paid").reduce((a,p)=>a+toUSDT(p.total_amount,p.currency),0);
             const chip=(k,l)=>(
               <button key={k} onClick={()=>setPayStatus(k)} style={{padding:"5px 12px",borderRadius:16,fontSize:11,fontWeight:700,cursor:"pointer",
                 border:"1px solid "+(payStatus===k?"#2CADA6":"#DDD"),background:payStatus===k?"#2CADA6":"#FFF",color:payStatus===k?"#FFF":"#555"}}>{l}</button>);
@@ -2598,7 +2598,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   <span style={{fontSize:11,color:"#888",fontWeight:600,marginRight:2}}>Status</span>
                   {chip("all","All")}{chip("unpaid","Unpaid")}{chip("paid","Paid")}
                 </div>
-                <div style={{fontSize:12,fontWeight:700,color:"#1A1A1A"}}>Balance: <span style={{fontFamily:"monospace",color:Object.keys(bal).length?"#F5A623":"#10B981"}}>{balTxt}</span></div>
+                <div style={{fontSize:12,fontWeight:700,color:"#1A1A1A"}}>Balance: <span style={{fontFamily:"monospace",color:balance>0?"#F5A623":"#10B981"}}>{fmtUSDT(balance)}</span></div>
               </div>
               <div style={{padding:"8px 14px",display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",borderBottom:"1px solid #F0F0F0"}}>
                 <span style={{fontSize:11,color:"#888",fontWeight:600}}>Created</span>
@@ -2618,7 +2618,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={cell}><span style={{padding:"2px 10px",borderRadius:12,fontSize:11,fontWeight:700,
                           background:p.status==="paid"?"rgba(16,185,129,0.1)":"rgba(245,166,35,0.12)",color:p.status==="paid"?"#10B981":"#B7791F"}}>
                           {p.status==="paid"?"Paid":"Unpaid"}</span></td>
-                        <td style={{...cell,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>{fmtAmt(p.total_amount,p.currency)}</td>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}
+                          title={p.currency==="EUR"?"€"+Number(p.total_amount).toFixed(4)+" × 1.08":p.currency!=="USDT"?Number(p.total_amount).toFixed(4)+" "+p.currency:undefined}>{fmtUSDT(toUSDT(p.total_amount,p.currency))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2925,7 +2926,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.country||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>
                           {rec.prefix||"—"}{rec.will_create_prefix?" (new)":""}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?"$"+parseFloat(rec.price).toFixed(4):"—"}</td>
+                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?fmtUSDT(rec.price):"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.payment_term||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.operator||"—"}</td>
                         <td style={{padding:"6px 10px",fontSize:10,color:"#999"}}>{rec.reason||""}</td>
@@ -3172,7 +3173,7 @@ function SupplierPaymentsPage({token,user}){
     const f=(d,y)=>new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",...(y?{year:"numeric"}:{})});
     return f(start,false)+" – "+f(end,true);
   };
-  const fmtAmt=(a,cur)=>(cur==="EUR"?"€":"$")+parseFloat(a||0).toFixed(4);
+  const fmtAmt=(a,cur)=>fmtUSDT(toUSDT(a,cur));
   const setWeeklyPaid=async(w,paid)=>{
     if(!window.confirm((paid?"Mark as PAID: ":"Set back to UNPAID: ")+numSupplier(w.supplier_name)+" · "+fmtWeek(w.period_start,w.period_end)+" · "+fmtAmt(w.total_amount,w.currency)+" ?")) return;
     const d=await apiFetch(`/supplier-payments/invoices/${w.id}/${paid?"mark-paid":"mark-unpaid"}`,token,{method:"POST",body:JSON.stringify({})});
@@ -3867,7 +3868,7 @@ function NumberInventoryPage({token}){
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>$</div>
+                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>USDT</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
@@ -6711,7 +6712,7 @@ function TestNumbersPage({token}){
                   value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
                 <div style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,
-                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>$</div></div>
+                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>USDT</div></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier</div>
                 <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
                   value={newTest.supplier} onChange={e=>setNewTest({...newTest,supplier:e.target.value})} placeholder="e.g. WTP"/></div>
