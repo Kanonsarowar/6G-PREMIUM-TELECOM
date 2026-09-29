@@ -44,8 +44,8 @@ foreach($rows as $t){
     if(!$codecs) $codecs = ['ulaw','alaw','g722','gsm','slin'];
 
     // Purple's spec requires 180 Ringing instead of the 183 Session Progress
-    // that [from-carrier] sends via Progress() - see from-carrier-purple.
-    $context = ($name === 'PURPLE') ? 'from-carrier-purple' : 'from-carrier';
+    // that [from-carrier] sends via Progress() - see from-carrier-purnum.
+    $context = ($name === 'PURNUM') ? 'from-carrier-purnum' : 'from-carrier';
 
     $out[] = "; ── {$t->nickname} ──";
     $out[] = "[{$name}]";

@@ -48,12 +48,12 @@ class AsteriskConfigGenerator
 
     // Known-good production routes that Apply must never rewrite. Their
     // pjsip sections are re-emitted verbatim from the live pjsip.conf.
-    public const PROTECTED_ROUTES = ['PURPLE' => 'from-carrier-purple'];
+    public const PROTECTED_ROUTES = ['PURNUM' => 'from-carrier-purnum'];
     public const PROTECTED_MESSAGE = 'Purple protected route detected. Manual migration required. No automatic change applied.';
 
     // Hand-written contexts the generated block must never redefine
     // (Asterisk silently merges same-named contexts).
-    public const RESERVED_CONTEXTS = ['from-carrier', 'from-carrier-purple', 'block-unauthorized', 'default', 'general'];
+    public const RESERVED_CONTEXTS = ['from-carrier', 'from-carrier-purnum', 'block-unauthorized', 'default', 'general'];
 
     // Fail-safe per-supplier limits for the generated path when a trunk has none.
     /** The existing default/fallback IVR; a route on it plays a random IVR from the pool instead (see defaultIvrPoolLines). */
