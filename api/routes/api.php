@@ -1912,7 +1912,13 @@ Route::middleware('auth:sanctum')->group(function() {
                 $qualified = array_filter($contacts, fn($c) => $c['status'] !== 'NonQual');
                 if ($qualified && !array_filter($qualified, fn($c) => $c['status'] === 'Avail')) $warnings[] = 'No contact is reachable (qualify)';
             }
-            if ($prefixes->isNotEmpty() && !$routes) $warnings[] = 'No dialplan route found for this supplier\'s prefixes';
+            // How this trunk's context routes numbers: 'database' contexts run
+            // did_router.php (every number in dids is routed), 'static' ones
+            // jump to [number-routing] (only the generated patterns are).
+            $ctxText = ($context && isset($ex[$context])) ? implode("\n", $ex[$context]) : '';
+            $routing = str_contains($ctxText, 'did_router.php') ? 'database'
+                : (str_contains($ctxText, 'number-routing') ? 'static' : null);
+            if ($routing === 'static' && $prefixes->isNotEmpty() && !$routes) $warnings[] = 'No dialplan route found for this supplier\'s prefixes';
             // Firewall: every IP Asterisk accepts calls from needs a ufw rule on 5060.
             $fwIps = array_values(array_unique(array_merge($csv($t->host ?: $t->ip),
                 $identify ? array_map(fn($h) => preg_replace('#/32$#', '', $h), $vals($identify[1], 'match')) : [])));
@@ -1948,6 +1954,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 'contacts'      => $contacts,
                 'pjsip'         => implode("\n\n", $cfg),
                 'dialplan'      => ($context && isset($ex[$context])) ? implode("\n", $ex[$context]) : null,
+                'routing'       => $routing,
                 'warnings'      => $warnings,
             ];
         }
@@ -2781,12 +2788,15 @@ Route::get('/v1/live-calls', function() {
                 break;
             }
         }
-        // Also try to match from trunks table by IP
+        // Otherwise match the trunk by its Asterisk endpoint (pjsip_name),
+        // which is what the channel is named after - same lookup as
+        // save_cdr.php - and show its display name (nickname).
         if($trunk_name === 'Unknown'){
             $trunks = DB::table('trunks')->where('is_active',1)->get();
             foreach($trunks as $t){
-                if(str_contains(strtoupper($channel), strtoupper($t->name))){
-                    $trunk_name = $t->nickname ?? $t->name;
+                $ep = $t->pjsip_name ?: $t->name;
+                if($ep !== '' && str_contains(strtoupper($channel), 'PJSIP/'.strtoupper($ep).'-')){
+                    $trunk_name = $t->nickname ?: $t->name;
                     break;
                 }
             }

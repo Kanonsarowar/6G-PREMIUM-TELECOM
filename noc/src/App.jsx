@@ -1733,9 +1733,9 @@ function SupplierAccountsPage({token,user,setPage}){
             <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Add Supplier</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
               <div><div style={lblS}>Supplier Name *</div>
-                <input style={inpS} value={addForm.name} onChange={e=>setAddForm({...addForm,name:e.target.value})} placeholder="Purple Number"/></div>
+                <input style={inpS} value={addForm.name} onChange={e=>setAddForm({...addForm,name:e.target.value})} placeholder="Supplier name"/></div>
               <div><div style={lblS}>Supplier Code/Reference</div>
-                <input style={inpS} value={addForm.code} onChange={e=>setAddForm({...addForm,code:e.target.value})} placeholder="PURPLE"/></div>
+                <input style={inpS} value={addForm.code} onChange={e=>setAddForm({...addForm,code:e.target.value})} placeholder="CODE"/></div>
               <div><div style={lblS}>Country</div>
                 <select style={inpS} value={addForm.country} onChange={e=>setAddForm({...addForm,country:e.target.value})}>
                   <option value="">— Select —</option>
@@ -2601,18 +2601,18 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                   <span style={{color:"#1A1A1A",fontWeight:600,textAlign:"right",wordBreak:"break-all"}}>{v}</span>
                 </div>);
               const raw=[t.pjsip&&"; ── pjsip.conf ──\n"+t.pjsip,t.dialplan&&"; ── extensions.conf ──\n"+t.dialplan,
-                astConf.routes.length&&"; ── routes for this supplier's prefixes ──\n"+astConf.routes.map(r=>"["+r.context+"]\n"+r.text).join("\n\n")].filter(Boolean).join("\n\n");
+                t.routing!=="database"&&astConf.routes.length&&"; ── routes for this supplier's prefixes ──\n"+astConf.routes.map(r=>"["+r.context+"]\n"+r.text).join("\n\n")].filter(Boolean).join("\n\n");
               return(
                 <div key={t.trunk_id} style={{marginBottom:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                    <span style={{fontSize:13,fontWeight:800}}>{numSupplier(t.name)} <span style={{fontFamily:"monospace",color:"#888",fontWeight:600}}>[{t.endpoint}]</span></span>
+                    <span style={{fontSize:13,fontWeight:800}}>{numSupplier(t.name)}</span>
                     <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:700,background:stColor+"1A",color:stColor}}>● {t.state||"Not loaded"}</span>
                   </div>
                   {t.warnings.map((w,i)=>(
                     <div key={i} style={{padding:"6px 10px",borderRadius:6,marginBottom:6,background:"rgba(245,166,35,0.1)",
                       border:"1px solid #F5A623",fontSize:11,color:"#B7791F",fontWeight:600}}>⚠ {w}</div>
                   ))}
-                  {row("Endpoint",<span style={{fontFamily:"monospace"}}>{t.endpoint}</span>)}
+                  {row("Asterisk Endpoint",<span style={{fontFamily:"monospace"}}>{t.endpoint}</span>)}
                   {row("Auth",t.auth_type==="userpass"?"Username / password"+(t.sip_username?" ("+t.sip_username+")":""):"IP")}
                   {row("IP / Host",<span style={{fontFamily:"monospace"}}>{t.hosts.join(", ")||"—"}</span>)}
                   {row("Port / Transport",(t.port||"—")+" / "+(t.transport||"—").toUpperCase())}
@@ -2627,7 +2627,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <span key={c.uri} style={{fontFamily:"monospace"}}>{c.uri} <span style={{color:col,fontFamily:"Arial,Helvetica,sans-serif"}}>
                           ● {c.status==="Avail"?"Up"+(c.rtt_ms!=null?" "+c.rtt_ms+" ms":""):c.status==="NonQual"?"No qualify":"Down"}</span></span>);})}
                     </span>)}
-                  {row("Routes",astConf.routes.length===0?"—":
+                  {row("Routes",t.routing==="database"?"All numbers in NUMBER / RANGES (database lookup)":
+                    astConf.routes.length===0?"—":
                     <span style={{fontFamily:"monospace",fontSize:11}}>{astConf.routes.map(r=>(r.text.match(/exten\s*=>\s*([^,]+)/)||[])[1]).filter(Boolean).join(", ")}</span>)}
                   <div style={{display:"flex",gap:8,marginTop:10}}>
                     <button onClick={()=>setShowAstRaw(v=>({...v,[t.trunk_id]:!v[t.trunk_id]}))} style={{padding:"6px 14px",borderRadius:6,border:"1px solid #5B4FCF",
