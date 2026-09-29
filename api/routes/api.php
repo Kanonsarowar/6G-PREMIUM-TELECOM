@@ -1805,6 +1805,59 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['data'=>array_map(fn($r) => array_diff_key($r, ['last_call'=>1]), $out)]);
     });
 
+    // Supplier Stats (Payment History -> Stats tab): per prefix, the minutes
+    // this supplier's calls ran in [from, to] and what they are worth at the
+    // prefix's own price (minutes x supplier_prefixes.price, USDT) - the same
+    // basis as computeSupplierPayable and the supplier's own portal, not the
+    // flat cdrs.revenue. Calls whose number matches no configured prefix are
+    // grouped by their first 8 digits with no tariff (amount unknown).
+    Route::get('/v1/supplier-accounts/{id}/stats', function(Request $r, $id) {
+        $sup = DB::table('suppliers')->find($id);
+        if (!$sup) return response()->json(['error'=>'Supplier not found'],404);
+        $from = \Carbon\Carbon::parse($r->from ?: now()->subDays(7)->toDateString())->startOfDay();
+        $to   = \Carbon\Carbon::parse($r->to ?: now()->toDateString())->endOfDay();
+
+        // CDRs are labelled with the trunk's display name (save_cdr.php).
+        $names = [$sup->name];
+        foreach (DB::table('trunks')->where('supplier_id',$id)->get(['name','nickname']) as $t) { $names[] = $t->name; if ($t->nickname) $names[] = $t->nickname; }
+        $names = array_values(array_unique(array_filter($names)));
+
+        $prefixes = DB::table('supplier_prefixes')->where('supplier_id',$id)->get()
+            ->map(function($p){ $p->digits = preg_replace('/\D/','',$p->prefix); return $p; })
+            ->filter(fn($p) => $p->digits !== '')->sortByDesc(fn($p) => strlen($p->digits))->values();
+        $cc = ['973'=>'Bahrain','977'=>'Nepal','235'=>'Chad','966'=>'Saudi Arabia','971'=>'UAE','974'=>'Qatar','965'=>'Kuwait','968'=>'Oman',
+               '44'=>'United Kingdom','39'=>'Italy','33'=>'France','49'=>'Germany','882'=>'International','881'=>'Satellite','1'=>'USA'];
+
+        $groups = [];
+        $cdrs = DB::table('cdrs')->whereIn('trunk_name',$names)->whereBetween('call_start',[$from,$to])->get(['did','billsec']);
+        foreach ($cdrs as $c) {
+            $d = preg_replace('/\D/','',(string)$c->did);
+            $p = $prefixes->first(fn($p) => str_starts_with($d, $p->digits));
+            $key = $p ? 'p'.$p->id : 'x'.substr($d,0,8);
+            if (!isset($groups[$key])) {
+                $country = $p->country ?? null;
+                if (!$country) foreach ([3,2,1] as $n) if (isset($cc[substr($d,0,$n)])) { $country = $cc[substr($d,0,$n)]; break; }
+                $groups[$key] = ['code'=>$p->prefix ?? substr($d,0,8),'country'=>$country ?: '—',
+                    'tariff'=>$p ? (float)$p->price : null,'payment_term'=>$p->payment_term ?? null,
+                    'configured'=>(bool)$p,'calls'=>0,'seconds'=>0];
+            }
+            $groups[$key]['calls']++;
+            $groups[$key]['seconds'] += (int)$c->billsec;
+        }
+        $rows = array_map(function($g){
+            $g['minutes'] = round($g['seconds']/60, 2);
+            $g['amount']  = $g['tariff'] !== null ? round($g['seconds']/60*$g['tariff'], 4) : null;
+            unset($g['seconds']);
+            return $g;
+        }, array_values($groups));
+        usort($rows, fn($a,$b) => strcmp($a['code'],$b['code']));
+        return response()->json(['data'=>[
+            'from'=>$from->toDateString(),'to'=>$to->toDateString(),'rows'=>$rows,
+            'total_minutes'=>round(array_sum(array_column($rows,'minutes')),2),
+            'total_amount'=>round(array_sum(array_map(fn($r)=>$r['amount'] ?? 0,$rows)),4),
+        ]]);
+    });
+
     // Supplier -> Asterisk configuration (READ ONLY). For every trunk linked
     // to the supplier: the trunk record, the live pjsip.conf sections for its
     // endpoint/aor/identify/auth, its inbound dialplan context, the

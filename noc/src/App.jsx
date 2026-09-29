@@ -1893,6 +1893,11 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const isoDay=(d)=>d.toISOString().slice(0,10);
   const [payFrom,setPayFrom]=useState(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return isoDay(d);});
   const [payTo,setPayTo]=useState(()=>isoDay(new Date()));
+  const [payTab,setPayTab]=useState("stats");
+  const [stats,setStats]=useState(null);
+  const [statFrom,setStatFrom]=useState(()=>{const d=new Date();d.setDate(d.getDate()-7);return isoDay(d);});
+  const [statTo,setStatTo]=useState(()=>isoDay(new Date()));
+  const loadStats=(f=statFrom,t=statTo)=>{setStats(null);apiFetch(`/supplier-accounts/${supplier.id}/stats?from=${f}&to=${t}`,token).then(d=>setStats(d.data||{rows:[]}));};
   const loadPayHist=()=>apiFetch(`/supplier-payments/history?status=all&supplier_id=${supplier.id}`,token).then(d=>setPayHist(d.data||[]));
   const [astConf,setAstConf]=useState(null);
   const [showAstRaw,setShowAstRaw]=useState({});
@@ -1900,7 +1905,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [ivrs,setIvrs]=useState([]);
   const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
 
-  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); loadAstConf(); loadPayHist(); },[supplier.id]);
+  useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); loadAstConf(); loadPayHist(); loadStats(); },[supplier.id]);
   // Keep Access History current: a new call on a prefix moves its date.
   // Once a minute and only while the tab is visible - every open tab shares
   // the user's API rate limit.
@@ -2577,11 +2582,58 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         {/* PAYMENT HISTORY — one row per week (the week's weekly payment entries, all currencies, combined in USDT) */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>PAYMENT HISTORY</span>
-            <button onClick={loadPayHist} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
+            <span style={{display:"flex",gap:6}}>
+              {[["stats","STATS"],["history","PAYMENT HISTORY"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setPayTab(k)} style={{padding:"5px 12px",borderRadius:6,fontSize:11,fontWeight:800,cursor:"pointer",
+                  border:"1px solid "+(payTab===k?"#2CADA6":"#DDD"),background:payTab===k?"#2CADA6":"#FFF",color:payTab===k?"#FFF":"#555"}}>{l}</button>
+              ))}
+            </span>
+            <button onClick={()=>payTab==="stats"?loadStats():loadPayHist()} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #2CADA6",
               background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
           </div>
-          {(()=>{
+          {payTab==="stats"&&(()=>{
+            const cell={padding:"8px 10px",whiteSpace:"nowrap",fontSize:12};
+            const termTxt=t=>({Weekly:"7/1",Daily:"1/1",Monthly:"30/1"}[t]||t||"—");
+            const period=stats?stats.from+" - "+stats.to:"";
+            return(<>
+              <div style={{padding:"8px 14px",display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",borderBottom:"1px solid #F0F0F0"}}>
+                <span style={{fontSize:11,color:"#888",fontWeight:600}}>Started time</span>
+                <input type="date" value={statFrom} onChange={e=>setStatFrom(e.target.value)} style={{...inpS,width:140,fontSize:11}}/>
+                <span style={{fontSize:11,color:"#888"}}>to</span>
+                <input type="date" value={statTo} onChange={e=>setStatTo(e.target.value)} style={{...inpS,width:140,fontSize:11}}/>
+                <button onClick={()=>loadStats()} style={{padding:"6px 14px",borderRadius:6,border:"none",background:"#2CADA6",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer"}}>Apply</button>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
+                  <thead><tr>{["Code","Country","Tariff","Payment terms","Duration","Period","Amount"].map((h,i)=><th key={i} style={{...thSup,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {!stats?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
+                    stats.rows.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No calls in this period</td></tr>:
+                    stats.rows.map((r,i)=>(
+                      <tr key={r.code} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:700}}>{r.code}</td>
+                        <td style={cell}>{String(r.country||"—").toUpperCase()}</td>
+                        <td style={{...cell,fontFamily:"monospace"}}>{r.tariff!=null?fmtUSDT(r.tariff,3):<span style={{color:"#B7791F"}} title="No prefix configured for these numbers">not set</span>}</td>
+                        <td style={cell}>{termTxt(r.payment_term)}</td>
+                        <td style={{...cell,fontFamily:"monospace"}}>{Number(r.minutes).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} min</td>
+                        <td style={{...cell,color:"#555"}}>{period}</td>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:700}}>{r.amount!=null?fmtUSDT(r.amount,2):"—"}</td>
+                      </tr>
+                    ))}
+                    {stats&&stats.rows.length>0&&(
+                      <tr style={{borderTop:"2px solid #E0E0E0",background:"#F5F5F5"}}>
+                        <td colSpan={4} style={{...cell,fontWeight:800}}>Total Premium rate numbers</td>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:800}}>{Number(stats.total_minutes).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} min</td>
+                        <td style={cell}></td>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:800,color:"#10B981"}}>{fmtUSDT(stats.total_amount,2)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </GTable>
+              </div>
+            </>);
+          })()}
+          {payTab==="history"&&(()=>{
             // Group the week's entries (one per currency) into a single week row.
             const byWeek={};
             (payHist||[]).forEach(p=>{
