@@ -153,7 +153,7 @@ function MobileDrawer({page,setPage,user,logout,onClose,onHome}){
                 <span style={{color:"#2CADA6"}}>6G</span>
                 <span style={{color:"#F5A623"}}>STATS</span>
               </div>
-              <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase"}}>NOC Platform</div>
+              <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase"}}>Premium Rate Number</div>
             </div>
           </div>
           <button onClick={onClose} style={{background:"#F5F5F5",
@@ -236,7 +236,7 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout,onHome}){
             <span style={{color:"#5B4FCF"}}>6G</span>
             <span style={{color:"#F5A623"}}>STATS</span>
           </div>
-          <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>NOC Platform</div>
+          <div style={{fontSize:10,color:"#999",letterSpacing:"1px",textTransform:"uppercase",fontWeight:600}}>Premium Rate Number</div>
         </div>}
         <button onClick={toggle} style={{marginLeft:open?"0":"auto",
           background:"#F5F5F5",border:"1px solid #E8E8E8",
@@ -320,7 +320,7 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
           cursor:"pointer",borderRadius:10,width:40,height:40,
           display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>☰</button>
       )}
-      {/* Brand: signal mark + 6GSTATS wordmark + NOC PLATFORM tagline */}
+      {/* Brand: signal mark + 6GSTATS wordmark + PREMIUM RATE NUMBER tagline */}
       <div onClick={onHome} title="Home" style={{display:"flex",alignItems:"center",gap:isMobile?8:12,cursor:"pointer",flexShrink:0}}>
         <div style={{width:isMobile?34:44,height:isMobile?34:44,borderRadius:isMobile?10:12,flexShrink:0,
           background:"linear-gradient(135deg,#3C2F8F 0%,#5B4FCF 55%,#F5A623 140%)",
@@ -341,8 +341,8 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:isMobile?3:5}}>
             <span style={{height:1,width:isMobile?10:14,background:"rgba(255,255,255,0.55)"}}/>
-            <span style={{fontSize:isMobile?8:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:isMobile?"2px":"3px",
-              textTransform:"uppercase",whiteSpace:"nowrap"}}>NOC Platform</span>
+            <span style={{fontSize:isMobile?8:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:isMobile?"1px":"2px",
+              textTransform:"uppercase",whiteSpace:"nowrap"}}>Premium Rate Number</span>
           </div>
         </div>
       </div>
