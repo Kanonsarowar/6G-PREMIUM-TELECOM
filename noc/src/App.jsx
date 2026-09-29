@@ -1901,6 +1901,37 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const loadPayHist=()=>apiFetch(`/supplier-payments/history?status=all&supplier_id=${supplier.id}`,token).then(d=>setPayHist(d.data||[]));
   const [astConf,setAstConf]=useState(null);
   const [showAstRaw,setShowAstRaw]=useState({});
+  // Bottom bar. SAVE: every add/edit on this page is written to the server
+  // immediately, so Save re-reads everything from the backend and confirms it
+  // is stored. APPLY & RELOAD: runs the Asterisk Configuration module -
+  // preview first (changes / warnings / blocking errors), then apply, which
+  // backs up, writes pjsip.conf/extensions.conf, reloads Asterisk, verifies
+  // and auto-restores the backup if verification fails.
+  const [savedAt,setSavedAt]=useState(null);
+  const [savingAll,setSavingAll]=useState(false);
+  const [applyBox,setApplyBox]=useState(null); // {loading,preview,applying,result,error}
+  const saveAll=async()=>{
+    setSavingAll(true);
+    try{
+      await Promise.all([loadPrefixes(),loadNumbers(),loadTest(),loadAccessHistory(),loadPayHist(),loadAstConf()]);
+      loadStats();
+      setSavedAt(new Date());
+      flash("All changes saved");
+    }catch(e){ alert("Could not confirm save - check your connection and try again"); }
+    setSavingAll(false);
+  };
+  const openApply=async()=>{
+    setApplyBox({loading:true});
+    const d=await apiFetch("/asterisk-config/preview",token);
+    if(!d||!d.data) setApplyBox({error:d?.error||"Could not load the Asterisk preview"});
+    else setApplyBox({preview:d.data});
+  };
+  const runApply=async()=>{
+    setApplyBox(b=>({...b,applying:true}));
+    const d=await apiFetch("/asterisk-config/apply",token,{method:"POST",body:JSON.stringify({})});
+    setApplyBox(b=>({...b,applying:false,result:d?.data||{success:false,summary:d?.error||"Apply failed"}}));
+    loadAstConf();
+  };
   const loadAstConf=()=>apiFetch(`/supplier-accounts/${supplier.id}/asterisk-config`,token).then(d=>setAstConf(d.data||{trunks:[],routes:[]}));
   const [ivrs,setIvrs]=useState([]);
   const loadIvrs=()=>apiFetch("/ivr-lib/audio",token).then(d=>setIvrs(d.data||[]));
@@ -2768,6 +2799,59 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             })}
           </div>
         </div>
+
+        {/* FINAL ACTIONS: Save (confirm stored on backend) + Apply & Reload (push to Asterisk) */}
+        <div style={{...cardS,padding:16,marginTop:14}}>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={saveAll} disabled={savingAll} style={{flex:"1 1 200px",padding:"14px",borderRadius:8,border:"none",
+              background:"#2CADA6",color:"#FFF",fontSize:14,fontWeight:800,cursor:"pointer",opacity:savingAll?0.7:1}}>
+              {savingAll?"Saving...":"💾 SAVE"}</button>
+            <button onClick={openApply} style={{flex:"1 1 200px",padding:"14px",borderRadius:8,border:"none",
+              background:"#5B4FCF",color:"#FFF",fontSize:14,fontWeight:800,cursor:"pointer"}}>⚡ APPLY &amp; RELOAD</button>
+          </div>
+          {savedAt&&<div style={{marginTop:10,fontSize:12,fontWeight:700,color:"#10B981",textAlign:"center"}}>
+            ✅ All changes saved on the server · {savedAt.toLocaleTimeString("en-GB")}</div>}
+          <div style={{marginTop:8,fontSize:10,color:"#999",textAlign:"center"}}>
+            Save confirms every change on this page is stored. Apply &amp; Reload pushes the configuration to Asterisk and reloads it (affects all suppliers).</div>
+        </div>
+
+        {applyBox&&(
+          <div onClick={()=>!applyBox.applying&&setApplyBox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div onClick={e=>e.stopPropagation()} style={{...cardS,width:520,maxWidth:"calc(100vw - 32px)",padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+              <div style={{fontSize:15,fontWeight:800,marginBottom:12}}>⚡ Apply &amp; Reload Asterisk</div>
+              {applyBox.loading&&<div style={{fontSize:12,color:"#999",padding:"10px 0"}}>Checking what would change...</div>}
+              {applyBox.error&&<div style={{padding:"8px 10px",borderRadius:6,background:"rgba(239,68,68,0.08)",border:"1px solid #EF4444",color:"#EF4444",fontSize:12,fontWeight:600}}>{applyBox.error}</div>}
+              {applyBox.result?(
+                <div style={{padding:"12px",borderRadius:8,fontSize:12,fontWeight:600,whiteSpace:"pre-wrap",
+                  background:applyBox.result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.08)",
+                  border:"1px solid "+(applyBox.result.success?"#10B981":"#EF4444"),color:applyBox.result.success?"#0F7B5A":"#B91C1C"}}>
+                  {applyBox.result.success?"✅ Applied and reloaded. Asterisk is running the new configuration.\n\n":"❌ Not applied - Asterisk kept its current configuration.\n\n"}{applyBox.result.summary}
+                </div>
+              ):applyBox.preview&&(()=>{
+                const pv=applyBox.preview, errs=pv.errors||[], warns=pv.warnings||[], chg=pv.changes||[];
+                const list=(items,color,bg)=>items.map((x,i)=><div key={i} style={{padding:"6px 10px",borderRadius:6,marginBottom:6,background:bg,border:"1px solid "+color,fontSize:11,color,fontWeight:600}}>{x}</div>);
+                return(<>
+                  {errs.length>0&&<><div style={{fontSize:11,fontWeight:800,color:"#EF4444",marginBottom:6}}>BLOCKED - fix these first</div>{list(errs,"#EF4444","rgba(239,68,68,0.08)")}</>}
+                  {warns.length>0&&<><div style={{fontSize:11,fontWeight:800,color:"#B7791F",margin:"8px 0 6px"}}>WARNINGS</div>{list(warns,"#B7791F","rgba(245,166,35,0.1)")}</>}
+                  <div style={{fontSize:11,fontWeight:800,color:"#555",margin:"8px 0 6px"}}>CHANGES</div>
+                  {chg.length===0?<div style={{fontSize:12,color:"#999"}}>No changes - Asterisk already matches.</div>:
+                    <div style={{fontFamily:"monospace",fontSize:11,background:"#F7F7F7",borderRadius:6,padding:10}}>{chg.map((c,i)=><div key={i}>{c}</div>)}</div>}
+                </>);
+              })()}
+              <div style={{display:"flex",gap:8,marginTop:16}}>
+                {!applyBox.result&&applyBox.preview&&(
+                  <button onClick={runApply} disabled={applyBox.applying||(applyBox.preview.errors||[]).length>0}
+                    style={{flex:1,padding:"11px",borderRadius:8,border:"none",fontSize:13,fontWeight:800,cursor:"pointer",color:"#FFF",
+                      background:(applyBox.preview.errors||[]).length>0?"#BBB":"#5B4FCF"}}>
+                    {applyBox.applying?"Applying...":(applyBox.preview.errors||[]).length>0?"Blocked":"✅ Confirm Apply & Reload"}</button>
+                )}
+                <button onClick={()=>setApplyBox(null)} disabled={applyBox.applying}
+                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
+                  {applyBox.result?"Close":"Cancel"}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {showAddPrefix&&(
