@@ -2206,7 +2206,89 @@ Route::middleware('auth:sanctum')->group(function() {
         return response()->json(['api'=>'online','database'=>'connected']);
     });
 
+    // Settings page: live server + Asterisk facts (read-only; nothing hard-coded).
+    Route::get('/v1/system/info', function(Request $r) {
+        $x = function(string $cmd) { exec($cmd.' 2>/dev/null', $o); return trim(implode("\n", $o)); };
+        $os = @parse_ini_file('/etc/os-release') ?: [];
+        $up = (int) explode(' ', (string) @file_get_contents('/proc/uptime'))[0];
+        $fmtUp = fn($s) => ($s >= 86400 ? intdiv($s, 86400).'d ' : '').intdiv($s % 86400, 3600).'h '.intdiv($s % 3600, 60).'m';
+        $ip = $x("hostname -I | awk '{print \$1}'");
+        $astVer = preg_replace('/^Asterisk\s+([^\s~]+).*$/s', '$1', $x("asterisk -rx 'core show version'"));
+        $astUp = $x("asterisk -rx 'core show uptime seconds'");
+        preg_match('/System uptime:\s*(\d+)/', $astUp, $m1);
+        preg_match('/Last reload:\s*(\d+)/', $astUp, $m2);
+
+        // Live PJSIP config: transports, endpoints (codecs + context), contacts.
+        $pj = (string) @file_get_contents(config('asterisk.pjsip_conf', '/etc/asterisk/pjsip.conf'));
+        $sections = []; $cur = null;
+        foreach (preg_split('/\r?\n/', $pj) as $l) {
+            if (preg_match('/^\[([^\]]+)\](\(([^)]*)\))?/', $l, $m)) { $cur = $m[1]; $sections[$cur] = ['tpl' => $m[3] ?? null, 'lines' => []]; continue; }
+            if ($cur !== null && preg_match('/^\s*([a-z_]+)\s*=\s*(.*?)\s*$/i', $l, $m)) $sections[$cur]['lines'][] = [$m[1], $m[2]];
+        }
+        $get = function($sec, $key) use (&$sections, &$get) {
+            $v = [];
+            foreach ($sections[$sec]['lines'] ?? [] as [$k, $val]) if (strcasecmp($k, $key) === 0) $v[] = $val;
+            if (!$v && ($t = $sections[$sec]['tpl'] ?? null) && isset($sections[$t])) return $get($t, $key);
+            return $v;
+        };
+        $transports = []; $endpoints = [];
+        foreach ($sections as $name => $sec) {
+            $type = $get($name, 'type')[0] ?? null;
+            if ($type === 'transport') $transports[] = strtoupper($get($name, 'protocol')[0] ?? 'udp').' '.($get($name, 'bind')[0] ?? '');
+            if ($type === 'endpoint' && !str_ends_with($name, 'template')) {
+                $codecs = [];
+                foreach ($get($name, 'allow') as $a) foreach (explode(',', $a) as $c) if (trim($c) !== '') $codecs[] = trim($c);
+                $endpoints[$name] = ['context' => $get($name, 'context')[0] ?? null, 'codecs' => array_values(array_unique($codecs))];
+            }
+        }
+        $contacts = $x("asterisk -rx 'pjsip show contacts'");
+        $up_ = preg_match_all('/Contact:\s+\S+\s+\S+\s+Avail\b/', $contacts); $all = preg_match_all('/Contact:\s+\S+\/sip:/', $contacts);
+        $translators = array_values(array_filter(array_map(fn($l) => preg_match('/^codec_(\w+)\.so/', trim($l), $m) ? $m[1] : null,
+            explode("\n", $x("asterisk -rx 'module show like codec_'")))));
+        $ext = (string) @file_get_contents(config('asterisk.extensions_conf', '/etc/asterisk/extensions.conf'));
+        preg_match_all('/AGI\(([\w.-]+)/', $ext, $agi);
+        $rtp = (string) @file_get_contents(config('asterisk.rtp_conf', '/etc/asterisk/rtp.conf'));
+        preg_match('/^rtpstart\s*=\s*(\d+)/m', $rtp, $rs); preg_match('/^rtpend\s*=\s*(\d+)/m', $rtp, $re);
+        $ivrs = DB::table('ivrs')->where('is_active', 1)->orderBy('name')->get(['name', 'display_name']);
+        $lastApply = DB::table('asterisk_config_history')->where('action', 'apply')->orderByDesc('id')->first(['status', 'user_name', 'created_at']);
+
+        $allCodecs = array_values(array_unique(array_merge(...array_values(array_map(fn($e) => $e['codecs'], $endpoints)) ?: [[]])));
+        $contexts = [];
+        foreach ($endpoints as $n => $e) if ($e['context']) $contexts[$e['context']][] = $n;
+
+        return response()->json(['data' => [
+            'server' => [
+                'ip' => $ip ?: ($r->server('SERVER_ADDR') ?: '—'),
+                'hostname' => gethostname(),
+                'os' => $os['PRETTY_NAME'] ?? php_uname('s').' '.php_uname('r'),
+                'kernel' => php_uname('r'),
+                'php' => PHP_VERSION.' ('.str_replace('fpm-fcgi', 'FPM', PHP_SAPI).')',
+                'database' => DB::selectOne('select version() v')->v ?? '—',
+                'asterisk' => $astVer ?: '—',
+                'noc_url' => $r->getSchemeAndHttpHost(),
+                'uptime' => $fmtUp($up),
+                'asterisk_uptime' => isset($m1[1]) ? $fmtUp((int) $m1[1]) : '—',
+                'asterisk_last_reload' => isset($m2[1]) ? $fmtUp((int) $m2[1]).' ago' : '—',
+                'load' => implode(' ', array_map(fn($v) => number_format($v, 2), sys_getloadavg() ?: [])),
+                'disk_free' => round(disk_free_space('/') / 1073741824, 1).' GB free of '.round(disk_total_space('/') / 1073741824, 1).' GB',
+            ],
+            'asterisk' => [
+                'sip' => $transports ?: ['—'],
+                'endpoints' => count($endpoints),
+                'contacts_up' => $up_.' of '.$all.' up',
+                'codecs_in_use' => $allCodecs,
+                'codecs_installed' => $translators,
+                'contexts' => $contexts,
+                'agi' => array_values(array_unique($agi[1])),
+                'ivrs' => $ivrs->map(fn($i) => $i->display_name ? "{$i->display_name} (custom/{$i->name})" : "custom/{$i->name}")->all(),
+                'rtp' => (($rs[1] ?? null) && ($re[1] ?? null)) ? "{$rs[1]}-{$re[1]} UDP" : '—',
+                'last_apply' => $lastApply ? "{$lastApply->status} · {$lastApply->user_name} · {$lastApply->created_at}" : '—',
+            ],
+        ]]);
+    });
+
     Route::post('/v1/system/exec', function(Request $r) {
+        if ($r->user()->role !== 'superadmin') return response()->json(['error'=>'Unauthorized'],403);
         $allowed = [
             'Reload Asterisk'      => "asterisk -rx 'core reload'",
             '⟳ Reload Asterisk'   => "asterisk -rx 'core reload'",

@@ -59,11 +59,12 @@ const getNavGroups=(role)=>{
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
   ]},
+  // Partners: only Suppliers and Dialer (the reseller/dialer accounts page).
+  // Supplier payments are handled in each supplier's Payment History; the
+  // Supplier Payments and Customers pages are no longer in the menu.
   {key:"partners",label:"Partners",items:[
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
-    ...(isSuperAdmin?[{id:"supplierpayments",label:"Supplier Payments",icon:"💰"}]:[]),
-    {id:"resellers",label:"Resellers",icon:"👥"},
-    {id:"customers",label:"Customers",icon:"◷"},
+    {id:"resellers",label:"Dialer",icon:"👥"},
   ]},
   ...(isSuperAdmin?[{key:"asterisk",label:"Asterisk Configuration",items:[
     {id:"ast-trunks",label:"Trunks",icon:"📞"},
@@ -346,20 +347,41 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
           </div>
         </div>
       </div>
-      {/* Pill: live calls (per-supplier revenue removed from the top bar) */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16,minWidth:0,flex:"1 1 auto",
-        overflowX:"auto",scrollbarWidth:"none"}}>
-        <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,
-          borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
-          <span style={{width:7,height:7,borderRadius:"50%",background:"#10B981",
-            display:"inline-block",boxShadow:"0 0 6px #10B981"}}/>
-          <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Live</span>
-          <span style={{fontSize:13,color:"#10B981",fontWeight:800,fontFamily:"monospace"}}>{liveCalls}</span>
-        </div>
-      </div>
+      {/* Live calls: fixed-size widget (never shrinks, so it cannot be squeezed out
+          on narrow screens). Phone icon rings + pulses green while calls are live. */}
+      <style>{`
+        @keyframes liveRing{0%{transform:scale(1);opacity:.75}100%{transform:scale(1.9);opacity:0}}
+        @keyframes liveShake{0%,80%,100%{transform:rotate(0)}84%{transform:rotate(-14deg)}88%{transform:rotate(14deg)}92%{transform:rotate(-10deg)}96%{transform:rotate(8deg)}}
+      `}</style>
+      {(()=>{
+        const on=Number(liveCalls)>0, col=on?"#10B981":"rgba(255,255,255,0.75)";
+        return(
+          <div title={on?liveCalls+" live call"+(liveCalls>1?"s":"")+" right now":"No live calls"}
+            style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:isMobile?4:18,
+              padding:isMobile?"0":"5px 14px 5px 6px",borderRadius:24,
+              background:isMobile?"transparent":"rgba(0,0,0,0.2)",border:isMobile?"none":"1px solid rgba(255,255,255,0.12)"}}>
+            <div style={{position:"relative",width:34,height:34,flexShrink:0}}>
+              {on&&<span style={{position:"absolute",inset:0,borderRadius:"50%",background:"#10B981",animation:"liveRing 1.4s ease-out infinite"}}/>}
+              <div style={{position:"absolute",inset:0,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                background:on?"linear-gradient(135deg,#34D399,#059669)":"rgba(255,255,255,0.14)",
+                border:"1.5px solid "+(on?"rgba(255,255,255,0.7)":"rgba(255,255,255,0.3)"),
+                boxShadow:on?"0 0 12px rgba(16,185,129,0.8)":"none"}}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"
+                  style={{animation:on?"liveShake 1.6s ease-in-out infinite":"none",transformOrigin:"50% 50%"}}>
+                  <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z"/>
+                </svg>
+              </div>
+              <span style={{position:"absolute",top:-5,right:-7,minWidth:18,height:18,padding:"0 5px",borderRadius:9,boxSizing:"border-box",
+                background:on?"#F5A623":"#6B7280",color:"#FFFFFF",fontSize:11,fontWeight:900,fontFamily:"monospace",
+                display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #2CADA6",lineHeight:1}}>{liveCalls}</span>
+            </div>
+            {!isMobile&&<span style={{fontSize:12,fontWeight:800,letterSpacing:"1.5px",color:col}}>LIVE</span>}
+          </div>
+        );
+      })()}
       {/* Right side */}
-      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <span style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontFamily:"monospace"}}>{time}</span>
+      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:isMobile?8:12,flexShrink:0}}>
+        <span style={{fontSize:isMobile?10:12,color:"rgba(255,255,255,0.6)",fontFamily:"monospace",whiteSpace:"nowrap"}}>{time}</span>
         {!isMobile&&<div style={{display:"flex",alignItems:"center",gap:8,
           padding:"5px 12px",borderRadius:20,background:"rgba(0,0,0,0.2)"}}>
           <div style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.2)",
@@ -4465,7 +4487,7 @@ function ResellerPortalPage({token}){
     <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Reseller Portal</div>
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Dialer</div>
         <button onClick={()=>{setShowAdd(true);setSelected(null);setTab("add");
           setForm({name:"",email:"",password:"",company:"",phone:"",role:"reseller",credit_limit:"0",markup:"0",notes:""});}}
           style={{padding:"8px 18px",borderRadius:20,border:"none",background:"#2CADA6",
@@ -5699,6 +5721,12 @@ function TestLabsPage({token}){
 
 // ── Settings ──────────────────────────────────────────────────────
 function SettingsPage({user,logout}){
+  // Every value below is read live from the server (GET /system/info) - nothing hard-coded.
+  const [info,setInfo]=useState(null);
+  const [loadedAt,setLoadedAt]=useState("");
+  const loadInfo=()=>{const t=localStorage.getItem("noc_token");
+    apiFetch("/system/info",t).then(d=>{if(d&&d.data){setInfo(d.data);setLoadedAt(new Date().toLocaleTimeString("en-GB"));}});};
+  useEffect(()=>{loadInfo();const i=setInterval(()=>{if(!document.hidden)loadInfo();},60000);return()=>clearInterval(i);},[]);
   const handleExec=async(cmd)=>{
     if(!window.confirm(`Run: ${cmd}?`)) return;
     const t=localStorage.getItem("noc_token");
@@ -5706,7 +5734,8 @@ function SettingsPage({user,logout}){
       headers:{Authorization:`Bearer ${t}`,Accept:"application/json","Content-Type":"application/json"},
       body:JSON.stringify({cmd})});
     const d=await r.json();
-    alert(d.output||d.message||"Done");
+    alert((d.success===false?"❌ Failed":d.error?"❌ "+d.error:"✅ Done")+(d.output?"\n\n"+d.output:""));
+    loadInfo();
   };
   return(
     <div style={{padding:16}}>
@@ -5722,36 +5751,35 @@ function SettingsPage({user,logout}){
           </button>
         ))}
       </div>
-      <Card style={{padding:14,marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Account</div>
-        {[["Name",user?.name],["Email",user?.email],["Role",user?.role],["Client ID",user?.client_id]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v||"—"}</span>
-          </div>
-        ))}
-      </Card>
-      <Card style={{padding:14,marginBottom:12}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Server Info</div>
-        {[["IP","195.200.14.165"],["OS","Ubuntu 24.04"],["PHP","8.3-FPM"],
-          ["Asterisk","20.6.0"],["NOC","http://195.200.14.165/noc/"]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.green,fontFamily:"monospace"}}>{v}</span>
-          </div>
-        ))}
-      </Card>
-      <Card style={{padding:14}}>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:10}}>Asterisk Config</div>
-        {[["SIP Port","5060 UDP"],["Codecs","G.729, alaw, ulaw"],
-          ["Context","from-carrier"],["AGI","did_router.php"],
-          ["IVR","custom/6g-premium-telecom"],["RTP","10000-20000"]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted}}>{k}</span>
-            <span style={{fontSize:11,color:C.text,fontFamily:"monospace"}}>{v}</span>
-          </div>
-        ))}
-      </Card>
+      {(()=>{
+        const row=(k,v)=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"6px 0",borderBottom:"1px solid #F0F0F0",fontSize:12}}>
+            <span style={{color:"#888",fontWeight:600,whiteSpace:"nowrap"}}>{k}</span>
+            <span style={{color:"#1A1A1A",fontWeight:600,textAlign:"right",wordBreak:"break-word"}}>{v}</span>
+          </div>);
+        const card=(title,rows)=>(
+          <div style={{background:"#FFF",borderRadius:10,padding:14,marginBottom:12,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <div style={{fontSize:11,fontWeight:700,marginBottom:10,display:"flex",justifyContent:"space-between"}}>
+              <span>{title}</span>{title==="Server Info"&&<span style={{color:"#999",fontWeight:500}}>{info?"live · "+loadedAt:"loading..."}</span>}</div>
+            {rows.filter(Boolean).map(([k,v])=>row(k,v))}
+          </div>);
+        const sv=info?.server||{}, as=info?.asterisk||{};
+        const mono=v=><span style={{fontFamily:"monospace"}}>{v}</span>;
+        const niceCodec=c=>({opus_open_source:"opus",a_mu:null,resample:null}[c]!==undefined?{opus_open_source:"opus"}[c]||null:c);
+        return(<>
+          {card("Account",[["Name",user?.name||"—"],["Email",user?.email||"—"],["Role",user?.role||"—"],user?.client_id?["Client ID",user.client_id]:null])}
+          {card("Server Info",[["IP",mono(sv.ip||"…")],["Hostname",sv.hostname||"…"],["OS",sv.os||"…"],["PHP",sv.php||"…"],["Database",sv.database||"…"],
+            ["Asterisk",sv.asterisk||"…"],["NOC",sv.noc_url?<a href={sv.noc_url} style={{color:"#2CADA6"}}>{sv.noc_url}</a>:"…"],
+            ["Server uptime",sv.uptime||"…"],["Load",sv.load||"…"],["Disk",sv.disk_free||"…"]])}
+          {card("Asterisk Config",[["SIP",mono((as.sip||["…"]).join(", "))],["Trunks",as.endpoints!=null?as.endpoints+" endpoints · "+as.contacts_up+" contacts":"…"],
+            ["Codecs in use",mono((as.codecs_in_use||[]).join(", ")||"…")],
+            ["Codecs installed",mono((as.codecs_installed||[]).map(niceCodec).filter(Boolean).join(", ")||"…")],
+            ["Contexts",as.contexts?<span style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+              {Object.entries(as.contexts).map(([c,eps])=><span key={c}><span style={{fontFamily:"monospace"}}>{c}</span> <span style={{color:"#888",fontWeight:500}}>({eps.map(numSupplier).join(", ")})</span></span>)}</span>:"…"],
+            ["AGI",mono((as.agi||[]).join(", ")||"…")],["IVRs",(as.ivrs||[]).join(", ")||"…"],["RTP",mono(as.rtp||"…")],
+            ["Asterisk uptime",sv.asterisk_uptime?sv.asterisk_uptime+" · reloaded "+sv.asterisk_last_reload:"…"],["Last Apply",as.last_apply||"…"]])}
+        </>);
+      })()}
     </div>
   );
 }
