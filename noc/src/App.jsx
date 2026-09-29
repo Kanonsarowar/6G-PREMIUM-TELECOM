@@ -310,7 +310,7 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
   const [time,setTime]=useState(new Date().toLocaleTimeString());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
   return(
-    <div style={{height:64,background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
+    <div style={{height:isMobile?64:72,background:"linear-gradient(90deg,#2CADA6,#38B7A8)",
       display:"flex",alignItems:"center",padding:"0 16px",gap:10,
       flexShrink:0,zIndex:100,boxShadow:"0 2px 12px rgba(75,63,181,0.3)"}}>
       {/* Hamburger */}
@@ -320,17 +320,30 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
           cursor:"pointer",borderRadius:10,width:40,height:40,
           display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>☰</button>
       )}
-      {/* Brand */}
-      <div onClick={onHome} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
-        {!isMobile&&<div style={{width:38,height:38,borderRadius:10,flexShrink:0,
-          background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.2)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📡</div>}
-        <div>
-          <div style={{fontSize:15,fontWeight:900,color:"#FFFFFF",lineHeight:1.2,letterSpacing:"0.3px"}}>
+      {/* Brand: signal mark + 6GSTATS wordmark + NOC PLATFORM tagline */}
+      <div onClick={onHome} title="Home" style={{display:"flex",alignItems:"center",gap:isMobile?8:12,cursor:"pointer",flexShrink:0}}>
+        <div style={{width:isMobile?34:44,height:isMobile?34:44,borderRadius:isMobile?10:12,flexShrink:0,
+          background:"linear-gradient(135deg,#3C2F8F 0%,#5B4FCF 55%,#F5A623 140%)",
+          border:"1.5px solid rgba(255,255,255,0.35)",boxShadow:"0 4px 14px rgba(28,20,90,0.35), inset 0 1px 0 rgba(255,255,255,0.25)",
+          display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width={isMobile?20:26} height={isMobile?20:26} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 13v8"/><circle cx="12" cy="11" r="2" fill="#FFFFFF" stroke="none"/>
+            <path d="M8.5 7.5a5 5 0 0 0 0 7"/><path d="M15.5 7.5a5 5 0 0 1 0 7"/>
+            <path d="M5.6 4.6a9 9 0 0 0 0 12.8" stroke="#F5A623"/><path d="M18.4 4.6a9 9 0 0 1 0 12.8" stroke="#F5A623"/>
+          </svg>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",justifyContent:"center"}}>
+          <div style={{fontSize:isMobile?20:26,fontWeight:900,lineHeight:1,letterSpacing:isMobile?"0.5px":"1px",
+            textShadow:"0 2px 8px rgba(0,0,0,0.18)",whiteSpace:"nowrap"}}>
             <span style={{color:"#FFFFFF"}}>6G</span>
-            <span style={{color:"#F5A623"}}>STATS</span>
+            <span style={{background:"linear-gradient(180deg,#FFD27A,#F5A623)",WebkitBackgroundClip:"text",backgroundClip:"text",
+              color:"transparent",WebkitTextFillColor:"transparent"}}>STATS</span>
           </div>
-          <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase"}}>NOC Platform</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:isMobile?3:5}}>
+            <span style={{height:1,width:isMobile?10:14,background:"rgba(255,255,255,0.55)"}}/>
+            <span style={{fontSize:isMobile?8:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:isMobile?"2px":"3px",
+              textTransform:"uppercase",whiteSpace:"nowrap"}}>NOC Platform</span>
+          </div>
         </div>
       </div>
       {/* Pill: live calls (per-supplier revenue removed from the top bar) */}
