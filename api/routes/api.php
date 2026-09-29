@@ -1838,7 +1838,7 @@ Route::middleware('auth:sanctum')->group(function() {
                 $country = $p->country ?? null;
                 if (!$country) foreach ([3,2,1] as $n) if (isset($cc[substr($d,0,$n)])) { $country = $cc[substr($d,0,$n)]; break; }
                 $groups[$key] = ['code'=>$p->prefix ?? substr($d,0,8),'country'=>$country ?: '—',
-                    'tariff'=>$p ? (float)$p->price : null,'payment_term'=>$p->payment_term ?? null,
+                    'tariff'=>($p && $p->price !== null) ? (float)$p->price : null,'payment_term'=>$p->payment_term ?? null,
                     'configured'=>(bool)$p,'calls'=>0,'seconds'=>0];
             }
             $groups[$key]['calls']++;

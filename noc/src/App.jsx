@@ -2448,7 +2448,10 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
                     <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(p.price)}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{p.price==null?
+                      <button onClick={()=>openEditPrefix(p)} title="Auto-created from call data - click to set the price" style={{padding:"2px 8px",borderRadius:4,
+                        border:"1px solid #F5A623",background:"rgba(245,166,35,0.12)",color:"#B7791F",fontSize:10,fontWeight:700,cursor:"pointer"}}>Set price</button>
+                      :fmtUSDT(p.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(p.ivr_context||"—").replace("custom/","")}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
@@ -2498,7 +2501,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{g.items.length>0&&<span style={{color:"#2CADA6",marginRight:6}}>{isExp?"▾":"▸"}</span>}{g.country_name||"—"}</td>
                         <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{g.prefix||"—"}</td>
                         <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#333"}}>{count}</td>
-                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{fmtUSDT(price)}</td>
+                        <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:price==null?"#B7791F":"#10B981",fontFamily:"monospace"}}>{price==null?"not set":fmtUSDT(price)}</td>
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{term}</td>
                         <td style={{padding:"8px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                           {pfx&&<button onClick={()=>openEditPrefix(pfx)} title="Edit prefix price / term / IVR" style={{...btn("#2CADA6"),marginRight:6}}>Edit</button>}
@@ -2509,7 +2512,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <tr key={n.id} style={{borderBottom:"1px solid #EEF7F6",background:i%2?"#F3FBFA":"#FAFEFE"}}>
                           <td colSpan={3} style={{...sub,paddingLeft:26,fontFamily:"monospace",fontWeight:700}}>{n.number}
                             {n.status==="disabled"&&<span style={{marginLeft:8,fontSize:9,color:"#EF4444",fontWeight:700,fontFamily:"Arial,Helvetica,sans-serif"}}>DISABLED</span>}</td>
-                          <td style={{...sub,color:"#555",fontFamily:"monospace"}}>{fmtUSDT(price)}</td>
+                          <td style={{...sub,color:"#555",fontFamily:"monospace"}}>{price==null?"not set":fmtUSDT(price)}</td>
                           <td style={{...sub,color:"#555"}}>{term}</td>
                           <td style={{...sub,whiteSpace:"nowrap"}}>
                             <button onClick={()=>setEditNum({id:n.id,number:n.number,ivr_context:n.ivr_context||"",status:n.status==="disabled"?"disabled":"available"})}
@@ -2843,7 +2846,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             </div>
             {addNum.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addNum.prefix_id));return p&&(
               <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555",flexWrap:"wrap"}}>
-                <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span><span>Term: <b>{p.payment_term}</b></span>
+                <span>Country: <b>{p.country}</b></span><span>Price: <b>{p.price==null?"not set":fmtUSDT(p.price)+"/min"}</b></span><span>Term: <b>{p.payment_term}</b></span>
               </div>
             );})()}
             <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -2912,7 +2915,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
             </div>
             {addTest.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addTest.prefix_id));return p&&(
               <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555"}}>
-                <span>Country: <b>{p.country}</b></span><span>Price: <b>{fmtUSDT(p.price)}/min</b></span>
+                <span>Country: <b>{p.country}</b></span><span>Price: <b>{p.price==null?"not set":fmtUSDT(p.price)+"/min"}</b></span>
               </div>
             );})()}
             <div style={{marginBottom:16}}>
