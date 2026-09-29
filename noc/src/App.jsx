@@ -1678,7 +1678,11 @@ function SupplierAccountsPage({token,user,setPage}){
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState(null);
   const [addForm,setAddForm]=useState({name:"",code:"",country:"",contact_name:"",email:"",phone:"",status:"active",notes:""});
-  const [selectedId,setSelectedId]=useState(null);
+  const [selectedId,setSelectedId]=useState(()=>{
+    // Opened from the Numbers overview (click a supplier) - show that supplier directly.
+    try{const v=sessionStorage.getItem("openSupplierId");if(v){sessionStorage.removeItem("openSupplierId");return Number(v);}}catch{}
+    return null;
+  });
 
   const load=()=>{
     setLoading(true);
@@ -3691,11 +3695,14 @@ const COUNTRIES=[
   {name:"Zambia",code:"ZM",prefix:"260"},
   {name:"Zimbabwe",code:"ZW",prefix:"263"},
 ];
-function NumberInventoryPage({token}){
+function NumberInventoryPage({token,setPage}){
   const [dids,setDids]=useState([]);
   const [ranges,setRanges]=useState([]);
   const [ivrList,setIvrList]=useState([]);
   const [suppliers,setSuppliers]=useState([]);
+  // Overview page: numbers are added/edited on each supplier's page under a
+  // prefix; tariff/term shown here always come from that prefix.
+  const [prefixList,setPrefixList]=useState([]);
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState("numbers");
   const [expanded,setExpanded]=useState({});
@@ -3715,7 +3722,12 @@ function NumberInventoryPage({token}){
   const [testResult,setTestResult]=useState(null);
   const [testing,setTesting]=useState(false);
 
+  const pfxById=Object.fromEntries(prefixList.map(p=>[p.id,p]));
+  const pfxTariff=(pid)=>{const p=pfxById[pid];return !p?"—":p.price==null?"not set":fmtUSDT(p.price);};
+  const pfxTerm=(pid,fallback)=>(pfxById[pid]&&pfxById[pid].payment_term)||fallback||"—";
+  const openSupplier=(sid)=>{ if(!sid||!setPage) return; try{sessionStorage.setItem("openSupplierId",String(sid));}catch{} setPage("suppliers"); };
   const load=()=>{
+    apiFetch("/prefixes",token).then(d=>setPrefixList(d.data||[]));
     setLoading(true);
     Promise.all([
       apiFetch("/dids",token),
@@ -3855,7 +3867,7 @@ function NumberInventoryPage({token}){
         display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks · add or edit numbers on each supplier's page (click a supplier)</div>
         </div>
         
       </div>
@@ -3924,9 +3936,10 @@ function NumberInventoryPage({token}){
                               </div>
                             </td>
                             <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(r.rate||0)}</td>
-                            <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{r.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(r.supplier_name)}</td>
+                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{r.prefix_id?pfxTariff(r.prefix_id):fmtUSDT(r.rate)}</td>
+                            <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{pfxTerm(r.prefix_id,r.payment_terms)}</td>
+                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
+                              title="Open this supplier's page" onClick={e=>{e.stopPropagation();openSupplier(r.supplier_id);}}>{numSupplier(r.supplier_name)}</td>
                             <td style={{padding:"6px 10px"}}>
                               {ivrSelect(r.ivr_context||r.default_ivr,ctx=>setRangeIvr(r,ctx))}
                             </td>
@@ -3960,9 +3973,10 @@ function NumberInventoryPage({token}){
                           <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
                             <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{parseFloat(d.tariff||0)}</td>
-                            <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"Weekly"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:600}}>{numSupplier(d.supplier_name)}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{d.prefix_id?pfxTariff(d.prefix_id):fmtUSDT(d.tariff)}</td>
+                            <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{pfxTerm(d.prefix_id,d.payment_terms)}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
+                              title="Open this supplier's page" onClick={()=>openSupplier(d.supplier_id)}>{numSupplier(d.supplier_name)}</td>
                             <td style={{padding:"5px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
                           </tr>
                         ))}
@@ -3978,201 +3992,6 @@ function NumberInventoryPage({token}){
           </>
         )}
 
-        {/* ── ADD NUMBER TAB ── */}
-        {tab==="add"&&(
-          <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:16}}>Add Numbers</div>
-
-            {/* Form Fields */}
-            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
-
-              {/* Supplier + Country */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {/* Supplier */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Supplier *</div>
-                <select style={inp} value={addForm.trunk_id} onChange={e=>setAddForm({...addForm,trunk_id:e.target.value})}>
-                  <option value="">— Select Supplier —</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Country</div>
-                <select style={inp} value={addForm.country_name}
-                  onChange={e=>{
-                    const c=COUNTRIES.find(x=>x.name===e.target.value);
-                    setAddForm({...addForm,
-                      country_name:e.target.value,
-                      country_code:c?.code||"",
-                      prefix:addForm.prefix||c?.prefix||""
-                    });
-                  }}>
-                  <option value="">— Select Country —</option>
-                  {COUNTRIES.map(c=>(
-                    <option key={c.code+c.name} value={c.name}>{c.name} (+{c.prefix})</option>
-                  ))}
-                </select>
-              </div>
-
-              </div>
-              {/* Tariff + Currency + Terms */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Tariff / min</div>
-                  <input style={inp} placeholder="0.070" value={addForm.tariff}
-                    onChange={e=>setAddForm({...addForm,tariff:e.target.value})}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>$</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
-                  <select style={inp} value={addForm.payment_terms||"Weekly"} onChange={e=>setAddForm({...addForm,payment_terms:e.target.value})}>
-                    <option value="Daily">Daily</option>
-                    <option value="Weekly">Weekly</option>
-                    <option value="Monthly">Monthly</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Prefix */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Prefix</div>
-                <input style={inp} placeholder="e.g. 39" value={addForm.prefix}
-                  onChange={e=>setAddForm({...addForm,prefix:e.target.value})}/>
-              </div>
-
-              {/* Entry Type Toggle */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Entry Type</div>
-                <div style={{display:"flex",gap:6}}>
-                  {[["range","📦 Range/Block"],["single","🔢 Single Number"]].map(([t,l])=>(
-                    <button key={t} onClick={()=>setAddForm({...addForm,addType:t})}
-                      style={{flex:1,padding:"9px 8px",borderRadius:8,
-                        border:"2px solid "+((addForm.addType||"range")===t?"#2CADA6":"#E0E0E0"),
-                        background:(addForm.addType||"range")===t?"rgba(44,173,166,0.08)":"#FFF",
-                        color:(addForm.addType||"range")===t?"#2CADA6":"#666",
-                        fontSize:12,fontWeight:(addForm.addType||"range")===t?700:400,
-                        cursor:"pointer",fontFamily:"inherit"}}>
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Range Fields */}
-              {(addForm.addType||"range")==="range"&&(
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {addForm.prefix&&(
-                    <div style={{padding:"8px 12px",background:"#F0FAFA",borderRadius:8,
-                      fontSize:12,color:"#2CADA6",fontWeight:600,letterSpacing:"0.3px"}}>
-                      🔢 Numbers will be: <span style={{fontFamily:"monospace"}}>{addForm.prefix} + [suffix]</span>
-                    </div>
-                  )}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>
-                        {addForm.prefix?"Suffix Start *":"Range Start *"}
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",border:"1px solid #E0E0E0",borderRadius:8,overflow:"hidden",background:"#FFF"}}>
-                        {addForm.prefix&&(
-                          <span style={{padding:"9px 8px",background:"#F5F5F5",color:"#999",
-                            fontSize:12,fontFamily:"monospace",borderRight:"1px solid #E0E0E0",
-                            whiteSpace:"nowrap"}}>{addForm.prefix}</span>
-                        )}
-                        <input style={{...inp,border:"none",borderRadius:0,flex:1}}
-                          placeholder={addForm.prefix?"0000":"393199052100"}
-                          value={addForm.rangeStartSuffix||""}
-                          onChange={e=>{
-                            const suffix=e.target.value.replace(/[^0-9]/g,"");
-                            const full=addForm.prefix?addForm.prefix+suffix:suffix;
-                            setAddForm({...addForm,rangeStartSuffix:suffix,rangeStart:full});
-                          }}/>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>
-                        {addForm.prefix?"Suffix End *":"Range End *"}
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",border:"1px solid #E0E0E0",borderRadius:8,overflow:"hidden",background:"#FFF"}}>
-                        {addForm.prefix&&(
-                          <span style={{padding:"9px 8px",background:"#F5F5F5",color:"#999",
-                            fontSize:12,fontFamily:"monospace",borderRight:"1px solid #E0E0E0",
-                            whiteSpace:"nowrap"}}>{addForm.prefix}</span>
-                        )}
-                        <input style={{...inp,border:"none",borderRadius:0,flex:1}}
-                          placeholder={addForm.prefix?"9999":"393199052199"}
-                          value={addForm.rangeEndSuffix||""}
-                          onChange={e=>{
-                            const suffix=e.target.value.replace(/[^0-9]/g,"");
-                            const full=addForm.prefix?addForm.prefix+suffix:suffix;
-                            setAddForm({...addForm,rangeEndSuffix:suffix,rangeEnd:full});
-                          }}/>
-                      </div>
-                    </div>
-                  </div>
-                  {addForm.rangeStart&&addForm.rangeEnd&&parseInt(addForm.rangeEnd)>=parseInt(addForm.rangeStart)&&(
-                    <div style={{padding:"10px 12px",background:"rgba(44,173,166,0.08)",
-                      borderRadius:8,fontSize:12,color:"#2CADA6",fontWeight:600}}>
-                      📊 Will generate <strong>{parseInt(addForm.rangeEnd)-parseInt(addForm.rangeStart)+1}</strong> numbers
-                      {addForm.prefix&&(
-                        <span style={{color:"#555",fontWeight:400,marginLeft:8,fontFamily:"monospace"}}>
-                          ({addForm.prefix}{addForm.rangeStartSuffix} → {addForm.prefix}{addForm.rangeEndSuffix})
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Single Number Field */}
-              {addForm.addType==="single"&&(
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Phone Number *</div>
-                  <input style={inp} placeholder="393199052141" value={addForm.number}
-                    onChange={e=>setAddForm({...addForm,number:e.target.value})}/>
-                </div>
-              )}
-            </div>
-
-            {/* Apply Button */}
-            <button onClick={async()=>{
-              if(!addForm.trunk_id){alert("Select a supplier");return;}
-              setSaving(true);setResult(null);
-              if((addForm.addType||"range")==="range"){
-                if(!addForm.rangeStart||!addForm.rangeEnd){alert("Enter range start and end");setSaving(false);return;}
-                const d=await apiFetch("/did-ranges/import-range",token,{method:"POST",body:JSON.stringify({
-                  range_start:addForm.rangeStart,range_end:addForm.rangeEnd,
-                  trunk_id:addForm.trunk_id,prefix:addForm.prefix,
-                  country_name:addForm.country_name,country_code:addForm.country_code,
-                  tariff:addForm.tariff,currency:addForm.currency,
-                  payment_terms:addForm.payment_terms||"Weekly"
-                })});
-                setResult(d);setSaving(false);
-                if(d.success) load();
-              } else {
-                if(!addForm.number){alert("Enter a number");setSaving(false);return;}
-                const num="+"+addForm.number.replace(/[^0-9]/g,"");
-                const d=await apiFetch("/dids",token,{method:"POST",body:JSON.stringify({
-                  number:num,trunk_id:addForm.trunk_id,
-                  country_name:addForm.country_name,country_code:addForm.country_code,
-                  prefix:addForm.prefix,tariff:addForm.tariff,selling_price:addForm.tariff,
-                  currency:addForm.currency,payment_terms:addForm.payment_terms||"Weekly",status:"active",
-                  ivr_context:"custom/6g-premium-telecom"
-                })});
-                setResult(d);setSaving(false);
-                if(d.success||d.data) load();
-              }
-            }} disabled={saving}
-              style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
-                background:saving?"#CCC":"#2CADA6",color:"#FFF",fontSize:15,
-                fontWeight:700,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.5px"}}>
-              {saving?"Processing...":"✅ APPLY"}
-            </button>
-          </div>
-        )}
         {/* ── ASSIGN RESELLER TAB ── */}
 
         {/* ── DELETE TAB ── */}
@@ -4238,87 +4057,6 @@ function NumberInventoryPage({token}){
           </>
         )}
 
-        {/* ── UPLOAD CSV TAB ── */}
-        {tab==="upload"&&(
-          <div style={{fontFamily:"inherit"}}>
-            <div style={{background:"#FFF",borderRadius:10,padding:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:4}}>Upload Supplier DID List</div>
-              <div style={{fontSize:12,color:"#999",marginBottom:20}}>Select supplier then upload their CSV file — server auto-detects format</div>
-              <div style={{marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",background:"#2CADA6",color:"#FFF",
-                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
-                  <div style={{fontSize:12,fontWeight:700,color:"#333"}}>Select Supplier</div>
-                </div>
-                <select style={inp} value={uploadTrunk} onChange={e=>setUploadTrunk(e.target.value)}>
-                  <option value="">— Choose Supplier —</option>
-                  {suppliers.map(s=><option key={s.id} value={s.id}>{numSupplier(s.nickname||s.name)}</option>)}
-                </select>
-              </div>
-              <div style={{marginBottom:20}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",
-                    background:uploadTrunk?"#2CADA6":"#CCC",color:"#FFF",
-                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
-                  <div style={{fontSize:12,fontWeight:700,color:uploadTrunk?"#333":"#999"}}>Upload CSV File</div>
-                </div>
-                <div onClick={()=>uploadTrunk&&document.getElementById("csv-sync-input").click()}
-                  onDragOver={e=>e.preventDefault()}
-                  onDrop={e=>{e.preventDefault();if(uploadTrunk)setUploadFile(e.dataTransfer.files[0]);}}
-                  style={{background:uploadFile?"rgba(44,173,166,0.05)":"#F8F9FA",
-                    border:"2px dashed "+(uploadFile?"#2CADA6":"#E0E0E0"),
-                    borderRadius:10,padding:32,textAlign:"center",
-                    cursor:uploadTrunk?"pointer":"not-allowed",opacity:uploadTrunk?1:0.5}}>
-                  <div style={{fontSize:32,marginBottom:8}}>{uploadFile?"✅":"📂"}</div>
-                  <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:4}}>
-                    {uploadFile?uploadFile.name:"Drop file here or tap to browse"}
-                  </div>
-                  <div style={{fontSize:11,color:"#999"}}>Any CSV format — server auto-detects numbers</div>
-                  <input id="csv-sync-input" type="file" accept=".csv,.txt" style={{display:"none"}}
-                    onChange={e=>setUploadFile(e.target.files[0])} disabled={!uploadTrunk}/>
-                </div>
-              </div>
-              <button onClick={async()=>{
-                if(!uploadFile||!uploadTrunk) return;
-                setUploading(true);setResult(null);
-                const fd=new FormData();
-                fd.append("file",uploadFile);fd.append("trunk_id",uploadTrunk);
-                fd.append("rate",uploadRate);fd.append("currency",uploadCurrency);
-                const res=await fetch("https://6g-premium-telecom.com/api/v1/dids/smart-sync",{
-                  method:"POST",headers:{Authorization:"Bearer "+token},body:fd
-                });
-                let d;try{d=await res.json();}catch(e){d={success:false,error:"Server error: "+res.status};}
-                setResult(d);setUploading(false);
-                if(d.success)load();
-              }} disabled={uploading||!uploadFile||!uploadTrunk}
-                style={{width:"100%",padding:"14px",borderRadius:10,border:"none",
-                  background:uploading||!uploadFile||!uploadTrunk?"#CCC":"#2CADA6",
-                  color:"#FFF",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                {uploading?"Syncing...":"🔄 Sync Numbers"}
-              </button>
-              {result&&(
-                <div style={{marginTop:14,padding:"14px 16px",borderRadius:10,
-                  background:result.success?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
-                  border:"1px solid "+(result.success?"#10B981":"#EF4444")}}>
-                  <div style={{fontSize:13,fontWeight:700,color:result.success?"#10B981":"#EF4444",marginBottom:8}}>
-                    {result.success?"✅ Sync Complete":"❌ Failed"}
-                  </div>
-                  {result.success&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-                      {[["Added",result.added,"#10B981"],["Removed",result.removed,"#EF4444"],["Unchanged",result.unchanged,"#999"]].map(([l,v,c],i)=>(
-                        <div key={i} style={{background:"#FFF",borderRadius:8,padding:"8px",textAlign:"center"}}>
-                          <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
-                          <div style={{fontSize:10,color:"#999",fontWeight:600,textTransform:"uppercase"}}>{l}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{fontSize:12,color:"#555"}}>{result.message||result.error}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Sticky Bottom */}
@@ -7322,7 +7060,7 @@ export default function App(){
       case "livecalls":    return <LiveCallsPage token={token}/>;
       case "cdr":          return <CDRPage token={token}/>;
       case "revenue":      return <RevenuePage token={token}/>;
-      case "numbers": return <NumberInventoryPage token={token}/>;
+      case "numbers": return <NumberInventoryPage token={token} setPage={navigateTo}/>;
       case "ivr":          return <IVRPage token={token} setPage={navigateTo}/>;
       case "connectivr":   return <ConnectIVRPage token={token}/>;
       case "routeprefix":  return <RoutePrefixPage token={token}/>;
