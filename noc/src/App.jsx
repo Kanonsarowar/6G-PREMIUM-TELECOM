@@ -2574,7 +2574,7 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* PAYMENT HISTORY — this supplier's weekly payment entries */}
+        {/* PAYMENT HISTORY — one row per week (the week's weekly payment entries, all currencies, combined in USDT) */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>PAYMENT HISTORY</span>
@@ -2582,12 +2582,29 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer"}}>↻ Refresh</button>
           </div>
           {(()=>{
-            const rows=(payHist||[]).filter(p=>{
-              const created=String(p.created_at||"").slice(0,10);
-              return (payStatus==="all"||p.status===payStatus)&&(!payFrom||created>=payFrom)&&(!payTo||created<=payTo);
+            // Group the week's entries (one per currency) into a single week row.
+            const byWeek={};
+            (payHist||[]).forEach(p=>{
+              const k=p.period_start+"|"+p.period_end;
+              if(!byWeek[k]) byWeek[k]={key:k,start:p.period_start,end:p.period_end,amount:0,entries:[]};
+              byWeek[k].amount+=toUSDT(p.total_amount,p.currency);
+              byWeek[k].entries.push(p);
             });
-            // Balance = what is still owed: all unpaid entries, in USDT.
-            const balance=(payHist||[]).filter(p=>p.status!=="paid").reduce((a,p)=>a+toUSDT(p.total_amount,p.currency),0);
+            const weeks=Object.values(byWeek).map(w=>({...w,paid:w.entries.every(e=>e.status==="paid"),
+              partly:w.entries.some(e=>e.status==="paid")&&w.entries.some(e=>e.status!=="paid")}))
+              .sort((x,y)=>String(y.start).localeCompare(String(x.start)));
+            const rows=weeks.filter(w=>(payStatus==="all"||(payStatus==="paid"?w.paid:!w.paid))&&(!payFrom||w.end>=payFrom)&&(!payTo||w.start<=payTo));
+            const balance=weeks.reduce((a,w)=>a+w.entries.filter(e=>e.status!=="paid").reduce((b,e)=>b+toUSDT(e.total_amount,e.currency),0),0);
+            const fmtDay=(d,y)=>new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",...(y?{year:"numeric"}:{})});
+            const setWeek=async(w,paid)=>{
+              if(!window.confirm((paid?"Mark PAID: ":"Set back to UNPAID: ")+fmtDay(w.start)+" – "+fmtDay(w.end,true)+" · "+fmtUSDT(w.amount)+" ?")) return;
+              for(const e of w.entries){
+                if(paid===(e.status==="paid")) continue;
+                const d=await apiFetch(`/supplier-payments/invoices/${e.id}/${paid?"mark-paid":"mark-unpaid"}`,token,{method:"POST",body:JSON.stringify({})});
+                if(!d.success){alert(d.error||"Failed to update");break;}
+              }
+              loadPayHist();
+            };
             const chip=(k,l)=>(
               <button key={k} onClick={()=>setPayStatus(k)} style={{padding:"5px 12px",borderRadius:16,fontSize:11,fontWeight:700,cursor:"pointer",
                 border:"1px solid "+(payStatus===k?"#2CADA6":"#DDD"),background:payStatus===k?"#2CADA6":"#FFF",color:payStatus===k?"#FFF":"#555"}}>{l}</button>);
@@ -2601,25 +2618,30 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                 <div style={{fontSize:12,fontWeight:700,color:"#1A1A1A"}}>Balance: <span style={{fontFamily:"monospace",color:balance>0?"#F5A623":"#10B981"}}>{fmtUSDT(balance)}</span></div>
               </div>
               <div style={{padding:"8px 14px",display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",borderBottom:"1px solid #F0F0F0"}}>
-                <span style={{fontSize:11,color:"#888",fontWeight:600}}>Created</span>
+                <span style={{fontSize:11,color:"#888",fontWeight:600}}>Week</span>
                 <input type="date" value={payFrom} onChange={e=>setPayFrom(e.target.value)} style={{...inpS,width:140,fontSize:11}}/>
                 <span style={{fontSize:11,color:"#888"}}>to</span>
                 <input type="date" value={payTo} onChange={e=>setPayTo(e.target.value)} style={{...inpS,width:140,fontSize:11}}/>
               </div>
               <div style={{overflowX:"auto"}}>
                 <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
-                  <thead><tr>{["Invoice Number","Status","Amount"].map((h,i)=><th key={i} style={{...thSup,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Date","Amount","Status"].map((h,i)=><th key={i} style={{...thSup,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
                   <tbody>
                     {payHist===null?<tr><td colSpan={3} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>Loading...</td></tr>:
                     rows.length===0?<tr><td colSpan={3} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No payment history for this filter</td></tr>:
-                    rows.map((p,i)=>(
-                      <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                        <td style={{...cell,fontFamily:"monospace",fontWeight:700}} title={"Period "+p.period_start+" → "+p.period_end}>{p.invoice_number}</td>
-                        <td style={cell}><span style={{padding:"2px 10px",borderRadius:12,fontSize:11,fontWeight:700,
-                          background:p.status==="paid"?"rgba(16,185,129,0.1)":"rgba(245,166,35,0.12)",color:p.status==="paid"?"#10B981":"#B7791F"}}>
-                          {p.status==="paid"?"Paid":"Unpaid"}</span></td>
-                        <td style={{...cell,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}
-                          title={p.currency==="EUR"?"€"+Number(p.total_amount).toFixed(4)+" × 1.08":p.currency!=="USDT"?Number(p.total_amount).toFixed(4)+" "+p.currency:undefined}>{fmtUSDT(toUSDT(p.total_amount,p.currency))}</td>
+                    rows.map((w,i)=>(
+                      <tr key={w.key} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
+                        <td style={{...cell,fontWeight:700}}>{fmtDay(w.start)} – {fmtDay(w.end,true)}</td>
+                        <td style={{...cell,fontFamily:"monospace",fontWeight:700,color:"#1A1A1A"}}>{fmtUSDT(w.amount)}</td>
+                        <td style={cell}>
+                          <select value={w.paid?"paid":"unpaid"} onChange={e=>setWeek(w,e.target.value==="paid")}
+                            style={{padding:"4px 8px",borderRadius:12,fontSize:11,fontWeight:700,cursor:"pointer",
+                              border:"1px solid "+(w.paid?"#10B981":"#F5A623"),background:w.paid?"rgba(16,185,129,0.1)":"rgba(245,166,35,0.12)",
+                              color:w.paid?"#10B981":"#B7791F"}}>
+                            <option value="unpaid">{w.partly?"Partly paid":"Unpaid"}</option>
+                            <option value="paid">Paid</option>
+                          </select>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
