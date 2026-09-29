@@ -1892,7 +1892,9 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
   useEffect(()=>{ loadPrefixes(); loadNumbers(); loadTest(); loadAccessHistory(); loadIvrs(); loadAstConf(); },[supplier.id]);
   // Keep Access History current: a new call on a prefix moves its date.
-  useEffect(()=>{ const t=setInterval(loadAccessHistory,15000); return ()=>clearInterval(t); },[supplier.id]);
+  // Once a minute and only while the tab is visible - every open tab shares
+  // the user's API rate limit.
+  useEffect(()=>{ const t=setInterval(()=>{ if(!document.hidden) loadAccessHistory(); },60000); return ()=>clearInterval(t); },[supplier.id]);
 
   const flash=(t)=>{setMsg(t);setTimeout(()=>setMsg(null),3000);};
   const scrollTo=(ref)=>ref.current?.scrollIntoView({behavior:"smooth",block:"start"});
