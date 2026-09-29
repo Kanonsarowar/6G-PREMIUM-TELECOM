@@ -15,7 +15,7 @@ const SUP_COLORS=[
   {bg:"#FDE3E3",accent:"#EF4444"},{bg:"#EBE4FB",accent:"#8B5CF6"},{bg:"#DEF5E8",accent:"#10B981"},
   {bg:"#FFE7D6",accent:"#F97316"},{bg:"#DAF1F7",accent:"#06B6D4"},
 ];
-const fmtUSDT=(v,decimals=4)=>"₮"+parseFloat(v||0).toFixed(decimals);
+const fmtUSDT=(v,decimals=4)=>"$"+parseFloat(v||0).toFixed(decimals);
 // Amounts stored in another currency (EUR/USD rows from imports) convert to
 // USDT at the app-wide fixed rate before display: 1 EUR = 1.08, USD 1:1.
 const toUSDT=(v,cur)=>parseFloat(v||0)*(cur==="EUR"?1.08:1);
@@ -3868,7 +3868,7 @@ function NumberInventoryPage({token}){
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Currency</div>
-                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>₮</div>
+                  <div style={{...inp,display:"flex",alignItems:"center",color:"#888",background:"#F5F5F5"}}>$</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.5px"}}>Payment Terms</div>
@@ -6712,7 +6712,7 @@ function TestNumbersPage({token}){
                   value={newTest.rate} onChange={e=>setNewTest({...newTest,rate:e.target.value})} placeholder="0.420"/></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Currency</div>
                 <div style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,
-                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>₮</div></div>
+                  boxSizing:"border-box",color:"#888",background:"#F5F5F5"}}>$</div></div>
               <div><div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4}}>Supplier</div>
                 <input style={{width:"100%",padding:"8px 10px",border:"1px solid #E0E0E0",borderRadius:6,fontSize:12,outline:"none",boxSizing:"border-box"}}
                   value={newTest.supplier} onChange={e=>setNewTest({...newTest,supplier:e.target.value})} placeholder="e.g. WTP"/></div>
