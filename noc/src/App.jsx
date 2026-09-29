@@ -333,7 +333,7 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
           <div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase"}}>NOC Platform</div>
         </div>
       </div>
-      {/* Pills: live calls, then revenue not yet paid out, per supplier (scrolls sideways if it does not fit) */}
+      {/* Pill: live calls (per-supplier revenue removed from the top bar) */}
       <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16,minWidth:0,flex:"1 1 auto",
         overflowX:"auto",scrollbarWidth:"none"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,
@@ -343,20 +343,6 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
           <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>Live</span>
           <span style={{fontSize:13,color:"#10B981",fontWeight:800,fontFamily:"monospace"}}>{liveCalls}</span>
         </div>
-        <span title="Revenue not yet paid out to the supplier" style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:600,flexShrink:0,marginLeft:4}}>Rev</span>
-        {unpaid.length===0
-          ?<div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,
-              borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
-              <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>{fmtUSDT(0)}</span>
-            </div>
-          :unpaid.map(u=>(
-            <div key={u.name} title={`Revenue not yet paid out for ${u.name}: ${u.calls} calls, ${u.minutes} min`}
-              style={{display:"flex",alignItems:"center",gap:6,padding:"5px 14px",flexShrink:0,whiteSpace:"nowrap",
-                borderRadius:20,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.1)"}}>
-              <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",fontWeight:500}}>{numSupplier(u.name)}</span>
-              <span style={{fontSize:13,color:"#F5A623",fontWeight:800,fontFamily:"monospace"}}>{fmtUSDT(u.amount)}</span>
-            </div>
-          ))}
       </div>
       {/* Right side */}
       <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
@@ -6919,10 +6905,6 @@ export default function App(){
     if(!token)return;
     const loadStats=()=>{
       apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
-      // Revenue not yet paid out, per supplier (everything since that supplier's last paid payout)
-      apiFetch("/billing/unpaid-revenue",token).then(d=>{
-        setUnpaid((d.data||[]).map(r=>({name:r.supplier_name,amount:Number(r.amount)||0,calls:r.calls,minutes:r.minutes})).filter(x=>x.amount>0));
-      });
     };
     loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
   },[token]);
