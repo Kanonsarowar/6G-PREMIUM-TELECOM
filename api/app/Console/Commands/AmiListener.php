@@ -40,6 +40,11 @@ class AmiListener extends Command
         44 => 'Congestion',  // Requested channel unavailable
     ];
 
+    /** Seconds between checks for calls whose Hangup event never arrived */
+    private const SWEEP_EVERY = 60;
+
+    private int $lastSweep = 0;
+
     public function handle()
     {
         while (true) {
@@ -52,22 +57,35 @@ class AmiListener extends Command
             }
 
             fputs($socket, "Action: Login\r\nUsername: " . env('ASTERISK_AMI_USER') . "\r\nSecret: " . env('ASTERISK_AMI_PASS') . "\r\nEvents: call\r\n\r\n");
+            // Wake up regularly even when no calls come in, so stale rows get swept
+            // and a dead connection is noticed (a Ping on it fails and we reconnect).
+            stream_set_timeout($socket, self::SWEEP_EVERY);
 
             while (!feof($socket)) {
+                if (time() - $this->lastSweep >= self::SWEEP_EVERY) {
+                    $this->sweepStaleCalls();
+                }
+
                 $line = fgets($socket);
                 if ($line === false) {
+                    if (stream_get_meta_data($socket)['timed_out'] && @fputs($socket, "Action: Ping\r\n\r\n")) {
+                        continue;
+                    }
                     break;
                 }
                 $line = trim($line);
 
-                if (str_starts_with($line, "Event: Newchannel")) {
+                // Exact matches: "Event: Hangup" must not also catch HangupRequest / HangupHandler*
+                if ($line === "Event: Newchannel") {
                     // Read the supplier list fresh for every new call so a renamed supplier applies immediately
                     $this->handleNewChannel($this->readEvent($socket), DB::table('trunks')->get());
-                } elseif (str_starts_with($line, "Event: DialBegin")) {
+                } elseif ($line === "Event: Newstate") {
+                    $this->handleNewState($this->readEvent($socket));
+                } elseif ($line === "Event: DialBegin") {
                     $this->handleDialBegin($this->readEvent($socket));
-                } elseif (str_starts_with($line, "Event: DialEnd")) {
+                } elseif ($line === "Event: DialEnd") {
                     $this->handleDialEnd($this->readEvent($socket));
-                } elseif (str_starts_with($line, "Event: Hangup")) {
+                } elseif ($line === "Event: Hangup") {
                     $this->handleHangup($this->readEvent($socket));
                 }
             }
@@ -119,6 +137,9 @@ class AmiListener extends Command
         AmiEvent::create(['uniqueid' => $e['Uniqueid'], 'event' => 'Newchannel']);
 
         $trunk = $this->detectTrunk($channel, $trunks);
+        // The dialled DID is the extension on the carrier leg ('s' once it has moved into an IVR context)
+        $exten = $e['Exten'] ?? '';
+        $dst = ($exten !== '' && $exten !== 's') ? $exten : null;
 
         LiveCall::updateOrCreate(
             ['uniqueid' => $e['Uniqueid']],
@@ -126,6 +147,7 @@ class AmiListener extends Command
                 'caller'     => $e['CallerIDNum'] ?? '',
                 'callee'     => '',
                 'src'        => $e['CallerIDNum'] ?? '',
+                'dst'        => $dst,
                 'channel'    => $channel,
                 'trunk_name' => $trunk->nickname ?? $trunk->name ?? null,
                 'status'     => 'New',
@@ -136,6 +158,23 @@ class AmiListener extends Command
         );
     }
 
+    /**
+     * Channel went Up = the call was answered. Calls routed straight into an IVR
+     * (Answer + Playback) never Dial anywhere, so there is no DialEnd to tell us.
+     */
+    private function handleNewState(array $e)
+    {
+        if (empty($e['Uniqueid']) || ($e['ChannelState'] ?? '') !== '6') {
+            return;
+        }
+
+        AmiEvent::create(['uniqueid' => $e['Uniqueid'], 'event' => 'Newstate']);
+
+        LiveCall::where('uniqueid', $e['Uniqueid'])
+            ->whereIn('status', ['New', 'Ringing'])
+            ->update(['status' => 'Answered']);
+    }
+
     private function handleDialBegin(array $e)
     {
         if (empty($e['Uniqueid'])) {
@@ -144,11 +183,18 @@ class AmiListener extends Command
 
         AmiEvent::create(['uniqueid' => $e['Uniqueid'], 'event' => 'DialBegin']);
 
-        LiveCall::where('uniqueid', $e['Uniqueid'])->update([
-            'callee' => $e['DialString'] ?? ($e['DestExten'] ?? ''),
-            'dst'    => $e['DestExten'] ?? null,
-            'status' => 'Ringing',
-        ]);
+        $call = LiveCall::where('uniqueid', $e['Uniqueid'])->first();
+        if (!$call) {
+            return;
+        }
+        $update = ['callee' => $e['DialString'] ?? ($e['DestExten'] ?? '')];
+        if (!$call->dst && !empty($e['DestExten'])) {
+            $update['dst'] = $e['DestExten'];
+        }
+        if ($call->status === 'New') {
+            $update['status'] = 'Ringing';
+        }
+        $call->update($update);
     }
 
     private function handleDialEnd(array $e)
@@ -174,7 +220,7 @@ class AmiListener extends Command
         AmiEvent::create(['uniqueid' => $e['Uniqueid'], 'event' => 'Hangup']);
 
         $call = LiveCall::where('uniqueid', $e['Uniqueid'])->first();
-        if (!$call) {
+        if (!$call || $call->ended_at) {
             return;
         }
 
@@ -195,5 +241,84 @@ class AmiListener extends Command
             'hangup_cause' => $causeTxt,
             'duration'     => $call->created_at ? now()->diffInSeconds($call->created_at) : 0,
         ]);
+    }
+
+    /**
+     * Close calls still open in live_calls that Asterisk no longer has (their
+     * Hangup event was missed), using Asterisk's own CDR for the real outcome.
+     */
+    private function sweepStaleCalls(): void
+    {
+        $this->lastSweep = time();
+
+        $open = LiveCall::whereNull('ended_at')
+            ->where('created_at', '<', now()->subMinutes(2))
+            ->get();
+        if ($open->isEmpty()) {
+            return;
+        }
+
+        $out = [];
+        exec("asterisk -rx 'core show channels concise' 2>/dev/null", $out, $rc);
+        if ($rc !== 0) {
+            return;   // Asterisk unreachable: can't tell which calls are really gone
+        }
+        $alive = [];
+        foreach ($out as $l) {
+            $p = explode('!', $l);
+            if (isset($p[13])) {
+                $alive[trim($p[13])] = true;
+            }
+        }
+
+        $cdr = $this->readCdrs();
+        foreach ($open as $call) {
+            if (isset($alive[$call->uniqueid])) {
+                continue;
+            }
+            $row = $cdr[$call->uniqueid] ?? null;
+            $update = ['ended_at' => $row['end'] ?? now()];
+            if ($row) {
+                $update['duration'] = $row['duration'];
+                $update['billsec'] = $row['billsec'];
+                $update['dst'] = $call->dst ?: $row['dst'];
+                $update['status'] = match ($row['disposition']) {
+                    'ANSWERED'   => 'Hangup',
+                    'BUSY'       => 'Busy',
+                    'NO ANSWER'  => 'No Answer',
+                    'CONGESTION' => 'Congestion',
+                    default      => 'Rejected',
+                };
+            } else {
+                $update['status'] = $call->status === 'Answered' ? 'Hangup' : 'Cancelled';
+            }
+            $update['hangup_cause'] = $call->hangup_cause ?: 'Hangup event missed (closed from CDR)';
+            $call->update($update);
+        }
+    }
+
+    /** uniqueid => outcome, from the tail of Asterisk's Master.csv CDR log */
+    private function readCdrs(): array
+    {
+        $file = '/var/log/asterisk/cdr-csv/Master.csv';
+        $rows = [];
+        if (!is_readable($file)) {
+            return $rows;
+        }
+        exec('tail -n 2000 ' . escapeshellarg($file), $lines);
+        foreach ($lines as $l) {
+            $f = str_getcsv($l);
+            if (count($f) < 17 || $f[16] === '') {
+                continue;
+            }
+            $rows[$f[16]] = [
+                'dst'         => $f[2],
+                'end'         => $f[11] ?: null,
+                'duration'    => (int) $f[12],
+                'billsec'     => (int) $f[13],
+                'disposition' => $f[14],
+            ];
+        }
+        return $rows;
     }
 }
