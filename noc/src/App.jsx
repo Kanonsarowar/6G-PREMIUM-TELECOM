@@ -7035,14 +7035,8 @@ function RpLive({live}){
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
   if(!live.at) return <div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>;
   const extra=Math.max(0,Math.floor((now-live.at)/1000));
-  const answered=live.calls.filter(c=>c.answered).length;
   return(
     <div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
-        <RpStat label="Live calls" value={live.calls.length} color={live.calls.length?"#10B981":"#999"}/>
-        <RpStat label="Answered" value={answered} color="#2CADA6"/>
-        <RpStat label="Ringing" value={live.calls.length-answered} color="#F5A623"/>
-      </div>
       <div style={{...rpCard,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead><tr>{["Caller","Number","Country","Status","Duration","Started"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
