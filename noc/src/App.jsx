@@ -7098,9 +7098,20 @@ function RpNumbers({token}){
   );
 }
 
+// Quick periods for Call Records, in the viewer's local calendar (weeks start Monday)
+const rpLocalDay=(d)=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const rpPeriod=(k)=>{
+  const t=new Date(),d=new Date();
+  if(k==="yesterday"){d.setDate(d.getDate()-1);return{from:rpLocalDay(d),to:rpLocalDay(d)};}
+  if(k==="week"){d.setDate(d.getDate()-((d.getDay()+6)%7));return{from:rpLocalDay(d),to:rpLocalDay(t)};}
+  if(k==="month"){d.setDate(1);return{from:rpLocalDay(d),to:rpLocalDay(t)};}
+  return{from:rpLocalDay(t),to:rpLocalDay(t)};
+};
+const RP_PERIODS=[["today","Today"],["yesterday","Yesterday"],["week","This week"],["month","This month"],["custom","Custom dates"]];
+
 function RpCdrs({token}){
-  const today=new Date(),monthAgo=new Date();monthAgo.setDate(monthAgo.getDate()-29);
-  const [f,setF]=useState({from:rpDay(monthAgo),to:rpDay(today),did:"",disposition:""});
+  const [period,setPeriod]=useState("today");
+  const [f,setF]=useState({...rpPeriod("today"),did:"",disposition:""});
   const [page,setPage]=useState(1);
   const [res,setRes]=useState(null);
   const [exporting,setExporting]=useState(false);
@@ -7115,12 +7126,25 @@ function RpCdrs({token}){
     setExporting(false);
   };
   const set=(k,v)=>{setF(o=>({...o,[k]:v}));setPage(1);};
+  // custom keeps the current range in the date boxes so it can be adjusted from there
+  const pick=(k)=>{setPeriod(k);if(k!=="custom"){setF(o=>({...o,...rpPeriod(k)}));setPage(1);}};
   const rows=res?.data||[];
   return(
     <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {RP_PERIODS.map(([k,l])=>(
+          <button key={k} onClick={()=>pick(k)} style={{padding:"7px 14px",borderRadius:18,fontSize:12,fontWeight:700,cursor:"pointer",
+            fontFamily:"inherit",border:"1px solid "+(period===k?"#2CADA6":"#DDD"),
+            background:period===k?"#2CADA6":"#FFF",color:period===k?"#FFF":"#555"}}>{l}</button>
+        ))}
+      </div>
       <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
-        <input type="date" value={f.from} onChange={e=>set("from",e.target.value)} style={rpInp}/>
-        <input type="date" value={f.to} onChange={e=>set("to",e.target.value)} style={rpInp}/>
+        {period==="custom"&&<>
+          <input type="date" value={f.from} max={f.to} onChange={e=>set("from",e.target.value)} style={rpInp}/>
+          <span style={{fontSize:12,color:"#999"}}>to</span>
+          <input type="date" value={f.to} min={f.from} onChange={e=>set("to",e.target.value)} style={rpInp}/>
+        </>}
+        {period!=="custom"&&<span style={{fontSize:12,color:"#666",fontWeight:600}}>{f.from===f.to?f.from:f.from+" → "+f.to}</span>}
         <input value={f.did} onChange={e=>set("did",e.target.value)} placeholder="Number" style={{...rpInp,width:150}}/>
         <select value={f.disposition} onChange={e=>set("disposition",e.target.value)} style={rpInp}>
           <option value="">All calls</option><option value="ANSWERED">Answered</option>
@@ -7132,7 +7156,7 @@ function RpCdrs({token}){
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead><tr>{["Date","Caller","Number","Duration","Billed","Status","Earnings"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
           <tbody>
-            {!res?<RpEmpty cols={7} text="Loading..."/>:rows.length===0?<RpEmpty cols={7} text="No calls in this period"/>
+            {!res?<RpEmpty cols={7} text="Loading..."/>:rows.length===0?<RpEmpty cols={7} text={"No calls "+({today:"today",yesterday:"yesterday",week:"this week",month:"this month"}[period]||"in this period")}/>
             :rows.map(c=>(
               <tr key={c.id}>
                 <td style={{...rpTd,color:"#999"}}>{rpDate(c.call_start)}</td>
