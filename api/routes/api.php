@@ -398,8 +398,10 @@ Route::post('/v1/auth/login', function(Request $request) {
     // Only compare against values actually sent: where('username', null)
     // becomes "username IS NULL" and would match the wrong account.
     $login = array_values(array_filter([(string)$request->email, (string)$request->username], 'strlen'));
+    // Resellers can also log in with their 4-digit ID number (users.client_id).
     $user = $login ? User::where(function($q) use ($login) {
-        $q->whereIn('email', $login)->orWhereIn('username', $login);
+        $q->whereIn('email', $login)->orWhereIn('username', $login)
+          ->orWhere(fn($w) => $w->where('role', 'reseller')->whereIn('client_id', $login));
     })->first() : null;
     if(!$user || !Hash::check($request->password, $user->password))
         return response()->json(['message'=>'Invalid credentials'], 401);
@@ -3557,23 +3559,29 @@ Route::post('/v1/resellers', function(Request $r) {
         'markup'   => 'nullable|numeric|min:0|max:100', // admin's cut in %
     ]);
     $password = $r->password ?: \Illuminate\Support\Str::random(12);
-    $last = User::whereNotNull('client_id')->max('client_id') ?? '0000';
-    $id = DB::table('users')->insertGetId([
-        'client_id'    => str_pad((int)$last + 1, 4, '0', STR_PAD_LEFT),
-        'name'         => $r->name,
-        'email'        => $r->email,
-        'username'     => $r->username ?: null,
-        'password'     => Hash::make($password),
-        'company'      => $r->company,
-        'phone'        => $r->phone,
-        'role'         => 'reseller',
-        'status'       => 'active',
-        'credit_limit' => $r->credit_limit ?? 0,
-        'markup'       => $r->markup ?? 0,
-        'notes'        => $r->notes,
-        'created_at'   => now(),
-        'updated_at'   => now(),
-    ]);
+    // Reseller ID (login number): 4 digits from 0001, next after the highest.
+    // Taken under a row lock so two admins creating at once can't get the same ID;
+    // compared as numbers so 10000 still follows 9999.
+    $id = DB::transaction(function() use ($r, $password) {
+        $last = (int)DB::table('users')->whereNotNull('client_id')->lockForUpdate()
+            ->selectRaw('MAX(CAST(client_id AS UNSIGNED)) m')->value('m');
+        return DB::table('users')->insertGetId([
+            'client_id'    => str_pad($last + 1, 4, '0', STR_PAD_LEFT),
+            'name'         => $r->name,
+            'email'        => $r->email,
+            'username'     => $r->username ?: null,
+            'password'     => Hash::make($password),
+            'company'      => $r->company,
+            'phone'        => $r->phone,
+            'role'         => 'reseller',
+            'status'       => 'active',
+            'credit_limit' => $r->credit_limit ?? 0,
+            'markup'       => $r->markup ?? 0,
+            'notes'        => $r->notes,
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+    });
     resellerAudit($r, 'CREATE', "Created reseller {$r->name} ({$r->email})");
     return response()->json(['success'=>true,'id'=>$id,'password'=>$password,'data'=>resellerRow(DB::table('users')->find($id))], 201);
 });

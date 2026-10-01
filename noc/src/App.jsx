@@ -4440,7 +4440,7 @@ function ResellerPortalPage({token}){
   const [didSearch,setDidSearch]=useState("");
   const [pickDids,setPickDids]=useState({});
   const [form,setForm]=useState({
-    name:"",email:"",username:"",password:"",company:"",phone:"",
+    name:"",email:"",password:"",company:"",phone:"",
     status:"active",markup:"0",notes:""
   });
 
@@ -4454,7 +4454,7 @@ function ResellerPortalPage({token}){
   };
   const selectReseller=(r)=>{
     setSelected(r);setTab("detail");setMsg(null);setPickDids({});setAvailDids([]);setDidSearch("");
-    setForm({name:r.name,email:r.email,username:r.username||"",password:"",company:r.company||"",
+    setForm({name:r.name,email:r.email,password:"",company:r.company||"",
       phone:r.phone||"",status:r.status||"active",
       markup:r.markup||"0",notes:r.notes||""});
     loadDetail(r.id);
@@ -4469,7 +4469,7 @@ function ResellerPortalPage({token}){
 
   const save=async()=>{
     setSaving(true);setMsg(null);
-    const body={...form};if(!body.password) delete body.password;if(!body.username) body.username=null;
+    const body={...form};if(!body.password) delete body.password;
     const d=selected
       ?await apiFetch("/resellers/"+selected.id,token,{method:"PUT",body:JSON.stringify(body)})
       :await apiFetch("/resellers",token,{method:"POST",body:JSON.stringify(body)});
@@ -4478,7 +4478,7 @@ function ResellerPortalPage({token}){
     if(selected){setMsg({ok:true,text:"Saved"});refreshSelected(selected.id);return;}
     // a new reseller: open it, and show the login details once so the admin can send them on
     await load();selectReseller(d.data);
-    setMsg({ok:true,text:"Reseller created. Login: "+(d.data.username||d.data.email)+"  ·  Password: "+d.password+"  — copy it now, it is not shown again."});
+    setMsg({ok:true,text:"Reseller created. Login ID: "+d.data.client_id+"  ·  Password: "+d.password+"  — copy it now, the password is not shown again."});
   };
 
   const searchDids=async()=>{
@@ -4531,7 +4531,7 @@ function ResellerPortalPage({token}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Resellers</div>
         <button onClick={()=>{setShowAdd(true);setSelected(null);setTab("add");setMsg(null);
-          setForm({name:"",email:"",username:"",password:"",company:"",phone:"",status:"active",markup:"0",notes:""});}}
+          setForm({name:"",email:"",password:"",company:"",phone:"",status:"active",markup:"0",notes:""});}}
           style={{padding:"8px 18px",borderRadius:20,border:"none",background:"#2CADA6",
             color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Add Reseller</button>
       </div>
@@ -4557,7 +4557,7 @@ function ResellerPortalPage({token}){
           boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div style={{fontSize:15,fontWeight:700,color:"#1A1A1A"}}>
-              {tab==="add"?"New Reseller":"Edit: "+selected?.name}
+              {tab==="add"?"New Reseller (login ID is given automatically)":"Edit: "+selected?.name+" · ID "+selected?.client_id}
             </div>
             {selected&&<button onClick={()=>del(selected.id)}
               style={{padding:"6px 14px",borderRadius:20,border:"1px solid #EF4444",
@@ -4566,7 +4566,6 @@ function ResellerPortalPage({token}){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             {field("Full Name","name","John Smith")}
             {field("Email","email","john@company.com")}
-            {field("Username (optional)","username","login name")}
             {field("Password","password",selected?"Leave blank to keep":"Blank = generate one","password")}
             {field("Company","company","Company Ltd")}
             {field("Phone","phone","+1234567890")}
@@ -4753,7 +4752,7 @@ function ResellerPortalPage({token}){
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:700,color:"#1A1A1A"}}>{r.name}</div>
-                <div style={{fontSize:12,color:"#999"}}>{r.company||r.email}</div>
+                <div style={{fontSize:12,color:"#999"}}><span style={{fontFamily:"monospace",fontWeight:700,color:"#2CADA6"}}>ID {r.client_id}</span> · {r.company||r.email}</div>
               </div>
               <div style={{display:"flex",gap:12,flexShrink:0}}>
                 <div style={{textAlign:"center"}}>
@@ -7187,7 +7186,7 @@ function RpAccount({token,me,logout}){
     if(d.success){setMsg({ok:true,text:"Password changed"});setF({current_password:"",password:"",password_confirmation:""});}
     else setMsg({ok:false,text:d.message||d.error||"Could not change password"});
   };
-  const info=[["Client ID",me?.client_id],["Name",me?.name],["Company",me?.company],["Email",me?.email],
+  const info=[["Reseller ID (login)",me?.client_id],["Name",me?.name],["Company",me?.company],["Email",me?.email],
     ["Phone",me?.phone],["Status",me?.status],["Last login",rpDate(me?.last_login)]];
   return(
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14,alignItems:"start"}}>
@@ -7252,6 +7251,8 @@ function ResellerApp({token,user,logout}){
             <div style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",
               justifyContent:"center",fontSize:12,fontWeight:800,color:"#FFF"}}>{(name||"R")[0].toUpperCase()}</div>
             <span style={{fontSize:12,color:"#FFF",fontWeight:700}}>{name}</span>
+            {me?.client_id&&<span style={{fontSize:10,color:"rgba(255,255,255,0.8)",background:"rgba(255,255,255,0.15)",
+              padding:"2px 8px",borderRadius:10,fontFamily:"monospace"}}>ID {me.client_id}</span>}
           </div>}
         </div>
       </div>
@@ -7492,7 +7493,7 @@ export default function App(){
               color:"#444444",marginBottom:8}}>User</label>
             <input className="login-input" value={username}
               onChange={e=>setUsername(e.target.value)}
-              placeholder="Enter your username"
+              placeholder="Username or ID number"
               onKeyDown={e=>e.key==="Enter"&&login()}/>
           </div>
           {/* Password */}
