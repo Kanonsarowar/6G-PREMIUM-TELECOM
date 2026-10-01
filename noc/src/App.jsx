@@ -7139,12 +7139,17 @@ function RpCdrs({token}){
             background:period===k?"#2CADA6":"#FFF",color:period===k?"#FFF":"#555"}}>{l}</button>
         ))}
       </div>
-      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
+      {/* From/To always on one line: the date boxes shrink to fit a phone */}
+      <div style={{display:"flex",flexWrap:"nowrap",gap:6,marginBottom:8,alignItems:"center",maxWidth:520}}>
         {[["from","From Date",{max:f.to}],["to","To Date",{min:f.from}]].map(([k,l,lim])=>(
-          <label key={k} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#666",fontWeight:700}}>{l}
-            <input type="date" value={f[k]} {...lim} onChange={e=>setDate(k,e.target.value)} style={rpInp}/>
-          </label>
+          <React.Fragment key={k}>
+            <span style={{fontSize:12,color:"#666",fontWeight:700,whiteSpace:"nowrap"}}>{l}</span>
+            <input type="date" value={f[k]} {...lim} onChange={e=>setDate(k,e.target.value)}
+              style={{...rpInp,flex:1,minWidth:0,padding:"8px 6px",fontSize:12}}/>
+          </React.Fragment>
         ))}
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
         <input value={f.did} onChange={e=>set("did",e.target.value)} placeholder="Number" style={{...rpInp,width:150}}/>
         <select value={f.disposition} onChange={e=>set("disposition",e.target.value)} style={rpInp}>
           <option value="">All calls</option><option value="ANSWERED">Answered</option>
