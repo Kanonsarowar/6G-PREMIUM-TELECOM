@@ -7107,7 +7107,7 @@ const rpPeriod=(k)=>{
   if(k==="month"){d.setDate(1);return{from:rpLocalDay(d),to:rpLocalDay(t)};}
   return{from:rpLocalDay(t),to:rpLocalDay(t)};
 };
-const RP_PERIODS=[["today","Today"],["yesterday","Yesterday"],["week","This week"],["month","This month"],["custom","Custom dates"]];
+const RP_PERIODS=[["today","Today"],["yesterday","Yesterday"],["week","This week"],["month","This month"]];
 
 function RpCdrs({token}){
   const [period,setPeriod]=useState("today");
@@ -7126,8 +7126,9 @@ function RpCdrs({token}){
     setExporting(false);
   };
   const set=(k,v)=>{setF(o=>({...o,[k]:v}));setPage(1);};
-  // custom keeps the current range in the date boxes so it can be adjusted from there
-  const pick=(k)=>{setPeriod(k);if(k!=="custom"){setF(o=>({...o,...rpPeriod(k)}));setPage(1);}};
+  // a quick button fills From/To; editing a date by hand leaves the quick buttons unselected
+  const pick=(k)=>{setPeriod(k);setF(o=>({...o,...rpPeriod(k)}));setPage(1);};
+  const setDate=(k,v)=>{setPeriod("custom");set(k,v);};
   const rows=res?.data||[];
   return(
     <div>
@@ -7139,12 +7140,11 @@ function RpCdrs({token}){
         ))}
       </div>
       <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
-        {period==="custom"&&<>
-          <input type="date" value={f.from} max={f.to} onChange={e=>set("from",e.target.value)} style={rpInp}/>
-          <span style={{fontSize:12,color:"#999"}}>to</span>
-          <input type="date" value={f.to} min={f.from} onChange={e=>set("to",e.target.value)} style={rpInp}/>
-        </>}
-        {period!=="custom"&&<span style={{fontSize:12,color:"#666",fontWeight:600}}>{f.from===f.to?f.from:f.from+" → "+f.to}</span>}
+        {[["from","From Date",{max:f.to}],["to","To Date",{min:f.from}]].map(([k,l,lim])=>(
+          <label key={k} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#666",fontWeight:700}}>{l}
+            <input type="date" value={f[k]} {...lim} onChange={e=>setDate(k,e.target.value)} style={rpInp}/>
+          </label>
+        ))}
         <input value={f.did} onChange={e=>set("did",e.target.value)} placeholder="Number" style={{...rpInp,width:150}}/>
         <select value={f.disposition} onChange={e=>set("disposition",e.target.value)} style={rpInp}>
           <option value="">All calls</option><option value="ANSWERED">Answered</option>
