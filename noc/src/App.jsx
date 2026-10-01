@@ -4441,7 +4441,7 @@ function ResellerPortalPage({token}){
   const [pickDids,setPickDids]=useState({});
   const [form,setForm]=useState({
     name:"",email:"",username:"",password:"",company:"",phone:"",
-    status:"active",credit_limit:"0",markup:"0",notes:""
+    status:"active",markup:"0",notes:""
   });
 
   const load=()=>apiFetch("/resellers",token).then(d=>{const list=d.data||[];setResellers(list);setLoading(false);return list;});
@@ -4455,7 +4455,7 @@ function ResellerPortalPage({token}){
   const selectReseller=(r)=>{
     setSelected(r);setTab("detail");setMsg(null);setPickDids({});setAvailDids([]);setDidSearch("");
     setForm({name:r.name,email:r.email,username:r.username||"",password:"",company:r.company||"",
-      phone:r.phone||"",status:r.status||"active",credit_limit:r.credit_limit||"0",
+      phone:r.phone||"",status:r.status||"active",
       markup:r.markup||"0",notes:r.notes||""});
     loadDetail(r.id);
   };
@@ -4531,7 +4531,7 @@ function ResellerPortalPage({token}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Resellers</div>
         <button onClick={()=>{setShowAdd(true);setSelected(null);setTab("add");setMsg(null);
-          setForm({name:"",email:"",username:"",password:"",company:"",phone:"",status:"active",credit_limit:"0",markup:"0",notes:""});}}
+          setForm({name:"",email:"",username:"",password:"",company:"",phone:"",status:"active",markup:"0",notes:""});}}
           style={{padding:"8px 18px",borderRadius:20,border:"none",background:"#2CADA6",
             color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Add Reseller</button>
       </div>
@@ -4578,7 +4578,6 @@ function ResellerPortalPage({token}){
                 <option value="suspended">Suspended (logs out)</option>
               </select>
             </div>
-            {field("Credit Limit ($)","credit_limit","1000")}
             {field("Your cut (%) — reseller gets the rest","markup","10")}
           </div>
           {field("Notes","notes","Additional notes...")}
@@ -4615,7 +4614,6 @@ function ResellerPortalPage({token}){
               {label:"Revenue",value:fmtUSDT(selected.revenue),color:"#10B981"},
               {label:"Reseller share",value:fmtUSDT(selected.reseller_amount),color:"#0EA5E9"},
               {label:"Balance",value:fmtUSDT(selected.balance),color:"#F5A623"},
-              {label:"Credit Limit",value:fmtUSDT(selected.credit_limit),color:"#2CADA6"},
               {label:"Your cut",value:selected.markup+"%",color:"#EF4444"},
             ].map((s,i)=>(
               <div key={i} style={{background:"#F8F9FA",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
@@ -6993,7 +6991,7 @@ function RpHome({token,me,go}){
   return(
     <div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
-        <RpStat label="Balance" value={fmtUSDT(me?.balance)} sub={"Available "+fmtUSDT(me?.available)} color="#F5A623"/>
+        <RpStat label="Balance" value={fmtUSDT(me?.balance)} color="#F5A623"/>
         <RpStat label="Earnings today" value={fmtUSDT(rpSumUSDT(s.today?.earnings))} sub={(s.today?.calls||0)+" calls"} color="#10B981"/>
         <RpStat label="Earnings 30 days" value={fmtUSDT(rpSumUSDT(s.last_30_days?.earnings))} sub={(s.last_30_days?.minutes||0)+" min"} color="#2CADA6"/>
         <div onClick={()=>go("numbers")} style={{cursor:"pointer"}}><RpStat label="My numbers" value={me?.dids_count??"—"} sub="View all ›" color="#8B5CF6"/></div>
@@ -7127,8 +7125,6 @@ function RpBalance({token,me}){
     <div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
         <RpStat label="Balance" value={fmtUSDT(me?.balance)} color="#F5A623"/>
-        <RpStat label="Credit limit" value={fmtUSDT(me?.credit_limit)} color="#2CADA6"/>
-        <RpStat label="Available" value={fmtUSDT(me?.available)} color="#10B981"/>
       </div>
       <div style={{...rpCard,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
