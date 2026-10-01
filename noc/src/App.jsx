@@ -6946,6 +6946,7 @@ const rpDate=(s)=>(s||"").replace("T"," ").slice(0,16)||"—";
 const rpDay=(d)=>d.toISOString().slice(0,10);
 const RP_NAV=[
   {id:"home",label:"Dashboard",icon:"◈"},
+  {id:"live",label:"Live Calls",icon:"◉"},
   {id:"numbers",label:"My Numbers",icon:"▤"},
   {id:"cdrs",label:"Call Records",icon:"≡"},
   {id:"balance",label:"Balance",icon:"$"},
@@ -7023,6 +7024,46 @@ function RpHome({token,me,go}){
           ))}</tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Calls up right now on the reseller's numbers. ResellerApp polls them (so the
+// tab badge stays current on every page); durations tick locally in between.
+function RpLive({live}){
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
+  if(!live.at) return <div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>;
+  const extra=Math.max(0,Math.floor((now-live.at)/1000));
+  const answered=live.calls.filter(c=>c.answered).length;
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
+        <RpStat label="Live calls" value={live.calls.length} color={live.calls.length?"#10B981":"#999"}/>
+        <RpStat label="Answered" value={answered} color="#2CADA6"/>
+        <RpStat label="Ringing" value={live.calls.length-answered} color="#F5A623"/>
+      </div>
+      <div style={{...rpCard,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>{["Caller","Number","Country","Status","Duration","Started"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
+          <tbody>
+            {live.calls.length===0?<RpEmpty cols={6} text="No calls right now — this page updates every 5 seconds"/>
+            :live.calls.map(c=>(
+              <tr key={c.id}>
+                <td style={{...rpTd,fontFamily:"monospace"}}>{c.caller||"—"}</td>
+                <td style={{...rpTd,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>{c.did}</td>
+                <td style={rpTd}>{c.country||"—"}</td>
+                <td style={rpTd}><span style={{display:"inline-flex",alignItems:"center",gap:6,fontWeight:700,fontSize:12,color:c.answered?"#10B981":"#F5A623"}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:c.answered?"#10B981":"#F5A623",animation:"rpPulse 1.2s ease-in-out infinite"}}/>
+                  {c.answered?"Answered":"Ringing"}</span></td>
+                <td style={{...rpTd,fontWeight:800}}>{fmtDur(c.seconds+extra)}</td>
+                <td style={{...rpTd,color:"#999"}}>{(c.started_at||"").slice(11,19)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{fontSize:11,color:"#999",marginTop:8}}>Last updated {new Date(live.at).toLocaleTimeString()}</div>
     </div>
   );
 }
@@ -7224,15 +7265,24 @@ function ResellerApp({token,user,logout}){
   },[]);
   // balance can change at any time (admin top-up), so refresh with each tab change
   useEffect(()=>{apiFetch("/portal/me",token).then(d=>d.data&&setMe(d.data));},[token,tab]);
+  // live calls every 5s for the tab badge and the Live Calls page; paused while the browser tab is hidden
+  const [live,setLive]=useState({calls:[],at:0});
+  useEffect(()=>{
+    const load=()=>{if(!document.hidden) apiFetch("/portal/live-calls",token).then(d=>{if(Array.isArray(d.data)) setLive({calls:d.data,at:Date.now()});});};
+    load();const t=setInterval(load,5000);
+    document.addEventListener("visibilitychange",load);
+    return()=>{clearInterval(t);document.removeEventListener("visibilitychange",load);};
+  },[token]);
   const pages={
-    home:<RpHome token={token} me={me} go={setTab}/>,numbers:<RpNumbers token={token}/>,cdrs:<RpCdrs token={token}/>,
+    home:<RpHome token={token} me={me} go={setTab}/>,live:<RpLive live={live}/>,numbers:<RpNumbers token={token}/>,cdrs:<RpCdrs token={token}/>,
     balance:<RpBalance token={token} me={me}/>,invoices:<RpInvoices token={token}/>,account:<RpAccount token={token} me={me} logout={logout}/>,
   };
   const name=me?.name||user?.name||"";
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#F4F6FA",color:"#1E293B",
       fontFamily:"'Nunito','Poppins',sans-serif",overflow:"hidden"}}>
-      <style>{`*{box-sizing:border-box;}body{margin:0;overflow:hidden;}`}</style>
+      <style>{`*{box-sizing:border-box;}body{margin:0;overflow:hidden;}
+        @keyframes rpPulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
       <div style={{background:"linear-gradient(90deg,#2CADA6,#38B7A8)",padding:isMobile?"10px 14px":"12px 20px",
         display:"flex",alignItems:"center",gap:12,flexShrink:0,boxShadow:"0 2px 12px rgba(75,63,181,0.3)"}}>
         <div onClick={()=>setTab("home")} style={{cursor:"pointer",lineHeight:1}}>
@@ -7264,6 +7314,8 @@ function ResellerApp({token,user,logout}){
               border:"none",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",fontSize:13,fontWeight:on?800:600,
               background:on?"#2CADA6":"transparent",color:on?"#FFF":"#4A4A4A"}}>
               <span style={{opacity:on?1:0.7}}>{n.icon}</span>{n.label}
+              {n.id==="live"&&live.calls.length>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:"#10B981",
+                color:"#FFF",fontSize:11,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{live.calls.length}</span>}
             </button>
           );
         })}

@@ -3501,6 +3501,44 @@ function resellerAmountSql($u){
     return 'ROUND(cdrs.revenue * '.sprintf('%.6F', $keep).', 6)';
 }
 
+// Inbound carrier calls up on Asterisk right now, as [did, caller, state,
+// seconds, uniqueid]. Same channel rules as /v1/live-calls (legacy
+// from-carrier contexts, plus PJSIP legs on the from-suppliers path whose
+// number is in DID_NUMBER). Cached for 3s so many portals polling at once
+// cost one Asterisk query.
+function asteriskInboundCalls(){
+    $read = function(){
+        $out = [];
+        exec("asterisk -rx 'core show channels concise' 2>/dev/null", $lines);
+        foreach($lines as $line){
+            // Channel!Context!Exten!Priority!State!Application!Data!CallerID!Accountcode!PeerAccount!AMAflags!Duration!BridgedTo!Uniqueid
+            $p = explode('!', trim($line));
+            if(count($p) < 12) continue;
+            [$channel, $context, $exten] = $p;
+            $legacy = str_starts_with($context,'from-carrier') || str_contains($channel,'from-carrier');
+            $supplierPath = !$legacy && str_starts_with($channel,'PJSIP/')
+                && ($context === 'from-suppliers' || $context === 'number-routing' || str_starts_with($context,'custom/'));
+            if(!$legacy && !$supplierPath) continue;
+            if($supplierPath){
+                $info = [];
+                exec('asterisk -rx '.escapeshellarg('core show channel '.$channel).' 2>/dev/null', $info);
+                if(preg_match('/^DID_NUMBER=(\d+)/m', implode("\n", $info), $dm)) $exten = $dm[1];
+            }
+            $seconds = (int)$p[11];
+            $out[] = [
+                'did'      => ltrim($exten,'+'),
+                'caller'   => trim($p[7] ?? '','"'),
+                'state'    => $p[4] ?? '',
+                'seconds'  => $seconds > 86400 ? 0 : $seconds,
+                'uniqueid' => $p[13] ?? '',
+            ];
+        }
+        return $out;
+    };
+    try { return \Illuminate\Support\Facades\Cache::remember('asterisk_inbound_calls', 3, $read); }
+    catch(\Throwable $e) { return $read(); }
+}
+
 function resellerRow($u){
     return [
         'id'           => $u->id,
@@ -3757,6 +3795,25 @@ Route::prefix('v1/portal')->group(function() {
             'last_30_days'=>$stats(now()->subDays(29)->startOfDay()),
             'daily'=>$daily,
         ]]);
+    });
+
+    // Calls up right now on this reseller's numbers. Only caller, number,
+    // country, state and duration - no supplier, trunk or server details.
+    Route::get('/live-calls', function(Request $r) use ($me) {
+        $u = $me($r);
+        $mine = DB::table('dids')->where('customer_id',$u->id)->get(['number','country_name'])
+            ->mapWithKeys(fn($d)=>[ltrim((string)$d->number,'+') => $d->country_name])->all();
+        $calls = collect(asteriskInboundCalls())->filter(fn($c)=>array_key_exists($c['did'], $mine))
+            ->map(fn($c)=>[
+                'id'         => $c['uniqueid'] ?: md5($c['did'].$c['caller']),
+                'caller'     => $c['caller'],
+                'did'        => '+'.$c['did'],
+                'country'    => $mine[$c['did']] ?? null,
+                'answered'   => $c['state'] === 'Up',
+                'seconds'    => $c['seconds'],
+                'started_at' => now()->subSeconds($c['seconds'])->toDateTimeString(),
+            ])->sortByDesc('seconds')->values();
+        return response()->json(['data'=>$calls,'total'=>$calls->count()]);
     });
 
     Route::get('/dids', function(Request $r) use ($me) {
