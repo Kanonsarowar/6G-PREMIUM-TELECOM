@@ -307,6 +307,38 @@ function DesktopSidebar({page,setPage,open,toggle,user,logout,onHome}){
 // ── Mobile Drawer ─────────────────────────────────────────────────
 
 
+// Live-call phone icon for the top bars (admin NOC and reseller portal): rings
+// and pulses green while calls are live, with the count on a badge.
+function LiveCallIndicator({count,isMobile,onClick}){
+  const on=Number(count)>0, col=on?"#10B981":"rgba(255,255,255,0.75)";
+  return(
+    <div onClick={onClick} title={on?count+" live call"+(count>1?"s":"")+" right now":"No live calls"}
+      style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:isMobile?4:18,cursor:onClick?"pointer":"default",
+        padding:isMobile?"0":"5px 14px 5px 6px",borderRadius:24,
+        background:isMobile?"transparent":"rgba(0,0,0,0.2)",border:isMobile?"none":"1px solid rgba(255,255,255,0.12)"}}>
+      <style>{`
+        @keyframes liveRing{0%{transform:scale(1);opacity:.75}100%{transform:scale(1.9);opacity:0}}
+        @keyframes liveShake{0%,80%,100%{transform:rotate(0)}84%{transform:rotate(-14deg)}88%{transform:rotate(14deg)}92%{transform:rotate(-10deg)}96%{transform:rotate(8deg)}}
+      `}</style>
+      <div style={{position:"relative",width:34,height:34,flexShrink:0}}>
+        {on&&<span style={{position:"absolute",inset:0,borderRadius:"50%",background:"#10B981",animation:"liveRing 1.4s ease-out infinite"}}/>}
+        <div style={{position:"absolute",inset:0,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+          background:on?"linear-gradient(135deg,#34D399,#059669)":"rgba(255,255,255,0.14)",
+          border:"1.5px solid "+(on?"rgba(255,255,255,0.7)":"rgba(255,255,255,0.3)"),
+          boxShadow:on?"0 0 12px rgba(16,185,129,0.8)":"none"}}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"
+            style={{animation:on?"liveShake 1.6s ease-in-out infinite":"none",transformOrigin:"50% 50%"}}>
+            <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z"/>
+          </svg>
+        </div>
+        <span style={{position:"absolute",top:-5,right:-7,minWidth:18,height:18,padding:"0 5px",borderRadius:9,boxSizing:"border-box",
+          background:on?"#F5A623":"#6B7280",color:"#FFFFFF",fontSize:11,fontWeight:900,fontFamily:"monospace",
+          display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #2CADA6",lineHeight:1}}>{count}</span>
+      </div>
+      {!isMobile&&<span style={{fontSize:12,fontWeight:800,letterSpacing:"1.5px",color:col}}>LIVE</span>}
+    </div>
+  );
+}
 function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
   const [time,setTime]=useState(new Date().toLocaleTimeString());
   useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
@@ -349,36 +381,7 @@ function TopBar({liveCalls,unpaid,onMenuClick,isMobile,user,onHome}){
       </div>
       {/* Live calls: fixed-size widget (never shrinks, so it cannot be squeezed out
           on narrow screens). Phone icon rings + pulses green while calls are live. */}
-      <style>{`
-        @keyframes liveRing{0%{transform:scale(1);opacity:.75}100%{transform:scale(1.9);opacity:0}}
-        @keyframes liveShake{0%,80%,100%{transform:rotate(0)}84%{transform:rotate(-14deg)}88%{transform:rotate(14deg)}92%{transform:rotate(-10deg)}96%{transform:rotate(8deg)}}
-      `}</style>
-      {(()=>{
-        const on=Number(liveCalls)>0, col=on?"#10B981":"rgba(255,255,255,0.75)";
-        return(
-          <div title={on?liveCalls+" live call"+(liveCalls>1?"s":"")+" right now":"No live calls"}
-            style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:isMobile?4:18,
-              padding:isMobile?"0":"5px 14px 5px 6px",borderRadius:24,
-              background:isMobile?"transparent":"rgba(0,0,0,0.2)",border:isMobile?"none":"1px solid rgba(255,255,255,0.12)"}}>
-            <div style={{position:"relative",width:34,height:34,flexShrink:0}}>
-              {on&&<span style={{position:"absolute",inset:0,borderRadius:"50%",background:"#10B981",animation:"liveRing 1.4s ease-out infinite"}}/>}
-              <div style={{position:"absolute",inset:0,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-                background:on?"linear-gradient(135deg,#34D399,#059669)":"rgba(255,255,255,0.14)",
-                border:"1.5px solid "+(on?"rgba(255,255,255,0.7)":"rgba(255,255,255,0.3)"),
-                boxShadow:on?"0 0 12px rgba(16,185,129,0.8)":"none"}}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"
-                  style={{animation:on?"liveShake 1.6s ease-in-out infinite":"none",transformOrigin:"50% 50%"}}>
-                  <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z"/>
-                </svg>
-              </div>
-              <span style={{position:"absolute",top:-5,right:-7,minWidth:18,height:18,padding:"0 5px",borderRadius:9,boxSizing:"border-box",
-                background:on?"#F5A623":"#6B7280",color:"#FFFFFF",fontSize:11,fontWeight:900,fontFamily:"monospace",
-                display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #2CADA6",lineHeight:1}}>{liveCalls}</span>
-            </div>
-            {!isMobile&&<span style={{fontSize:12,fontWeight:800,letterSpacing:"1.5px",color:col}}>LIVE</span>}
-          </div>
-        );
-      })()}
+      <LiveCallIndicator count={liveCalls} isMobile={isMobile}/>
       {/* Right side */}
       <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:isMobile?8:12,flexShrink:0}}>
         <span style={{fontSize:isMobile?10:12,color:"rgba(255,255,255,0.6)",fontFamily:"monospace",whiteSpace:"nowrap"}}>{time}</span>
@@ -7314,6 +7317,7 @@ function ResellerApp({token,user,logout}){
           </div>
           <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:"2px",textTransform:"uppercase",marginTop:3}}>Reseller Portal</div>
         </div>
+        <LiveCallIndicator count={live.calls.length} isMobile={isMobile} onClick={()=>setTab("live")}/>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
           <div style={{textAlign:"right"}}>
             <div style={{fontSize:10,color:"rgba(255,255,255,0.75)",fontWeight:700,textTransform:"uppercase"}}>Balance</div>
