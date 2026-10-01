@@ -59,12 +59,12 @@ const getNavGroups=(role)=>{
     {id:"connectivr",label:"Connect IVR",icon:"⇌"},
     {id:"ivr",label:"IVR Library",icon:"♫"},
   ]},
-  // Partners: only Suppliers and Dialer (the reseller/dialer accounts page).
+  // Partners: only Suppliers and Resellers (reseller accounts, their numbers and balance).
   // Supplier payments are handled in each supplier's Payment History; the
   // Supplier Payments and Customers pages are no longer in the menu.
   {key:"partners",label:"Partners",items:[
     ...(isSuperAdmin?[{id:"suppliers",label:"Suppliers",icon:"⬡"}]:[]),
-    {id:"resellers",label:"Dialer",icon:"👥"},
+    {id:"resellers",label:"Resellers",icon:"👥"},
   ]},
   ...(isSuperAdmin?[{key:"asterisk",label:"Asterisk Configuration",items:[
     {id:"ast-trunks",label:"Trunks",icon:"📞"},
@@ -4432,32 +4432,65 @@ function ResellerPortalPage({token}){
   const [tab,setTab]=useState("list");
   const [resellerCdr,setResellerCdr]=useState([]);
   const [topupAmount,setTopupAmount]=useState("");
+  const [topupNote,setTopupNote]=useState("");
+  const [msg,setMsg]=useState(null);
+  const [resDids,setResDids]=useState([]);
+  const [resTx,setResTx]=useState([]);
+  const [availDids,setAvailDids]=useState([]);
+  const [didSearch,setDidSearch]=useState("");
+  const [pickDids,setPickDids]=useState({});
   const [form,setForm]=useState({
-    name:"",email:"",password:"",company:"",phone:"",
-    role:"reseller",credit_limit:"0",markup:"0",notes:""
+    name:"",email:"",username:"",password:"",company:"",phone:"",
+    status:"active",credit_limit:"0",markup:"0",notes:""
   });
 
-  const load=()=>{
-    apiFetch("/resellers",token).then(d=>{setResellers(d.data||[]);setLoading(false);});
-  };
+  const load=()=>apiFetch("/resellers",token).then(d=>{const list=d.data||[];setResellers(list);setLoading(false);return list;});
   useEffect(()=>{load();},[token]);
 
-  const selectReseller=(r)=>{
-    setSelected(r);setTab("detail");
-    setForm({name:r.name,email:r.email,password:"",company:r.company||"",
-      phone:r.phone||"",role:r.role||"reseller",credit_limit:r.credit_limit||"0",
-      markup:r.markup||"0",notes:r.notes||""});
-    apiFetch("/resellers/"+r.id+"/cdr",token).then(d=>setResellerCdr(d.data||[]));
+  const loadDetail=(id)=>{
+    apiFetch("/resellers/"+id+"/cdr",token).then(d=>setResellerCdr(d.data||[]));
+    apiFetch("/resellers/"+id+"/dids",token).then(d=>setResDids(d.data||[]));
+    apiFetch("/resellers/"+id+"/transactions",token).then(d=>setResTx(d.data||[]));
   };
+  const selectReseller=(r)=>{
+    setSelected(r);setTab("detail");setMsg(null);setPickDids({});setAvailDids([]);setDidSearch("");
+    setForm({name:r.name,email:r.email,username:r.username||"",password:"",company:r.company||"",
+      phone:r.phone||"",status:r.status||"active",credit_limit:r.credit_limit||"0",
+      markup:r.markup||"0",notes:r.notes||""});
+    loadDetail(r.id);
+  };
+  // after a change, re-read the list so balance/DID counts in the detail view are the server's
+  const refreshSelected=async(id)=>{
+    const list=await load();const r=list.find(x=>x.id===id);
+    if(r) setSelected(r);
+    loadDetail(id);
+  };
+  const errText=(d)=>d.errors?Object.values(d.errors).flat().join(" "):(d.message||d.error||"Failed");
 
   const save=async()=>{
-    setSaving(true);
-    if(selected){
-      await apiFetch("/resellers/"+selected.id,token,{method:"PUT",body:JSON.stringify(form)});
-    } else {
-      await apiFetch("/resellers",token,{method:"POST",body:JSON.stringify(form)});
-    }
-    setSaving(false);setShowAdd(false);setSelected(null);setTab("list");load();
+    setSaving(true);setMsg(null);
+    const body={...form};if(!body.password) delete body.password;if(!body.username) body.username=null;
+    const d=selected
+      ?await apiFetch("/resellers/"+selected.id,token,{method:"PUT",body:JSON.stringify(body)})
+      :await apiFetch("/resellers",token,{method:"POST",body:JSON.stringify(body)});
+    setSaving(false);
+    if(!d.success) return setMsg({ok:false,text:errText(d)});
+    if(selected){setMsg({ok:true,text:"Saved"});refreshSelected(selected.id);return;}
+    // a new reseller: open it, and show the login details once so the admin can send them on
+    await load();selectReseller(d.data);
+    setMsg({ok:true,text:"Reseller created. Login: "+(d.data.username||d.data.email)+"  ·  Password: "+d.password+"  — copy it now, it is not shown again."});
+  };
+
+  const searchDids=async()=>{
+    const d=await apiFetch("/reseller-dids/available?search="+encodeURIComponent(didSearch),token);
+    setAvailDids(d.data||[]);setPickDids({});
+  };
+  const assignDids=async()=>{
+    const ids=Object.keys(pickDids).filter(k=>pickDids[k]).map(Number);
+    if(!ids.length) return;
+    const d=await apiFetch("/resellers/"+selected.id+"/dids",token,{method:"POST",body:JSON.stringify({ids})});
+    setMsg({ok:!!d.success,text:d.success?d.message:errText(d)});
+    if(d.success){setPickDids({});setAvailDids(a=>a.filter(x=>!ids.includes(x.id)));refreshSelected(selected.id);}
   };
 
   const del=async(id)=>{
@@ -4467,16 +4500,18 @@ function ResellerPortalPage({token}){
   };
 
   const topup=async()=>{
-    if(!topupAmount||isNaN(topupAmount)) return;
-    await apiFetch("/resellers/"+selected.id+"/topup",token,{method:"POST",body:JSON.stringify({amount:parseFloat(topupAmount)})});
-    setTopupAmount("");load();selectReseller({...selected,balance:parseFloat(selected.balance||0)+parseFloat(topupAmount)});
+    if(!topupAmount||isNaN(topupAmount)||parseFloat(topupAmount)===0) return;
+    const d=await apiFetch("/resellers/"+selected.id+"/topup",token,{method:"POST",body:JSON.stringify({amount:parseFloat(topupAmount),note:topupNote||null})});
+    if(!d.success) return setMsg({ok:false,text:errText(d)});
+    setMsg({ok:true,text:"Balance is now "+fmtUSDT(d.new_balance)});
+    setTopupAmount("");setTopupNote("");refreshSelected(selected.id);
   };
 
   const inp={width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",
     background:"#FFF",color:"#333",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
 
-  const Field=({label,k,ph,type="text"})=>(
-    <div style={{marginBottom:10}}>
+  const field=(label,k,ph,type="text")=>(
+    <div key={k} style={{marginBottom:10}}>
       <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>{label}</div>
       <input type={type} style={inp} value={form[k]||""} placeholder={ph||""}
         onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
@@ -4487,9 +4522,9 @@ function ResellerPortalPage({token}){
     <div style={{padding:16,fontFamily:"'Poppins',sans-serif"}}>
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Dialer</div>
-        <button onClick={()=>{setShowAdd(true);setSelected(null);setTab("add");
-          setForm({name:"",email:"",password:"",company:"",phone:"",role:"reseller",credit_limit:"0",markup:"0",notes:""});}}
+        <div style={{fontSize:18,fontWeight:800,color:"#1A1A1A"}}>Resellers</div>
+        <button onClick={()=>{setShowAdd(true);setSelected(null);setTab("add");setMsg(null);
+          setForm({name:"",email:"",username:"",password:"",company:"",phone:"",status:"active",credit_limit:"0",markup:"0",notes:""});}}
           style={{padding:"8px 18px",borderRadius:20,border:"none",background:"#2CADA6",
             color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Add Reseller</button>
       </div>
@@ -4522,25 +4557,28 @@ function ResellerPortalPage({token}){
                 background:"#FFF",color:"#EF4444",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Field label="Full Name" k="name" ph="John Smith"/>
-            <Field label="Email" k="email" ph="john@company.com"/>
-            <Field label="Password" k="password" ph={selected?"Leave blank to keep":"Set password"} type="password"/>
-            <Field label="Company" k="company" ph="Company Ltd"/>
-            <Field label="Phone" k="phone" ph="+1234567890"/>
+            {field("Full Name","name","John Smith")}
+            {field("Email","email","john@company.com")}
+            {field("Username (optional)","username","login name")}
+            {field("Password","password",selected?"Leave blank to keep":"Blank = generate one","password")}
+            {field("Company","company","Company Ltd")}
+            {field("Phone","phone","+1234567890")}
             <div>
-              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Role</div>
-              <select style={inp} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
-                <option value="reseller">Reseller</option>
-                <option value="dialer">Dialer</option>
-                <option value="admin">Admin</option>
+              <div style={{fontSize:11,fontWeight:600,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.5px"}}>Status</div>
+              <select style={inp} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended (logs out)</option>
               </select>
             </div>
-            <Field label="Credit Limit ($)" k="credit_limit" ph="1000"/>
-            <Field label="Markup (%)" k="markup" ph="10"/>
+            {field("Credit Limit ($)","credit_limit","1000")}
+            {field("Your cut (%) — reseller gets the rest","markup","10")}
           </div>
-          <Field label="Notes" k="notes" ph="Additional notes..."/>
+          {field("Notes","notes","Additional notes...")}
+          {msg&&<div style={{fontSize:12,margin:"4px 0 8px",padding:"8px 10px",borderRadius:8,wordBreak:"break-all",
+            background:msg.ok?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",color:msg.ok?"#059669":"#EF4444"}}>{msg.text}</div>}
           <div style={{display:"flex",gap:8,marginTop:8}}>
-            <button onClick={()=>{setTab("list");setSelected(null);setShowAdd(false);}}
+            <button onClick={()=>{setTab("list");setSelected(null);setShowAdd(false);setMsg(null);}}
               style={{flex:1,padding:"10px",borderRadius:10,border:"1px solid #DDD",
                 background:"#FFF",color:"#666",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
             <button onClick={save} disabled={saving}
@@ -4568,9 +4606,10 @@ function ResellerPortalPage({token}){
               {label:"DIDs",value:selected.dids_count,color:"#8B5CF6"},
               {label:"Calls",value:selected.calls_count,color:"#3B82F6"},
               {label:"Revenue",value:fmtUSDT(selected.revenue),color:"#10B981"},
+              {label:"Reseller share",value:fmtUSDT(selected.reseller_amount),color:"#0EA5E9"},
               {label:"Balance",value:fmtUSDT(selected.balance),color:"#F5A623"},
               {label:"Credit Limit",value:fmtUSDT(selected.credit_limit),color:"#2CADA6"},
-              {label:"Markup",value:selected.markup+"%",color:"#EF4444"},
+              {label:"Your cut",value:selected.markup+"%",color:"#EF4444"},
             ].map((s,i)=>(
               <div key={i} style={{background:"#F8F9FA",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
                 <div style={{fontSize:16,fontWeight:800,color:s.color}}>{s.value}</div>
@@ -4581,11 +4620,70 @@ function ResellerPortalPage({token}){
           {/* Top Up */}
           <div style={{display:"flex",gap:8,marginBottom:14}}>
             <input value={topupAmount} onChange={e=>setTopupAmount(e.target.value)}
-              placeholder="Top up amount ($)" style={{...inp,flex:1}}/>
+              placeholder="Amount ($), negative to deduct" style={{...inp,flex:1}}/>
+            <input value={topupNote} onChange={e=>setTopupNote(e.target.value)}
+              placeholder="Note (optional)" style={{...inp,flex:1}}/>
             <button onClick={topup}
               style={{padding:"9px 18px",borderRadius:10,border:"none",background:"#10B981",
                 color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>Top Up</button>
           </div>
+          {/* Numbers */}
+          <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+            Numbers ({resDids.length})
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            {resDids.length===0?<span style={{fontSize:12,color:"#999"}}>No numbers yet</span>
+            :resDids.map(d=>(
+              <span key={d.id} title={(d.country_name||"")+" · since "+(d.customer_assigned_at||"")}
+                style={{padding:"4px 10px",borderRadius:12,background:"#E6F6F5",color:"#2CADA6",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
+                +{String(d.number).replace(/^\+/,"")}</span>
+            ))}
+          </div>
+          <div style={{background:"#F8F9FA",borderRadius:10,padding:10,marginBottom:14}}>
+            <div style={{display:"flex",gap:8,marginBottom:availDids.length?8:0}}>
+              <input value={didSearch} onChange={e=>setDidSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchDids()}
+                placeholder="Find free numbers (number or country)" style={{...inp,flex:1}}/>
+              <button onClick={searchDids} style={{padding:"9px 14px",borderRadius:10,border:"none",background:"#2CADA6",
+                color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>Search</button>
+            </div>
+            {availDids.length>0&&<>
+              <div style={{maxHeight:220,overflowY:"auto",background:"#FFF",borderRadius:8,border:"1px solid #EEE"}}>
+                <label style={{display:"flex",gap:8,padding:"6px 10px",fontSize:12,fontWeight:700,borderBottom:"1px solid #EEE",cursor:"pointer"}}>
+                  <input type="checkbox" checked={availDids.every(d=>pickDids[d.id])}
+                    onChange={e=>setPickDids(e.target.checked?Object.fromEntries(availDids.map(d=>[d.id,true])):{})}/>
+                  Select all ({availDids.length})
+                </label>
+                {availDids.map(d=>(
+                  <label key={d.id} style={{display:"flex",gap:8,padding:"6px 10px",fontSize:12,borderBottom:"1px solid #F5F5F5",cursor:"pointer"}}>
+                    <input type="checkbox" checked={!!pickDids[d.id]} onChange={e=>setPickDids(p=>({...p,[d.id]:e.target.checked}))}/>
+                    <span style={{fontFamily:"monospace",fontWeight:700}}>+{String(d.number).replace(/^\+/,"")}</span>
+                    <span style={{color:"#999"}}>{d.country_name||""}</span>
+                  </label>
+                ))}
+              </div>
+              <button onClick={assignDids} disabled={!Object.values(pickDids).some(Boolean)}
+                style={{marginTop:8,width:"100%",padding:"9px",borderRadius:10,border:"none",background:"#10B981",
+                  color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                Give {Object.values(pickDids).filter(Boolean).length} number(s) to {selected.name}
+              </button>
+            </>}
+          </div>
+          {/* Balance history */}
+          {resTx.length>0&&<>
+            <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+              Balance history
+            </div>
+            <div style={{marginBottom:14,maxHeight:200,overflowY:"auto"}}>
+              {resTx.map(t=>(
+                <div key={t.id} style={{display:"flex",gap:10,fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+                  <span style={{color:"#999",flexShrink:0}}>{(t.created_at||"").slice(0,16)}</span>
+                  <span style={{fontWeight:700,color:+t.amount>=0?"#10B981":"#EF4444",flexShrink:0}}>{(+t.amount>=0?"+":"-")+fmtUSDT(Math.abs(t.amount))}</span>
+                  <span style={{color:"#666",flex:1}}>{t.note||t.type}</span>
+                  <span style={{color:"#999",flexShrink:0}}>{fmtUSDT(t.balance_after)}</span>
+                </div>
+              ))}
+            </div>
+          </>}
           {/* CDR Table */}
           <div style={{fontSize:12,fontWeight:700,color:"#4A4A4A",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>
             Recent CDR ({resellerCdr.length} records)
@@ -4594,7 +4692,7 @@ function ResellerPortalPage({token}){
             <GTable style={{width:"100%",borderCollapse:"collapse"}}>
               <thead>
                 <tr style={{background:"#F8F9FA"}}>
-                  {["Date","Caller","DID","Duration","Revenue"].map((h,i)=>(
+                  {["Date","Caller","DID","Duration","Revenue","Reseller share"].map((h,i)=>(
                     <th key={i} style={{padding:"8px 12px",fontSize:11,color:"#9A9A9A",
                       fontWeight:600,textAlign:"left",borderBottom:"1px solid #EEE"}}>{h}</th>
                   ))}
@@ -4602,14 +4700,15 @@ function ResellerPortalPage({token}){
               </thead>
               <tbody>
                 {resellerCdr.length===0
-                  ?<tr><td colSpan={5} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No CDR records</td></tr>
+                  ?<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No CDR records</td></tr>
                   :resellerCdr.slice(0,20).map((c,i)=>(
                     <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2===0?"#FFF":"#FAFAFA"}}>
                       <td style={{padding:"8px 12px",fontSize:11,color:"#999"}}>{(c.call_start||c.created_at||"").slice(0,16)}</td>
                       <td style={{padding:"8px 12px",fontSize:12,fontFamily:"monospace"}}>{c.src||c.caller||"—"}</td>
                       <td style={{padding:"8px 12px",fontSize:12,color:"#2CADA6",fontFamily:"monospace"}}>{c.did||"—"}</td>
                       <td style={{padding:"8px 12px",fontSize:12,color:"#555"}}>{c.billsec||0}s</td>
-                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>{fmtUSDT(c.revenue)}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#F5A623",fontWeight:700}}>{fmtUSDT(toUSDT(c.revenue,c.currency))}</td>
+                      <td style={{padding:"8px 12px",fontSize:12,color:"#0EA5E9",fontWeight:700}}>{fmtUSDT(toUSDT(c.reseller_amount,c.currency))}</td>
                     </tr>
                   ))
                 }
@@ -6821,6 +6920,360 @@ function TestLiveCallPage({token}){
   );
 }
 
+// ── Reseller Portal (what a logged-in reseller sees) ──────────────
+// A reseller token only works on /v1/portal/* (RestrictResellerAccess), so
+// resellers get this separate shell instead of the admin NOC. Every amount
+// comes back per stored currency and is shown as USDT via toUSDT/fmtUSDT.
+const rpCard={background:"#FFF",borderRadius:12,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"};
+const rpInp={padding:"9px 12px",borderRadius:8,border:"1px solid #E0E0E0",background:"#FFF",color:"#333",
+  fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+const rpTh={padding:"9px 12px",fontSize:11,color:"#9A9A9A",fontWeight:700,textAlign:"left",
+  borderBottom:"1px solid #EEE",whiteSpace:"nowrap",textTransform:"uppercase",letterSpacing:"0.5px"};
+const rpTd={padding:"9px 12px",fontSize:12,color:"#333",borderBottom:"1px solid #F5F5F5",whiteSpace:"nowrap"};
+const rpBtn=(bg="#2CADA6")=>({padding:"9px 16px",borderRadius:8,border:"none",background:bg,color:"#FFF",
+  fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+// {EUR: 1.2, USDT: 3} -> one USDT number
+const rpSumUSDT=(byCur)=>Object.entries(byCur||{}).reduce((a,[cur,v])=>a+toUSDT(v,cur),0);
+const rpDate=(s)=>(s||"").replace("T"," ").slice(0,16)||"—";
+const rpDay=(d)=>d.toISOString().slice(0,10);
+const RP_NAV=[
+  {id:"home",label:"Dashboard",icon:"◈"},
+  {id:"numbers",label:"My Numbers",icon:"▤"},
+  {id:"cdrs",label:"Call Records",icon:"≡"},
+  {id:"balance",label:"Balance",icon:"$"},
+  {id:"invoices",label:"Invoices",icon:"🧾"},
+  {id:"account",label:"Account",icon:"⚙"},
+];
+
+function RpStat({label,value,sub,color}){
+  return(
+    <div style={{...rpCard,padding:"14px 16px",borderLeft:"4px solid "+color}}>
+      <div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>{label}</div>
+      <div style={{fontSize:20,fontWeight:800,color}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"#999",marginTop:2}}>{sub}</div>}
+    </div>
+  );
+}
+function RpEmpty({cols,text}){
+  return <tr><td colSpan={cols} style={{padding:24,textAlign:"center",color:"#999",fontSize:12}}>{text}</td></tr>;
+}
+function RpPager({page,last,total,onPage}){
+  if(!last||last<=1) return <div style={{fontSize:11,color:"#999",padding:"10px 0"}}>{total||0} records</div>;
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 0",fontSize:12,color:"#666"}}>
+      <button disabled={page<=1} onClick={()=>onPage(page-1)} style={{...rpInp,cursor:"pointer",padding:"6px 12px"}}>‹ Prev</button>
+      <span>Page {page} of {last} · {total} records</span>
+      <button disabled={page>=last} onClick={()=>onPage(page+1)} style={{...rpInp,cursor:"pointer",padding:"6px 12px"}}>Next ›</button>
+    </div>
+  );
+}
+
+function RpHome({token,me,go}){
+  const [s,setS]=useState(null);
+  useEffect(()=>{apiFetch("/portal/summary",token).then(d=>setS(d.data||{}));},[token]);
+  if(!s) return <div style={{padding:40,textAlign:"center",color:"#999"}}>Loading...</div>;
+  // daily rows come per day+currency: merge to one USDT bar per day, last 30 days
+  const days=[];
+  for(let i=29;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);days.push({day:rpDay(d),calls:0,minutes:0,amount:0});}
+  const byDay=Object.fromEntries(days.map(d=>[d.day,d]));
+  (s.daily||[]).forEach(r=>{const d=byDay[r.day];if(!d)return;d.calls+=+r.calls||0;d.minutes+=+r.minutes||0;d.amount+=toUSDT(r.amount,r.currency);});
+  const max=Math.max(...days.map(d=>d.amount),0.0001);
+  const periods=[["Today",s.today],["Last 7 days",s.last_7_days],["Last 30 days",s.last_30_days]];
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
+        <RpStat label="Balance" value={fmtUSDT(me?.balance)} sub={"Available "+fmtUSDT(me?.available)} color="#F5A623"/>
+        <RpStat label="Earnings today" value={fmtUSDT(rpSumUSDT(s.today?.earnings))} sub={(s.today?.calls||0)+" calls"} color="#10B981"/>
+        <RpStat label="Earnings 30 days" value={fmtUSDT(rpSumUSDT(s.last_30_days?.earnings))} sub={(s.last_30_days?.minutes||0)+" min"} color="#2CADA6"/>
+        <div onClick={()=>go("numbers")} style={{cursor:"pointer"}}><RpStat label="My numbers" value={me?.dids_count??"—"} sub="View all ›" color="#8B5CF6"/></div>
+      </div>
+      <div style={{...rpCard,padding:16,marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#1A1A1A",marginBottom:12}}>Earnings per day · last 30 days</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:2,height:140}}>
+          {days.map(d=>(
+            <div key={d.day} title={d.day+"\n"+fmtUSDT(d.amount)+" · "+d.calls+" calls · "+d.minutes.toFixed(2)+" min"}
+              style={{flex:1,minWidth:0,height:Math.max(d.amount/max*100,d.amount>0?3:1)+"%",borderRadius:"3px 3px 0 0",
+                background:d.amount>0?"linear-gradient(180deg,#38B7A8,#2CADA6)":"#EEE"}}/>
+          ))}
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#999",marginTop:6}}>
+          <span>{days[0].day.slice(5)}</span><span>{days[29].day.slice(5)}</span>
+        </div>
+      </div>
+      <div style={{...rpCard,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>{["Period","Calls","Answered","Minutes","ACD (min)","Earnings"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
+          <tbody>{periods.map(([l,p])=>(
+            <tr key={l}>
+              <td style={{...rpTd,fontWeight:700}}>{l}</td>
+              <td style={rpTd}>{p?.calls||0}</td>
+              <td style={rpTd}>{p?.answered||0}</td>
+              <td style={rpTd}>{p?.minutes||0}</td>
+              <td style={rpTd}>{p?.acd||0}</td>
+              <td style={{...rpTd,color:"#10B981",fontWeight:800}}>{fmtUSDT(rpSumUSDT(p?.earnings))}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RpNumbers({token}){
+  const [search,setSearch]=useState("");
+  const [page,setPage]=useState(1);
+  const [res,setRes]=useState(null);
+  useEffect(()=>{
+    const t=setTimeout(()=>apiFetch("/portal/dids?page="+page+"&search="+encodeURIComponent(search),token).then(setRes),search?300:0);
+    return()=>clearTimeout(t);
+  },[token,page,search]);
+  const rows=res?.data||[];
+  return(
+    <div>
+      <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search number…"
+        style={{...rpInp,width:"100%",maxWidth:320,marginBottom:12}}/>
+      <div style={{...rpCard,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>{["Number","Country","Payment terms","Status","Assigned"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
+          <tbody>
+            {!res?<RpEmpty cols={5} text="Loading..."/>:rows.length===0?<RpEmpty cols={5} text="No numbers assigned yet"/>
+            :rows.map(d=>(
+              <tr key={d.id}>
+                <td style={{...rpTd,fontFamily:"monospace",color:"#2CADA6",fontWeight:700}}>+{String(d.number).replace(/^\+/,"")}</td>
+                <td style={rpTd}>{d.country_name||"—"}</td>
+                <td style={rpTd}>{d.payment_terms||"—"}</td>
+                <td style={rpTd}><span style={{padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700,
+                  background:d.status==="active"?"rgba(16,185,129,0.1)":"#F3F4F6",color:d.status==="active"?"#10B981":"#6B7280"}}>{d.status||"—"}</span></td>
+                <td style={{...rpTd,color:"#999"}}>{rpDate(d.assigned_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <RpPager page={res?.current_page} last={res?.last_page} total={res?.total} onPage={setPage}/>
+    </div>
+  );
+}
+
+function RpCdrs({token}){
+  const today=new Date(),monthAgo=new Date();monthAgo.setDate(monthAgo.getDate()-29);
+  const [f,setF]=useState({from:rpDay(monthAgo),to:rpDay(today),did:"",disposition:""});
+  const [page,setPage]=useState(1);
+  const [res,setRes]=useState(null);
+  const [exporting,setExporting]=useState(false);
+  const qs=()=>Object.entries(f).filter(([,v])=>v).map(([k,v])=>k+"="+encodeURIComponent(v)).join("&");
+  useEffect(()=>{setRes(null);apiFetch("/portal/cdrs?per_page=50&page="+page+"&"+qs(),token).then(setRes);},[token,page,f]);
+  const exportCsv=async()=>{
+    setExporting(true);
+    try{
+      const url=await apiBlobUrl("/portal/cdrs/export?"+qs(),token);
+      const a=document.createElement("a");a.href=url;a.download="cdr-"+f.from+"-"+f.to+".csv";a.click();
+    }catch(e){alert("Export failed: "+e.message);}
+    setExporting(false);
+  };
+  const set=(k,v)=>{setF(o=>({...o,[k]:v}));setPage(1);};
+  const rows=res?.data||[];
+  return(
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
+        <input type="date" value={f.from} onChange={e=>set("from",e.target.value)} style={rpInp}/>
+        <input type="date" value={f.to} onChange={e=>set("to",e.target.value)} style={rpInp}/>
+        <input value={f.did} onChange={e=>set("did",e.target.value)} placeholder="Number" style={{...rpInp,width:150}}/>
+        <select value={f.disposition} onChange={e=>set("disposition",e.target.value)} style={rpInp}>
+          <option value="">All calls</option><option value="ANSWERED">Answered</option>
+          <option value="NO ANSWER">No answer</option><option value="BUSY">Busy</option><option value="FAILED">Failed</option>
+        </select>
+        <button onClick={exportCsv} disabled={exporting} style={{...rpBtn(),marginLeft:"auto"}}>{exporting?"Exporting…":"⬇ Export CSV"}</button>
+      </div>
+      <div style={{...rpCard,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>{["Date","Caller","Number","Duration","Billed","Status","Earnings"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
+          <tbody>
+            {!res?<RpEmpty cols={7} text="Loading..."/>:rows.length===0?<RpEmpty cols={7} text="No calls in this period"/>
+            :rows.map(c=>(
+              <tr key={c.id}>
+                <td style={{...rpTd,color:"#999"}}>{rpDate(c.call_start)}</td>
+                <td style={{...rpTd,fontFamily:"monospace"}}>{c.caller||"—"}</td>
+                <td style={{...rpTd,fontFamily:"monospace",color:"#2CADA6"}}>{c.did||"—"}</td>
+                <td style={rpTd}>{fmtDur(c.duration||0)}</td>
+                <td style={rpTd}>{fmtDur(c.billsec||0)}</td>
+                <td style={{...rpTd,color:c.disposition==="ANSWERED"?"#10B981":"#999",fontWeight:700,fontSize:11}}>{c.disposition||"—"}</td>
+                <td style={{...rpTd,color:"#F5A623",fontWeight:800}}>{fmtUSDT(toUSDT(c.amount,c.currency))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <RpPager page={res?.current_page} last={res?.last_page} total={res?.total} onPage={setPage}/>
+    </div>
+  );
+}
+
+function RpBalance({token,me}){
+  const [rows,setRows]=useState(null);
+  useEffect(()=>{apiFetch("/portal/transactions",token).then(d=>setRows(d.data||[]));},[token]);
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
+        <RpStat label="Balance" value={fmtUSDT(me?.balance)} color="#F5A623"/>
+        <RpStat label="Credit limit" value={fmtUSDT(me?.credit_limit)} color="#2CADA6"/>
+        <RpStat label="Available" value={fmtUSDT(me?.available)} color="#10B981"/>
+      </div>
+      <div style={{...rpCard,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>{["Date","Type","Amount","Balance after","Note"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
+          <tbody>
+            {!rows?<RpEmpty cols={5} text="Loading..."/>:rows.length===0?<RpEmpty cols={5} text="No balance changes yet"/>
+            :rows.map(t=>(
+              <tr key={t.id}>
+                <td style={{...rpTd,color:"#999"}}>{rpDate(t.created_at)}</td>
+                <td style={{...rpTd,textTransform:"capitalize",fontWeight:700}}>{t.type}</td>
+                <td style={{...rpTd,fontWeight:800,color:+t.amount>=0?"#10B981":"#EF4444"}}>{(+t.amount>=0?"+":"-")+fmtUSDT(Math.abs(t.amount))}</td>
+                <td style={rpTd}>{fmtUSDT(t.balance_after)}</td>
+                <td style={{...rpTd,color:"#666",whiteSpace:"normal"}}>{t.note||"—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RpInvoices({token}){
+  const [rows,setRows]=useState(null);
+  useEffect(()=>{apiFetch("/portal/invoices",token).then(d=>setRows(d.data||[]));},[token]);
+  const col={paid:"#10B981",unpaid:"#F5A623",overdue:"#EF4444"};
+  return(
+    <div style={{...rpCard,overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr>{["Invoice","Period","Calls","Minutes","Amount","Status","Due"].map(h=><th key={h} style={rpTh}>{h}</th>)}</tr></thead>
+        <tbody>
+          {!rows?<RpEmpty cols={7} text="Loading..."/>:rows.length===0?<RpEmpty cols={7} text="No invoices yet"/>
+          :rows.map(i=>(
+            <tr key={i.id}>
+              <td style={{...rpTd,fontFamily:"monospace",fontWeight:700}}>{i.invoice_number}</td>
+              <td style={rpTd}>{(i.period_start||"").slice(0,10)} → {(i.period_end||"").slice(0,10)}</td>
+              <td style={rpTd}>{i.total_calls||0}</td>
+              <td style={rpTd}>{i.total_minutes||0}</td>
+              <td style={{...rpTd,fontWeight:800}}>{fmtUSDT(toUSDT(i.total_amount,i.currency))}</td>
+              <td style={{...rpTd,fontWeight:700,textTransform:"capitalize",color:col[i.status]||"#666"}}>{i.status||"—"}</td>
+              <td style={{...rpTd,color:"#999"}}>{i.paid_at?"Paid "+rpDate(i.paid_at).slice(0,10):(i.due_date||"—").slice(0,10)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RpAccount({token,me,logout}){
+  const [f,setF]=useState({current_password:"",password:"",password_confirmation:""});
+  const [msg,setMsg]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const save=async()=>{
+    if(f.password.length<8) return setMsg({ok:false,text:"New password must be at least 8 characters"});
+    if(f.password!==f.password_confirmation) return setMsg({ok:false,text:"The two new passwords do not match"});
+    setSaving(true);setMsg(null);
+    const d=await apiFetch("/portal/password",token,{method:"POST",body:JSON.stringify(f)});
+    setSaving(false);
+    if(d.success){setMsg({ok:true,text:"Password changed"});setF({current_password:"",password:"",password_confirmation:""});}
+    else setMsg({ok:false,text:d.message||d.error||"Could not change password"});
+  };
+  const info=[["Client ID",me?.client_id],["Name",me?.name],["Company",me?.company],["Email",me?.email],
+    ["Phone",me?.phone],["Status",me?.status],["Last login",rpDate(me?.last_login)]];
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14,alignItems:"start"}}>
+      <div style={{...rpCard,padding:16}}>
+        <div style={{fontSize:13,fontWeight:800,marginBottom:10}}>My account</div>
+        {info.map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"8px 0",borderBottom:"1px solid #F5F5F5",fontSize:13}}>
+            <span style={{color:"#999"}}>{k}</span><span style={{fontWeight:600,textAlign:"right",wordBreak:"break-all"}}>{v||"—"}</span>
+          </div>
+        ))}
+        <button onClick={logout} style={{...rpBtn("#EF4444"),width:"100%",marginTop:14}}>Sign Out</button>
+      </div>
+      <div style={{...rpCard,padding:16}}>
+        <div style={{fontSize:13,fontWeight:800,marginBottom:10}}>Change password</div>
+        {[["Current password","current_password"],["New password","password"],["Repeat new password","password_confirmation"]].map(([l,k])=>(
+          <div key={k} style={{marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#666",marginBottom:4}}>{l}</div>
+            <input type="password" value={f[k]} onChange={e=>setF(o=>({...o,[k]:e.target.value}))} style={{...rpInp,width:"100%"}}/>
+          </div>
+        ))}
+        {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.ok?"#10B981":"#EF4444"}}>{msg.text}</div>}
+        <button onClick={save} disabled={saving} style={{...rpBtn(),width:"100%"}}>{saving?"Saving…":"Change password"}</button>
+      </div>
+    </div>
+  );
+}
+
+function ResellerApp({token,user,logout}){
+  const [tab,setTab]=useState("home");
+  const [me,setMe]=useState(null);
+  const [isMobile,setIsMobile]=useState(window.innerWidth<768);
+  useEffect(()=>{
+    const check=()=>setIsMobile(window.innerWidth<768);
+    window.addEventListener("resize",check);return()=>window.removeEventListener("resize",check);
+  },[]);
+  // balance can change at any time (admin top-up), so refresh with each tab change
+  useEffect(()=>{apiFetch("/portal/me",token).then(d=>d.data&&setMe(d.data));},[token,tab]);
+  const pages={
+    home:<RpHome token={token} me={me} go={setTab}/>,numbers:<RpNumbers token={token}/>,cdrs:<RpCdrs token={token}/>,
+    balance:<RpBalance token={token} me={me}/>,invoices:<RpInvoices token={token}/>,account:<RpAccount token={token} me={me} logout={logout}/>,
+  };
+  const name=me?.name||user?.name||"";
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#F4F6FA",color:"#1E293B",
+      fontFamily:"'Nunito','Poppins',sans-serif",overflow:"hidden"}}>
+      <style>{`*{box-sizing:border-box;}body{margin:0;overflow:hidden;}`}</style>
+      <div style={{background:"linear-gradient(90deg,#2CADA6,#38B7A8)",padding:isMobile?"10px 14px":"12px 20px",
+        display:"flex",alignItems:"center",gap:12,flexShrink:0,boxShadow:"0 2px 12px rgba(75,63,181,0.3)"}}>
+        <div onClick={()=>setTab("home")} style={{cursor:"pointer",lineHeight:1}}>
+          <div style={{fontSize:isMobile?20:24,fontWeight:900,whiteSpace:"nowrap"}}>
+            <span style={{color:"#FFF"}}>6G</span><span style={{color:"#F5A623"}}>STATS</span>
+          </div>
+          <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:"2px",textTransform:"uppercase",marginTop:3}}>Reseller Portal</div>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.75)",fontWeight:700,textTransform:"uppercase"}}>Balance</div>
+            <div style={{fontSize:isMobile?15:17,fontWeight:900,color:"#FFF"}}>{me?fmtUSDT(me.balance):"…"}</div>
+          </div>
+          {!isMobile&&<div onClick={()=>setTab("account")} title="Account" style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",
+            padding:"5px 12px",borderRadius:20,background:"rgba(0,0,0,0.2)"}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:12,fontWeight:800,color:"#FFF"}}>{(name||"R")[0].toUpperCase()}</div>
+            <span style={{fontSize:12,color:"#FFF",fontWeight:700}}>{name}</span>
+          </div>}
+        </div>
+      </div>
+      <div style={{background:"#FFF",borderBottom:"1px solid #E8EAF0",display:"flex",gap:4,padding:"6px 10px",overflowX:"auto",flexShrink:0}}>
+        {RP_NAV.map(n=>{
+          const on=tab===n.id;
+          return(
+            <button key={n.id} onClick={()=>setTab(n.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:20,
+              border:"none",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",fontSize:13,fontWeight:on?800:600,
+              background:on?"#2CADA6":"transparent",color:on?"#FFF":"#4A4A4A"}}>
+              <span style={{opacity:on?1:0.7}}>{n.icon}</span>{n.label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{flex:1,overflowY:"auto"}}>
+        <div style={{maxWidth:1200,margin:"0 auto",padding:isMobile?12:20}}>
+          {me?.status&&me.status!=="active"&&<div style={{...rpCard,padding:12,marginBottom:12,color:"#EF4444",fontWeight:700,fontSize:13}}>
+            Your account is {me.status}. Please contact support.</div>}
+          <div style={{fontSize:18,fontWeight:800,marginBottom:14}}>{RP_NAV.find(n=>n.id===tab)?.label}</div>
+          <ErrorBoundary key={tab}>{pages[tab]}</ErrorBoundary>
+        </div>
+      </div>
+      <div style={{padding:"8px 16px",borderTop:"1px solid #E8EAF0",background:"#FFF",textAlign:"center",flexShrink:0}}>
+        <span style={{fontSize:10,color:"#999"}}>© {new Date().getFullYear()} 6G Premium Telecom · Reseller Portal</span>
+      </div>
+    </div>
+  );
+}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("noc_token")||"");
   const [user,setUser]=useState(null);
@@ -6943,12 +7396,13 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
-    if(!token)return;
+    // reseller tokens cannot read /live-calls (RestrictResellerAccess)
+    if(!token||!user||user.role==="reseller")return;
     const loadStats=()=>{
       apiFetch("/live-calls",token).then(d=>setLiveCalls((d.data||d||[]).length));
     };
     loadStats();const t=setInterval(loadStats,10000);return()=>clearInterval(t);
-  },[token]);
+  },[token,user]);
 
   const login=async()=>{
     setLoading(true);setError("");
@@ -7078,6 +7532,7 @@ export default function App(){
       </div>
     </div>
   );
+  if(user.role==="reseller") return <ResellerApp token={token} user={user} logout={logout}/>;
   const renderPage=()=>{
     switch(page){
       case "livecalls":    return <LiveCallsPage token={token}/>;
