@@ -395,12 +395,17 @@ function parseSupplierImportRecords($text, $defaultCountry = null) {
 
 // ── Auth ──────────────────────────────────────────────────────────
 Route::post('/v1/auth/login', function(Request $request) {
-    $user = User::where('email', $request->email)
-        ->orWhere('username', $request->username)
-        ->orWhere('username', $request->email)
-        ->first();
+    // Only compare against values actually sent: where('username', null)
+    // becomes "username IS NULL" and would match the wrong account.
+    $login = array_values(array_filter([(string)$request->email, (string)$request->username], 'strlen'));
+    $user = $login ? User::where(function($q) use ($login) {
+        $q->whereIn('email', $login)->orWhereIn('username', $login);
+    })->first() : null;
     if(!$user || !Hash::check($request->password, $user->password))
         return response()->json(['message'=>'Invalid credentials'], 401);
+    if(($user->role??'') === 'reseller' && ($user->status??'active') !== 'active')
+        return response()->json(['message'=>'Your account is '.$user->status.'. Please contact support.'], 403);
+    DB::table('users')->where('id',$user->id)->update(['last_login'=>now()]);
     $newToken = $user->createToken('api');
     $token = $newToken->plainTextToken;
     // Remember which device this session belongs to (Audit Log → Login Devices)
@@ -3458,98 +3463,334 @@ Route::get('/v1/ivr-lib/stats', function() {
     return response()->json(['data'=>$stats]);
 });
 
-// ── Reseller Portal API ────────────────────────────────────────
-// Get all resellers/customers with stats
+// ── Resellers (admin side) ─────────────────────────────────────
+// A reseller is a users row with role 'reseller': it logs in through
+// /v1/auth/login and RestrictResellerAccess keeps it inside /v1/portal.
+// Their DIDs are dids.customer_id = users.id.
+
+// CDRs store the DID as dialled ("+233..."), dids.number is stored without
+// the "+", so match every spelling of each assigned number.
+function resellerDidVariants($userId){
+    $all = DB::table('dids')->where('customer_id',$userId)->get(['number','e164_number'])
+        ->flatMap(function($d){
+            $n = ltrim((string)$d->number,'+');
+            return array_filter([$n, '+'.$n, $d->e164_number]);
+        })->all();
+    // SORT_STRING: a loose unique() treats "977..." and "+977..." as equal
+    // numbers and would drop every "+" spelling.
+    return array_values(array_unique($all, SORT_STRING));
+}
+
+// The calls a reseller owns: on one of their DIDs, made after that DID was
+// given to them (earlier traffic belongs to whoever had the number before).
+function resellerCdrs($u){
+    return DB::table('cdrs')->whereIn('cdrs.did', resellerDidVariants($u->id))
+        ->whereExists(function($q) use ($u) {
+            $q->selectRaw('1')->from('dids')->where('dids.customer_id', $u->id)
+                ->whereRaw("cdrs.did IN (dids.number, CONCAT('+', dids.number), dids.e164_number)")
+                ->whereRaw('cdrs.call_start >= COALESCE(dids.customer_assigned_at, dids.updated_at)');
+        });
+}
+
+// What the reseller earns for a call: the call's payout (cdrs.revenue) minus
+// the admin's cut, users.markup, which is a percentage (0-100).
+function resellerAmountSql($u){
+    $keep = 1 - min(max((float)$u->markup, 0), 100) / 100;
+    return 'ROUND(cdrs.revenue * '.sprintf('%.6F', $keep).', 6)';
+}
+
+function resellerRow($u){
+    return [
+        'id'           => $u->id,
+        'client_id'    => $u->client_id,
+        'name'         => $u->name,
+        'email'        => $u->email,
+        'username'     => $u->username,
+        'company'      => $u->company ?? '',
+        'phone'        => $u->phone ?? '',
+        'role'         => $u->role,
+        'status'       => $u->status ?? 'active',
+        'credit_limit' => (float)$u->credit_limit,
+        'balance'      => (float)$u->balance,
+        'markup'       => (float)$u->markup,
+        'notes'        => $u->notes ?? '',
+        'last_login'   => $u->last_login,
+        'created_at'   => $u->created_at,
+    ];
+}
+
+function resellerAudit(Request $r, string $action, string $details){
+    DB::table('audit_logs')->insert([
+        'user'=>$r->user()->name ?? 'system','role'=>$r->user()->role ?? 'unknown','action'=>$action,'module'=>'Resellers',
+        'details'=>$details,'ip_address'=>$r->ip(),'method'=>$r->method(),'url'=>'/'.$r->path(),
+        'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
+    ]);
+}
+
+// Get all resellers with stats
 Route::get('/v1/resellers', function() {
-    $resellers = DB::table('customers')
-        ->get()
-        ->map(function($r){
-            $dids = DB::table('dids')->where('trunk_id',$r->reseller_id??0)->count();
-            $cdrs = DB::table('cdrs')->whereIn('did',
-                DB::table('dids')->where('trunk_id',$r->reseller_id??0)->pluck('number')
-            );
-            return [
-                'id'           => $r->id,
-                'name'         => $r->name,
-                'email'        => $r->email,
-                'company'      => $r->company??'',
-                'phone'        => $r->phone??'',
-                'role'         => $r->role??'reseller',
-                'status'       => $r->status??'active',
-                'credit_limit' => $r->credit_limit??0,
-                'balance'      => $r->balance??0,
-                'markup'       => $r->markup??0,
-                'dids_count'   => $dids,
-                'calls_count'  => $cdrs->count(),
+    $resellers = DB::table('users')->where('role','reseller')->orderBy('client_id')->get()
+        ->map(function($u){
+            $cdrs = resellerCdrs($u);
+            return resellerRow($u) + [
+                'dids_count'  => DB::table('dids')->where('customer_id',$u->id)->count(),
+                'calls_count' => (clone $cdrs)->count(),
                 // Convert EUR to its USDT-equivalent before summing (see the same
-                // conversion in /v1/billing/current-revenue) instead of adding
-                // EUR/USD/USDT revenue together as if they were the same unit.
-                'revenue'      => round((float)$cdrs->selectRaw("SUM(CASE currency WHEN 'EUR' THEN revenue*1.08 ELSE revenue END) as rev")->value('rev'),4),
-                'last_login'   => $r->last_login??null,
-                'created_at'   => $r->created_at,
-                'notes'        => $r->notes??'',
+                // conversion in /v1/billing/current-revenue).
+                'revenue'     => round((float)(clone $cdrs)->selectRaw("SUM(CASE currency WHEN 'EUR' THEN revenue*1.08 ELSE revenue END) as rev")->value('rev'),4),
+                // What the reseller is owed (their share after the markup %), same EUR conversion.
+                'reseller_amount' => round((float)$cdrs->selectRaw("SUM(CASE currency WHEN 'EUR' THEN ".resellerAmountSql($u)."*1.08 ELSE ".resellerAmountSql($u)." END) as amt")->value('amt'),4),
             ];
         });
     return response()->json(['data'=>$resellers]);
 });
 
-// Create reseller
+// Create reseller (always role 'reseller'). If no password is given a random
+// one is generated and returned once so the admin can send it on.
 Route::post('/v1/resellers', function(Request $r) {
-    $id = DB::table('customers')->insertGetId([
+    $r->validate([
+        'name'     => 'required|string|max:255',
+        'email'    => 'required|email|max:255|unique:users,email',
+        'username' => 'nullable|string|max:100|unique:users,username',
+        'password' => 'nullable|string|min:8',
+        'credit_limit' => 'nullable|numeric|min:0',
+        'markup'   => 'nullable|numeric|min:0|max:100', // admin's cut in %
+    ]);
+    $password = $r->password ?: \Illuminate\Support\Str::random(12);
+    $last = User::whereNotNull('client_id')->max('client_id') ?? '0000';
+    $id = DB::table('users')->insertGetId([
+        'client_id'    => str_pad((int)$last + 1, 4, '0', STR_PAD_LEFT),
         'name'         => $r->name,
         'email'        => $r->email,
-        'password'     => bcrypt($r->password??'Reseller@2026'),
+        'username'     => $r->username ?: null,
+        'password'     => Hash::make($password),
         'company'      => $r->company,
         'phone'        => $r->phone,
-        'role'         => $r->role??'reseller',
+        'role'         => 'reseller',
         'status'       => 'active',
-        'credit_limit' => $r->credit_limit??0,
-        'markup'       => $r->markup??0,
+        'credit_limit' => $r->credit_limit ?? 0,
+        'markup'       => $r->markup ?? 0,
         'notes'        => $r->notes,
         'created_at'   => now(),
         'updated_at'   => now(),
     ]);
-    return response()->json(['success'=>true,'id'=>$id,'data'=>DB::table('customers')->find($id)]);
+    resellerAudit($r, 'CREATE', "Created reseller {$r->name} ({$r->email})");
+    return response()->json(['success'=>true,'id'=>$id,'password'=>$password,'data'=>resellerRow(DB::table('users')->find($id))], 201);
 });
 
-// Update reseller
+// Update reseller (balance changes go through /topup so they are recorded)
 Route::put('/v1/resellers/{id}', function(Request $r, $id) {
-    $update = [
-        'name'         => $r->name,
-        'email'        => $r->email,
-        'company'      => $r->company,
-        'phone'        => $r->phone,
-        'role'         => $r->role??'reseller',
-        'status'       => $r->status??'active',
-        'credit_limit' => $r->credit_limit??0,
-        'markup'       => $r->markup??0,
-        'notes'        => $r->notes,
-        'updated_at'   => now(),
-    ];
-    if($r->password) $update['password'] = bcrypt($r->password);
-    DB::table('customers')->where('id',$id)->update($update);
-    return response()->json(['success'=>true,'data'=>DB::table('customers')->find($id)]);
+    $u = DB::table('users')->where('role','reseller')->find($id);
+    if(!$u) return response()->json(['error'=>'Reseller not found'],404);
+    $r->validate([
+        'email'    => 'sometimes|email|max:255|unique:users,email,'.$id,
+        'username' => 'nullable|string|max:100|unique:users,username,'.$id,
+        'password' => 'nullable|string|min:8',
+        'status'   => 'sometimes|in:active,inactive,suspended',
+        'credit_limit' => 'sometimes|numeric|min:0',
+        'markup'   => 'sometimes|numeric|min:0|max:100',
+    ]);
+    $update = array_filter($r->only(['name','email','username','company','phone','status','credit_limit','markup','notes']), fn($v)=>$v!==null);
+    if($r->password) $update['password'] = Hash::make($r->password);
+    $update['updated_at'] = now();
+    DB::table('users')->where('id',$id)->update($update);
+    // Suspending a reseller logs them out everywhere.
+    if(isset($update['status']) && $update['status']!=='active')
+        DB::table('personal_access_tokens')->where('tokenable_type',User::class)->where('tokenable_id',$id)->delete();
+    resellerAudit($r, 'UPDATE', "Updated reseller #$id ({$u->name})");
+    return response()->json(['success'=>true,'data'=>resellerRow(DB::table('users')->find($id))]);
 });
 
-// Delete reseller
-Route::delete('/v1/resellers/{id}', function($id) {
-    DB::table('customers')->delete($id);
+// Delete reseller: their DIDs go back to the panel and their sessions end.
+Route::delete('/v1/resellers/{id}', function(Request $r, $id) {
+    $u = DB::table('users')->where('role','reseller')->find($id);
+    if(!$u) return response()->json(['error'=>'Reseller not found'],404);
+    DB::transaction(function() use ($id) {
+        DB::table('dids')->where('customer_id',$id)->update(['customer_id'=>null,'customer_assigned_at'=>null,'updated_at'=>now()]);
+        DB::table('personal_access_tokens')->where('tokenable_type',User::class)->where('tokenable_id',$id)->delete();
+        DB::table('users')->where('id',$id)->delete();
+    });
+    resellerAudit($r, 'DELETE', "Deleted reseller #$id ({$u->name})");
     return response()->json(['success'=>true]);
+});
+
+// Assign DIDs to a reseller
+Route::post('/v1/resellers/{id}/dids', function(Request $r, $id) {
+    $u = DB::table('users')->where('role','reseller')->find($id);
+    if(!$u) return response()->json(['error'=>'Reseller not found'],404);
+    $ids = array_filter(array_map('intval', (array)($r->ids ?? [])));
+    if(!$ids) return response()->json(['error'=>'No IDs provided'],400);
+    // Numbers already with this reseller keep their original assignment time.
+    $updated = DB::table('dids')->whereIn('id',$ids)->where(fn($q)=>$q->whereNull('customer_id')->orWhere('customer_id','!=',$id))
+        ->update(['customer_id'=>$id,'customer_assigned_at'=>now(),'updated_at'=>now()]);
+    resellerAudit($r, 'ASSIGN_DIDS', "Assigned $updated DID(s) to reseller #$id ({$u->name})");
+    return response()->json(['success'=>true,'updated'=>$updated,'message'=>"$updated DIDs assigned to {$u->name}"]);
+});
+
+// Numbers a reseller has
+Route::get('/v1/resellers/{id}/dids', function($id) {
+    return response()->json(['data'=>DB::table('dids')->where('customer_id',$id)
+        ->select('id','number','country_name','selling_price','currency','status','customer_assigned_at')
+        ->orderBy('number')->get()]);
+});
+
+// Numbers free to give to a reseller (not with any reseller, not test numbers)
+Route::get('/v1/reseller-dids/available', function(Request $r) {
+    $q = DB::table('dids')->whereNull('customer_id')->where('is_test',0)
+        ->select('id','number','country_name','selling_price','currency','status')->orderBy('number');
+    if($r->search) $q->where(fn($w)=>$w->where('number','like','%'.ltrim($r->search,'+').'%')->orWhere('country_name','like','%'.$r->search.'%'));
+    return response()->json(['data'=>$q->limit(500)->get()]);
 });
 
 // Get reseller CDR (filtered by their DIDs)
 Route::get('/v1/resellers/{id}/cdr', function($id) {
-    $reseller = DB::table('customers')->find($id);
-    $dids = DB::table('dids')->where('trunk_id',$reseller->reseller_id??0)->pluck('number');
-    $cdrs = DB::table('cdrs')->whereIn('did',$dids)->orderByDesc('created_at')->limit(100)->get();
+    $u = DB::table('users')->where('role','reseller')->find($id);
+    if(!$u) return response()->json(['error'=>'Reseller not found'],404);
+    $cdrs = resellerCdrs($u)->select('cdrs.*', DB::raw(resellerAmountSql($u).' as reseller_amount'))
+        ->orderByDesc('call_start')->limit(100)->get();
     return response()->json(['data'=>$cdrs,'total'=>$cdrs->count()]);
 });
 
-// Top up reseller balance
+// Top up (or deduct with a negative amount) reseller balance
 Route::post('/v1/resellers/{id}/topup', function(Request $r, $id) {
-    $amount = floatval($r->amount??0);
-    DB::table('customers')->where('id',$id)->increment('balance',$amount);
-    return response()->json(['success'=>true,'new_balance'=>DB::table('customers')->find($id)->balance??0]);
+    $r->validate(['amount'=>'required|numeric|not_in:0','note'=>'nullable|string|max:255']);
+    $amount = (float)$r->amount;
+    $new = DB::transaction(function() use ($r, $id, $amount) {
+        $u = DB::table('users')->where('role','reseller')->lockForUpdate()->find($id);
+        if(!$u) return null;
+        $balance = round((float)$u->balance + $amount, 4);
+        DB::table('users')->where('id',$id)->update(['balance'=>$balance,'updated_at'=>now()]);
+        DB::table('reseller_transactions')->insert([
+            'user_id'=>$id,'amount'=>$amount,'balance_after'=>$balance,
+            'type'=>$amount > 0 ? 'topup' : 'deduct','note'=>$r->note,
+            'created_by'=>$r->user()->name ?? null,'created_at'=>now(),'updated_at'=>now(),
+        ]);
+        return $balance;
+    });
+    if($new === null) return response()->json(['error'=>'Reseller not found'],404);
+    resellerAudit($r, $amount > 0 ? 'TOPUP' : 'DEDUCT', "Balance of reseller #$id changed by $amount (now $new)");
+    return response()->json(['success'=>true,'new_balance'=>$new]);
+});
+
+// Balance history of a reseller
+Route::get('/v1/resellers/{id}/transactions', function($id) {
+    return response()->json(['data'=>DB::table('reseller_transactions')->where('user_id',$id)->orderByDesc('id')->limit(200)->get()]);
+});
+
+// ── Reseller Portal (what a logged-in reseller sees) ───────────
+// Every query is scoped to $r->user()->id. Supplier, trunk, buy-price and
+// routing columns are never returned here.
+Route::prefix('v1/portal')->group(function() {
+    $me = function(Request $r) {
+        $u = $r->user();
+        abort_if(($u->role ?? '') !== 'reseller', 403, 'Reseller accounts only');
+        return $u;
+    };
+    // CDR rows a reseller may see, in a date range (default last 30 days)
+    $cdrQuery = function(Request $r, $u) {
+        $q = resellerCdrs($u);
+        $q->where('call_start','>=', $r->from ?: now()->subDays(30)->toDateString());
+        if($r->to) $q->where('call_start','<=', $r->to.' 23:59:59');
+        if($r->did) $q->whereIn('did', [ltrim($r->did,'+'), '+'.ltrim($r->did,'+')]);
+        if($r->disposition) $q->where('disposition', $r->disposition);
+        return $q;
+    };
+
+    Route::get('/me', function(Request $r) use ($me) {
+        $u = $me($r);
+        return response()->json(['data'=>[
+            'id'=>$u->id,'client_id'=>$u->client_id,'name'=>$u->name,'email'=>$u->email,
+            'company'=>$u->company,'phone'=>$u->phone,'status'=>$u->status,
+            'balance'=>(float)$u->balance,'credit_limit'=>(float)$u->credit_limit,
+            'available'=>round((float)$u->balance + (float)$u->credit_limit, 4),
+            'dids_count'=>DB::table('dids')->where('customer_id',$u->id)->count(),
+            'last_login'=>$u->last_login,
+        ]]);
+    });
+
+    // Dashboard numbers: today / 7 days / 30 days, plus calls per day
+    Route::get('/summary', function(Request $r) use ($me) {
+        $u = $me($r);
+        $amount = resellerAmountSql($u);
+        $stats = function($from) use ($u, $amount) {
+            $row = resellerCdrs($u)->where('call_start','>=',$from)
+                ->selectRaw("COUNT(*) calls, SUM(disposition='ANSWERED') answered, COALESCE(SUM(billsec),0) billsec")->first();
+            // Earnings are kept per currency - never added across currencies.
+            $earnings = resellerCdrs($u)->where('call_start','>=',$from)
+                ->selectRaw("cdrs.currency, ROUND(SUM($amount),4) amount")->groupBy('cdrs.currency')->get()
+                ->mapWithKeys(fn($e)=>[$e->currency ?: 'USDT' => (float)$e->amount]);
+            return [
+                'calls'=>(int)$row->calls,'answered'=>(int)$row->answered,
+                'minutes'=>round($row->billsec/60, 2),
+                'acd'=>$row->answered ? round($row->billsec/$row->answered/60, 2) : 0,
+                'earnings'=>$earnings,
+            ];
+        };
+        $daily = resellerCdrs($u)->where('call_start','>=',now()->subDays(29)->startOfDay())
+            ->selectRaw("DATE(call_start) day, cdrs.currency, COUNT(*) calls, ROUND(COALESCE(SUM(billsec),0)/60,2) minutes, ROUND(SUM($amount),4) amount")
+            ->groupBy('day','cdrs.currency')->orderBy('day')->get();
+        return response()->json(['data'=>[
+            'today'=>$stats(now()->startOfDay()),
+            'last_7_days'=>$stats(now()->subDays(6)->startOfDay()),
+            'last_30_days'=>$stats(now()->subDays(29)->startOfDay()),
+            'daily'=>$daily,
+        ]]);
+    });
+
+    Route::get('/dids', function(Request $r) use ($me) {
+        $u = $me($r);
+        $q = DB::table('dids')->where('customer_id',$u->id)
+            ->select('id','number','country_code','country_name','selling_price','currency','payment_terms','status','updated_at as assigned_at')
+            ->orderBy('number');
+        if($r->search) $q->where('number','like','%'.ltrim($r->search,'+').'%');
+        return response()->json($q->paginate(min((int)($r->per_page ?: 50), 200)));
+    });
+
+    Route::get('/cdrs', function(Request $r) use ($me, $cdrQuery) {
+        $u = $me($r);
+        $q = $cdrQuery($r, $u)->select('cdrs.id','caller','did','call_start','duration','billsec','disposition',
+            DB::raw(resellerAmountSql($u).' as amount'),'cdrs.currency')->orderByDesc('call_start');
+        return response()->json($q->paginate(min((int)($r->per_page ?: 50), 200)));
+    });
+
+    // Same rows as /cdrs, as a CSV download
+    Route::get('/cdrs/export', function(Request $r) use ($me, $cdrQuery) {
+        $u = $me($r);
+        $rows = $cdrQuery($r, $u)->select('call_start','caller','did','duration','billsec','disposition',
+            DB::raw(resellerAmountSql($u).' as amount'),'cdrs.currency')->orderByDesc('call_start')->limit(50000)->get();
+        $csv = "call_start,caller,did,duration,billsec,disposition,amount,currency\n";
+        foreach($rows as $c)
+            $csv .= implode(',', array_map(fn($v)=>'"'.str_replace('"','""',(string)$v).'"', (array)$c))."\n";
+        return response($csv, 200, [
+            'Content-Type'=>'text/csv',
+            'Content-Disposition'=>'attachment; filename="cdr-'.$u->client_id.'-'.now()->format('Ymd').'.csv"',
+        ]);
+    });
+
+    Route::get('/invoices', function(Request $r) use ($me) {
+        $u = $me($r);
+        if(!$u->client_id) return response()->json(['data'=>[]]);
+        $rows = DB::table('invoices')->where('client_id',$u->client_id)->whereNull('supplier_id')
+            ->select('id','invoice_number','period_start','period_end','total_calls','total_minutes','total_amount','currency','status','due_date','paid_at','created_at')
+            ->orderByDesc('created_at')->get();
+        return response()->json(['data'=>$rows]);
+    });
+
+    Route::get('/transactions', function(Request $r) use ($me) {
+        $u = $me($r);
+        return response()->json(['data'=>DB::table('reseller_transactions')->where('user_id',$u->id)
+            ->select('id','amount','balance_after','type','note','created_at')->orderByDesc('id')->limit(200)->get()]);
+    });
+
+    // A reseller changes their own password
+    Route::post('/password', function(Request $r) use ($me) {
+        $u = $me($r);
+        $r->validate(['current_password'=>'required','password'=>'required|string|min:8|confirmed']);
+        if(!Hash::check($r->current_password, $u->password))
+            return response()->json(['message'=>'Current password is wrong'], 422);
+        DB::table('users')->where('id',$u->id)->update(['password'=>Hash::make($r->password),'updated_at'=>now()]);
+        return response()->json(['success'=>true]);
+    });
 });
 
 // ── IP Whitelist Manager ───────────────────────────────────────
@@ -3690,6 +3931,7 @@ Route::post('/v1/dids/bulk-unassign', function(Request $r) {
     if(empty($ids)) return response()->json(['error'=>'No IDs provided'],400);
     $updated = DB::table('dids')->whereIn('id',$ids)->update([
         'customer_id' => null,
+        'customer_assigned_at' => null,
         'updated_at'  => now(),
     ]);
     return response()->json(['success'=>true,'updated'=>$updated,'message'=>$updated.' DIDs unassigned and returned to panel']);
