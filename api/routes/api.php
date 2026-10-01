@@ -3627,6 +3627,20 @@ Route::post('/v1/resellers/{id}/dids', function(Request $r, $id) {
     return response()->json(['success'=>true,'updated'=>$updated,'message'=>"$updated DIDs assigned to {$u->name}"]);
 });
 
+// Take DIDs back from a reseller: they return to the panel's free pool.
+// Only numbers this reseller actually holds are touched.
+Route::delete('/v1/resellers/{id}/dids', function(Request $r, $id) {
+    $u = DB::table('users')->where('role','reseller')->find($id);
+    if(!$u) return response()->json(['error'=>'Reseller not found'],404);
+    $ids = array_filter(array_map('intval', (array)($r->ids ?? [])));
+    if(!$ids) return response()->json(['error'=>'No IDs provided'],400);
+    $numbers = DB::table('dids')->whereIn('id',$ids)->where('customer_id',$id)->pluck('number')->all();
+    $updated = DB::table('dids')->whereIn('id',$ids)->where('customer_id',$id)
+        ->update(['customer_id'=>null,'customer_assigned_at'=>null,'updated_at'=>now()]);
+    resellerAudit($r, 'UNASSIGN_DIDS', "Took back $updated DID(s) from reseller #$id ({$u->name}): ".implode(', ', $numbers));
+    return response()->json(['success'=>true,'updated'=>$updated,'message'=>"$updated DID(s) taken back from {$u->name}"]);
+});
+
 // Numbers a reseller has
 Route::get('/v1/resellers/{id}/dids', function($id) {
     return response()->json(['data'=>DB::table('dids')->where('customer_id',$id)

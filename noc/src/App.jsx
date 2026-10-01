@@ -4485,6 +4485,13 @@ function ResellerPortalPage({token}){
     const d=await apiFetch("/reseller-dids/available?search="+encodeURIComponent(didSearch),token);
     setAvailDids(d.data||[]);setPickDids({});
   };
+  const takeBack=async(d)=>{
+    const num="+"+String(d.number).replace(/^\+/,"");
+    if(!window.confirm("Take "+num+" back from "+selected.name+"? It goes back to the free numbers, and its calls stop showing in their portal.")) return;
+    const r=await apiFetch("/resellers/"+selected.id+"/dids",token,{method:"DELETE",body:JSON.stringify({ids:[d.id]})});
+    setMsg({ok:!!r.success,text:r.success?num+" taken back":errText(r)});
+    if(r.success) refreshSelected(selected.id);
+  };
   const assignDids=async()=>{
     const ids=Object.keys(pickDids).filter(k=>pickDids[k]).map(Number);
     if(!ids.length) return;
@@ -4635,8 +4642,12 @@ function ResellerPortalPage({token}){
             {resDids.length===0?<span style={{fontSize:12,color:"#999"}}>No numbers yet</span>
             :resDids.map(d=>(
               <span key={d.id} title={(d.country_name||"")+" · since "+(d.customer_assigned_at||"")}
-                style={{padding:"4px 10px",borderRadius:12,background:"#E6F6F5",color:"#2CADA6",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
-                +{String(d.number).replace(/^\+/,"")}</span>
+                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 6px 4px 10px",borderRadius:12,background:"#E6F6F5",color:"#2CADA6",fontSize:12,fontFamily:"monospace",fontWeight:700}}>
+                +{String(d.number).replace(/^\+/,"")}
+                <button onClick={()=>takeBack(d)} title="Take this number back"
+                  style={{width:18,height:18,borderRadius:"50%",border:"none",background:"rgba(239,68,68,0.12)",color:"#EF4444",
+                    fontSize:11,fontWeight:900,cursor:"pointer",lineHeight:1,padding:0}}>✕</button>
+              </span>
             ))}
           </div>
           <div style={{background:"#F8F9FA",borderRadius:10,padding:10,marginBottom:14}}>
