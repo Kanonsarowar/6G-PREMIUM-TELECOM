@@ -2746,83 +2746,56 @@ Route::delete('/v1/ivr-lib/{id}', function($id) {
 
 // SIP Monitor - Asterisk logs
 Route::get('/v1/sip/activity', function() {
-    // Get INVITE events from Asterisk log
-    $invites = [];
-    $logFile = '/var/log/asterisk/full';
-    if(file_exists($logFile)){
-        exec("grep -E 'INVITE|from-carrier|6G DID|Playback|ANSWERED|BUSY|CANCEL|failed' {$logFile} | tail -100", $logLines);
-        foreach($logLines as $line){
-            // Parse NOTICE lines for INVITE failures
-            if(preg_match("/NOTICE.*Request '(\w+)' from '(.+?)' failed for '(.+?)' - (.+)/", $line, $m)){
-                $invites[] = [
-                    'time'     => substr($line, 1, 19),
-                    'method'   => $m[1],
-                    'caller'   => $m[2],
-                    'source'   => $m[3],
-                    'result'   => 'REJECTED',
-                    'reason'   => $m[4],
-                    'did'      => '—',
-                    'supplier' => '—',
-                ];
-            }
-            // Parse successful INVITEs from CDR verbose
-            if(preg_match("/6G DID:(\+[\d]+).*IVR:([\w\/\-]+)/", $line, $m)){
-                // successful routing
-            }
+    // Real INVITEs recorded by AmiListener (ami:listen) in live_calls.
+    // Only answered calls (CONNECT) and rejected calls (REJECT) are shown.
+    $rows = DB::table('live_calls')->whereNotNull('trunk_name')
+        ->where(function($q){
+            $q->where('status', 'Rejected')
+              ->orWhere('status', 'Answered')
+              ->orWhere(fn($q2) => $q2->where('status', 'Hangup')->where('billsec', '>', 0));
+        })
+        ->orderByDesc('created_at')->limit(100)->get();
+
+    $norm = fn($n) => ltrim((string)$n, '+');
+    $didOf = fn($c) => $norm($c->dst ?: ($c->did ?: $c->callee));
+
+    // DIDs are stored without '+'; dids.customer_id = users.id (reseller or their sub-user)
+    $numbers = $rows->map($didOf)->filter()->unique()->values();
+    $dids = DB::table('dids')->whereIn('number', $numbers)->get(['number', 'customer_id'])->keyBy('number');
+    $users = DB::table('users')->whereIn('id', $dids->pluck('customer_id')->filter())->get(['id', 'name', 'company', 'reseller_id'])->keyBy('id');
+    $parents = DB::table('users')->whereIn('id', $users->pluck('reseller_id')->filter())->get(['id', 'name', 'company'])->keyBy('id');
+    $label = fn($u) => $u->company ?: ($u->name ?: 'User #'.$u->id);
+
+    $out = $rows->map(function($c) use ($didOf, $dids, $users, $parents, $label) {
+        $did = $didOf($c);
+        $reseller = '—';
+        $u = ($d = $dids->get($did)) ? $users->get($d->customer_id) : null;
+        if ($u) {
+            $p = $u->reseller_id ? $parents->get($u->reseller_id) : null;
+            $reseller = $label($p ?: $u);
         }
-    }
-
-    // Get every tracked supplier INVITE (all outcomes) from live_calls, kept by
-    // App\Console\Commands\AmiListener via real Asterisk AMI events - not just
-    // the ones that happened to complete a CDR row (CDR rows for internal
-    // dialplan legs are always "ANSWERED" regardless of the real call outcome,
-    // so they can't be used to tell rejected/no-answer calls apart).
-    $resultMap = [
-        'Answered'    => 'ANSWERED',
-        'Hangup'      => 'ANSWERED',
-        'Busy'        => 'BUSY',
-        'No Answer'   => 'NOANSWER',
-        'Cancelled'   => 'CANCELLED',
-        'Congestion'  => 'CONGESTION',
-        'Unavailable' => 'UNAVAILABLE',
-        'Rejected'    => 'REJECTED',
-        'Ringing'     => 'RINGING',
-        'New'         => 'RINGING',
-    ];
-
-    $tracked = [];
-    foreach (DB::table('live_calls')->whereNotNull('trunk_name')->orderByDesc('created_at')->limit(50)->get() as $c) {
-        $duration = $c->ended_at
-            ? (strtotime($c->ended_at) - strtotime($c->created_at))
-            : (time() - strtotime($c->created_at));
-
-        $tracked[] = [
+        $cli = $c->src ?: $c->caller;
+        return [
             'time'     => $c->created_at,
             'method'   => 'INVITE',
-            'caller'   => $c->src ?: $c->caller,
-            'did'      => $c->dst ?: $c->callee,
+            'caller'   => ($cli && $cli !== '<unknown>') ? $cli : '—',
+            'cli'      => ($cli && $cli !== '<unknown>') ? $cli : '—',
+            'did'      => $did ?: '—',
             'supplier' => $c->trunk_name,
-            'result'   => $resultMap[$c->status] ?? 'REJECTED',
+            'reseller' => $reseller,
+            'duration' => (int)$c->billsec,
+            'result'   => $c->status === 'Rejected' ? 'REJECTED' : 'ANSWERED',
+            'action'   => $c->status === 'Rejected' ? 'REJECT' : 'CONNECT',
             'reason'   => $c->hangup_cause ?: $c->status,
-            'duration' => max(0, (int) $duration),
-            'source'   => '—',
         ];
-    }
+    })->values();
 
-    // Merge and sort by time desc
-    $all = array_merge($tracked, $invites);
-    usort($all, fn($a,$b)=>strcmp($b['time'],$a['time']));
-
-    // Get channels
-    exec("asterisk -rx 'core show channels' 2>/dev/null", $channels);
-    // Get PJSIP endpoints
-    exec("asterisk -rx 'pjsip show endpoints' 2>/dev/null", $pjsip);
-
+    $sipCli = function (string $cmd) { $o = []; exec('asterisk -rx '.escapeshellarg($cmd).' 2>/dev/null', $o); return $o; };
     return response()->json([
-        'invites'   => array_slice($all, 0, 50),
-        'activity'  => [],
-        'channels'  => $channels,
-        'pjsip'     => $pjsip,
+        'invites'   => $out,
+        // Endpoints / Active Calls boxes on the SIP Monitor page parse these raw CLI lines
+        'channels'  => $sipCli('core show channels count'),
+        'pjsip'     => array_values(preg_grep('/^\s*(Endpoint|Contact):\s+[^<\s]/', $sipCli('pjsip show endpoints'))),
         'timestamp' => now()->toDateTimeString(),
     ]);
 });
