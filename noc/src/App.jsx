@@ -1853,9 +1853,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [msg,setMsg]=useState(null);
   const [saving,setSaving]=useState(false);
 
-  const [showAddPrefix,setShowAddPrefix]=useState(false);
-  const [editingPrefix,setEditingPrefix]=useState(null);
-  const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});
   const [showAddTest,setShowAddTest]=useState(false);
   const [addTest,setAddTest]=useState({prefix_id:"",number:""});
 
@@ -1895,8 +1892,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [checkLiveResult,setCheckLiveResult]=useState(null);
 
   const liveCallRef=useRef(null);
-  const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
-  const SAUDI_OPERATORS=["STC","Mobily","Zain KSA","Virgin Mobile","Lebara","Friendi Mobile","Red Bull MOBILE","Other"];
 
   const loadPrefixes=()=>apiFetch(`/supplier-accounts/${supplier.id}/prefixes`,token).then(d=>setPrefixes(d.data||[]));
   const loadNumbers=()=>apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token).then(d=>setNumbers(d.data||{numbers:[],ranges:[]}));
@@ -2042,32 +2037,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   };
 
   useEffect(()=>{ loadLiveCalls(); },[supplier.id,prefixes.length,numbers.numbers.length,testNumbers.length]);
-
-  const openAddPrefix=()=>{setEditingPrefix(null);setPrefixForm({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});setShowAddPrefix(true);};
-  const openEditPrefix=(p)=>{setEditingPrefix(p);setPrefixForm({prefix:p.prefix,country:p.country||"",country_code:p.country_code||"",price:p.price,payment_term:p.payment_term||"",test_number:p.test_number||"",operator:p.operator||"",ivr_context:p.ivr_context||"",status:p.status});setShowAddPrefix(true);};
-
-  const savePrefix=async()=>{
-    if(!prefixForm.prefix||!prefixForm.country||!prefixForm.price||!prefixForm.payment_term||(!editingPrefix&&!prefixForm.test_number)){
-      alert("Prefix, country, price, payment term and test number are required");return;
-    }
-    setSaving(true);
-    const d=editingPrefix
-      ?await apiFetch(`/prefixes/${editingPrefix.id}`,token,{method:"PUT",body:JSON.stringify(prefixForm)})
-      :await apiFetch(`/prefixes`,token,{method:"POST",body:JSON.stringify({...prefixForm,supplier_id:supplier.id})});
-    setSaving(false);
-    if(d.success){
-      flash(editingPrefix?"Prefix updated":"Prefix added");
-      setShowAddPrefix(false); loadPrefixes(); loadTest();
-    } else alert(d.error||"Failed to save prefix");
-  };
-
-  const delPrefix=async(p)=>{
-    const msg2=`Deleting this prefix will also permanently remove ${p.number_count} number(s)/range(s) and ${p.test_number_count} test number(s) associated with this prefix. Continue?`;
-    if(!window.confirm(msg2)) return;
-    const d=await apiFetch(`/prefixes/${p.id}`,token,{method:"DELETE"});
-    if(d.success){flash("Prefix deleted");loadPrefixes();loadNumbers();loadTest();loadAccessHistory();}
-    else alert(d.error||"Failed to delete");
-  };
 
   const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
   const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
@@ -2346,7 +2315,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
 
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"14px 16px"}}>
         <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:8,maxWidth:480,margin:"0 auto"}}>
-          <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
           <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
         </div>
       </div>
@@ -2409,27 +2377,18 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
           <div style={{overflowX:"auto"}}>
             <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-              <thead><tr>{["Prefix","Country","Code","Price","Payment Term","IVR","Test Number","Actions"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Prefix","Country","Code","Price","Payment Term","IVR","Test Number"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
               <tbody>
-                {prefixes.length===0?<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                {prefixes.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — add one on the Numbers page</td></tr>:
                 prefixes.map((p,i)=>(
                   <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
                     <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:"#10B981",fontFamily:"monospace"}}>{p.price==null?
-                      <button onClick={()=>openEditPrefix(p)} title="Auto-created from call data - click to set the price" style={{padding:"2px 8px",borderRadius:4,
-                        border:"1px solid #F5A623",background:"rgba(245,166,35,0.12)",color:"#B7791F",fontSize:10,fontWeight:700,cursor:"pointer"}}>Set price</button>
-                      :fmtUSDT(p.price)}</td>
+                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:p.price==null?"#B7791F":"#10B981",fontFamily:"monospace"}}>{p.price==null?"not set":fmtUSDT(p.price)}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
                     <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(p.ivr_context||"—").replace("custom/","")}</td>
                     <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
-                    <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>
-                      <button onClick={()=>openEditPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
-                        background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>Edit</button>
-                      <button onClick={()=>delPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
-                        background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2473,7 +2432,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
                         <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:price==null?"#B7791F":"#10B981",fontFamily:"monospace"}}>{price==null?"not set":fmtUSDT(price)}</td>
                         <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{term}</td>
                         <td style={{padding:"8px 10px",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
-                          {pfx&&<button onClick={()=>openEditPrefix(pfx)} title="Edit prefix price / term / IVR" style={{...btn("#2CADA6"),marginRight:6}}>Edit</button>}
                           <button onClick={()=>delNumberGroup(g)} style={btn("#EF4444")}>Delete</button>
                         </td>
                       </tr>
@@ -2795,65 +2753,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         )}
       </div>
-
-      {showAddPrefix&&(
-        <div onClick={()=>setShowAddPrefix(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>{editingPrefix?"Edit Prefix":"Add Prefix"}</div>
-            <div style={{marginBottom:10}}><div style={lblS}>Prefix *</div>
-              <input style={inpS} value={prefixForm.prefix} onChange={e=>setPrefixForm({...prefixForm,prefix:e.target.value})} placeholder="919876XXXX"/></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Country *</div>
-              <select style={inpS} value={prefixForm.country} onChange={e=>{
-                const name=e.target.value;
-                const c=COUNTRIES.find(c=>c.name===name);
-                setPrefixForm({...prefixForm,country:name,country_code:c?c.prefix:prefixForm.country_code});
-              }}>
-                <option value="">— Select —</option>
-                {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Country Code</div>
-              <select style={inpS} value={prefixForm.country_code} onChange={e=>setPrefixForm({...prefixForm,country_code:e.target.value})}>
-                <option value="">— Select —</option>
-                {COUNTRIES.map(c=><option key={c.code} value={c.prefix}>{c.prefix} — {c.name}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Price / Min ($) *</div>
-              <input type="number" step="0.001" style={inpS} value={prefixForm.price} onChange={e=>setPrefixForm({...prefixForm,price:e.target.value})} placeholder="0.040"/></div>
-            <div style={{marginBottom:10}}><div style={lblS}>Payment Term *</div>
-              <select style={inpS} value={prefixForm.payment_term} onChange={e=>setPrefixForm({...prefixForm,payment_term:e.target.value})}>
-                <option value="">— Select —</option>
-                {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}>
-              <div style={lblS}>Test Number {editingPrefix?"":"*"}</div>
-              <input style={inpS} value={prefixForm.test_number} onChange={e=>setPrefixForm({...prefixForm,test_number:e.target.value})} placeholder="+919876543210" disabled={!!editingPrefix}/>
-            </div>
-            <div style={{marginBottom:10}}><div style={lblS}>Operator (optional)</div>
-              <select style={inpS} value={prefixForm.operator} onChange={e=>setPrefixForm({...prefixForm,operator:e.target.value})}>
-                <option value="">— Select —</option>
-                {prefixForm.operator&&!SAUDI_OPERATORS.includes(prefixForm.operator)&&<option value={prefixForm.operator}>{prefixForm.operator}</option>}
-                {SAUDI_OPERATORS.map(o=><option key={o} value={o}>{o}</option>)}
-              </select></div>
-            <div style={{marginBottom:10}}><div style={lblS}>IVR (optional)</div>
-              <select style={inpS} value={prefixForm.ivr_context} onChange={e=>setPrefixForm({...prefixForm,ivr_context:e.target.value})}>
-                <option value="">— Select —</option>
-                {ivrs.map(i=><option key={i.id} value={`custom/${i.name}`}>{i.display_name||i.name}</option>)}
-              </select>
-              <div style={{fontSize:10,color:"#999",marginTop:4}}>Applies to every number under this prefix — new and existing.</div>
-            </div>
-            <div style={{marginBottom:16}}><div style={lblS}>Status</div>
-              <select style={inpS} value={prefixForm.status} onChange={e=>setPrefixForm({...prefixForm,status:e.target.value})}>
-                <option value="active">Active</option><option value="inactive">Inactive</option>
-              </select></div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={savePrefix} disabled={saving}
-                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                {saving?"Saving...":editingPrefix?"✅ Save Changes":"✅ Add Prefix"}</button>
-              <button onClick={()=>setShowAddPrefix(false)}
-                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {editNum&&(
         <div onClick={()=>setEditNum(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -3494,6 +3393,94 @@ const COUNTRIES=[
   {name:"Zambia",code:"ZM",prefix:"260"},
   {name:"Zimbabwe",code:"ZW",prefix:"263"},
 ];
+const PAYMENT_TERMS=["Daily","Weekly","Monthly","30/45"];
+const SAUDI_OPERATORS=["STC","Mobily","Zain KSA","Virgin Mobile","Lebara","Friendi Mobile","Red Bull MOBILE","Other"];
+
+// Add / edit a supplier prefix: price, payment term, IVR. Every number under
+// the prefix bills at this price. `editing` is a prefix row, or null to add
+// (then a supplier is picked from `suppliers`).
+function PrefixFormModal({token,editing,suppliers,ivrs,onClose,onSaved}){
+  const [f,setF]=useState(editing
+    ?{supplier_id:editing.supplier_id,prefix:editing.prefix,country:editing.country||"",country_code:editing.country_code||"",
+      price:editing.price??"",payment_term:editing.payment_term||"",test_number:editing.test_number||"",
+      operator:editing.operator||"",ivr_context:editing.ivr_context||"",status:editing.status||"active"}
+    :{supplier_id:"",prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});
+  const [saving,setSaving]=useState(false);
+  const save=async()=>{
+    if(!editing&&!f.supplier_id){alert("Select a supplier");return;}
+    if(!f.prefix||!f.country||f.price===""||f.price==null||!f.payment_term||(!editing&&!f.test_number)){
+      alert("Prefix, country, price, payment term and test number are required");return;
+    }
+    setSaving(true);
+    const d=editing
+      ?await apiFetch(`/prefixes/${editing.id}`,token,{method:"PUT",body:JSON.stringify(f)})
+      :await apiFetch(`/prefixes`,token,{method:"POST",body:JSON.stringify(f)});
+    setSaving(false);
+    if(d.success) onSaved(editing?"Prefix "+f.prefix+" updated":"Prefix "+f.prefix+" added");
+    else alert(d.error||"Failed to save prefix");
+  };
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,maxWidth:"100%",padding:20,maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box"}}>
+        <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>{editing?"Edit Prefix "+editing.prefix:"Add Prefix"}</div>
+        <div style={{marginBottom:10}}><div style={lblS}>Supplier *</div>
+          {editing?<div style={{...inpS,background:"#F5F5F5",color:"#555"}}>{editing.supplier_name||"—"}</div>:
+          <select style={inpS} value={f.supplier_id} onChange={e=>setF({...f,supplier_id:e.target.value})}>
+            <option value="">— Select Supplier —</option>
+            {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>}</div>
+        <div style={{marginBottom:10}}><div style={lblS}>Prefix *</div>
+          <input style={inpS} value={f.prefix} onChange={e=>setF({...f,prefix:e.target.value})} placeholder="97717122"/></div>
+        <div style={{marginBottom:10}}><div style={lblS}>Country *</div>
+          <select style={inpS} value={f.country} onChange={e=>{
+            const c=COUNTRIES.find(c=>c.name===e.target.value);
+            setF({...f,country:e.target.value,country_code:c?c.code:f.country_code});
+          }}>
+            <option value="">— Select —</option>
+            {f.country&&!COUNTRIES.some(c=>c.name===f.country)&&<option value={f.country}>{f.country}</option>}
+            {COUNTRIES.map(c=><option key={c.code} value={c.name}>{c.name} (+{c.prefix})</option>)}
+          </select></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <div><div style={lblS}>Price / Min ($) *</div>
+            <input type="number" step="0.001" style={inpS} value={f.price} onChange={e=>setF({...f,price:e.target.value})} placeholder="0.050"/></div>
+          <div><div style={lblS}>Payment Term *</div>
+            <select style={inpS} value={f.payment_term} onChange={e=>setF({...f,payment_term:e.target.value})}>
+              <option value="">— Select —</option>
+              {f.payment_term&&!PAYMENT_TERMS.includes(f.payment_term)&&<option value={f.payment_term}>{f.payment_term}</option>}
+              {PAYMENT_TERMS.map(t=><option key={t} value={t}>{t}</option>)}
+            </select></div>
+        </div>
+        <div style={{marginBottom:10}}><div style={lblS}>Test Number {editing?"":"*"}</div>
+          <input style={inpS} value={f.test_number} onChange={e=>setF({...f,test_number:e.target.value})} placeholder="97717122400" disabled={!!editing}/></div>
+        <div style={{marginBottom:10}}><div style={lblS}>Operator (optional)</div>
+          <select style={inpS} value={f.operator} onChange={e=>setF({...f,operator:e.target.value})}>
+            <option value="">— Select —</option>
+            {f.operator&&!SAUDI_OPERATORS.includes(f.operator)&&<option value={f.operator}>{f.operator}</option>}
+            {SAUDI_OPERATORS.map(o=><option key={o} value={o}>{o}</option>)}
+          </select></div>
+        <div style={{marginBottom:10}}><div style={lblS}>IVR (optional)</div>
+          <select style={inpS} value={f.ivr_context} onChange={e=>setF({...f,ivr_context:e.target.value})}>
+            <option value="">— Select —</option>
+            {f.ivr_context&&!ivrs.some(i=>"custom/"+i.name===f.ivr_context)&&<option value={f.ivr_context}>{f.ivr_context.replace("custom/","")}</option>}
+            {ivrs.map(i=><option key={i.id} value={`custom/${i.name}`}>{i.display_name||i.name}</option>)}
+          </select>
+          <div style={{fontSize:10,color:"#999",marginTop:4}}>Applies to every number under this prefix — new and existing.</div></div>
+        <div style={{marginBottom:16}}><div style={lblS}>Status</div>
+          <select style={inpS} value={f.status} onChange={e=>setF({...f,status:e.target.value})}>
+            <option value="active">Active</option><option value="inactive">Inactive</option>
+          </select></div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={save} disabled={saving}
+            style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+            {saving?"Saving...":editing?"✅ Save Changes":"✅ Add Prefix"}</button>
+          <button onClick={onClose}
+            style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NumberInventoryPage({token,setPage}){
   const [dids,setDids]=useState([]);
   const [ranges,setRanges]=useState([]);
@@ -3524,6 +3511,17 @@ function NumberInventoryPage({token,setPage}){
   // Add Number / Range: pick a supplier, then one of that supplier's prefixes.
   // Saved one number at a time through POST /numbers (it fills tariff, term
   // and IVR from the prefix).
+  // Prefixes (price, payment term, IVR) are managed here, not on the Supplier page
+  const [supplierAccounts,setSupplierAccounts]=useState([]);
+  const [prefixModal,setPrefixModal]=useState(null);
+  const [showPrefixes,setShowPrefixes]=useState(true);
+  const delPrefix=async(p)=>{
+    if(!window.confirm(`Delete prefix ${p.prefix} (${p.supplier_name||"—"})? This also permanently removes its ${p.number_count||0} number(s).`)) return;
+    const d=await apiFetch(`/prefixes/${p.id}`,token,{method:"DELETE"});
+    setResult(d.success?{success:true,message:"Prefix "+p.prefix+" deleted"}:{success:false,message:d.error||"Failed to delete"});
+    load();
+  };
+
   const [showAddNum,setShowAddNum]=useState(false);
   const [addNum,setAddNum]=useState({supplier_id:"",prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
   const [adding,setAdding]=useState(null);
@@ -3640,7 +3638,8 @@ function NumberInventoryPage({token,setPage}){
   const pfxTerm=(pid,fallback)=>(pfxById[pid]&&pfxById[pid].payment_term)||fallback||"—";
   const openSupplier=(sid)=>{ if(!sid||!setPage) return; try{sessionStorage.setItem("openSupplierId",String(sid));}catch{} setPage("suppliers"); };
   const load=()=>{
-    apiFetch("/prefixes",token).then(d=>setPrefixList(d.data||[]));
+    apiFetch("/prefixes?all=1",token).then(d=>setPrefixList(d.data||[]));
+    apiFetch("/supplier-accounts",token).then(d=>setSupplierAccounts(d.data||[]));
     setLoading(true);
     Promise.all([
       apiFetch("/dids",token),
@@ -3783,6 +3782,9 @@ function NumberInventoryPage({token,setPage}){
           <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <button onClick={()=>setPrefixModal({})}
+            style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",
+              fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD PREFIX</button>
           <button onClick={openAddNum}
             style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",
               fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD NUMBER</button>
@@ -3938,6 +3940,48 @@ function NumberInventoryPage({token,setPage}){
             border:"1px solid "+(result.success?"#10B981":"#EF4444"),
             fontSize:12,color:result.success?"#10B981":"#EF4444",fontWeight:600}}>
             {result.success?"✅ ":"❌ "}{result.message||result.error||JSON.stringify(result)}
+          </div>
+        )}
+
+        {prefixModal&&<PrefixFormModal token={token} editing={prefixModal.id?prefixModal:null}
+          suppliers={supplierAccounts} ivrs={ivrList} onClose={()=>setPrefixModal(null)}
+          onSaved={m=>{setPrefixModal(null);setResult({success:true,message:m});load();}}/>}
+
+        {/* ── PREFIXES: price / payment term / IVR per supplier prefix ── */}
+        {tab==="numbers"&&(
+          <div style={{background:"#FFF",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",overflow:"hidden",marginBottom:12}}>
+            <div onClick={()=>setShowPrefixes(v=>!v)} style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",
+              display:"flex",justifyContent:"space-between",cursor:"pointer"}}>
+              <span>PREFIXES · PRICE &amp; PAYMENT TERM ({prefixList.length})</span><span style={{color:"#888"}}>{showPrefixes?"▲":"▼"}</span>
+            </div>
+            {showPrefixes&&<div style={{overflowX:"auto",maxHeight:360,overflowY:"auto"}}>
+              <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+                <thead><tr>{["Supplier","Prefix","Country","Code","Price","Term","IVR","Test Number","Numbers",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {prefixList.length===0?<tr><td colSpan={10} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
+                  [...prefixList].sort((a,b)=>(a.supplier_name||"").localeCompare(b.supplier_name||"")||String(a.prefix).localeCompare(String(b.prefix))).map((p,i)=>{
+                    const td={padding:"7px 10px",fontSize:12,borderBottom:"1px solid #F5F5F5",whiteSpace:"nowrap"};
+                    return(
+                    <tr key={p.id} style={{background:i%2?"#FAFAFA":"#FFF"}}>
+                      <td style={{...td,color:"#2CADA6",fontWeight:600}}>{p.supplier_name||"—"}</td>
+                      <td style={{...td,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
+                      <td style={{...td,color:"#555"}}>{p.country||"—"}</td>
+                      <td style={{...td,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
+                      <td style={{...td,fontFamily:"monospace",fontWeight:700,color:p.price==null?"#B7791F":"#10B981"}}>{p.price==null?"not set":fmtUSDT(p.price)}</td>
+                      <td style={{...td,color:"#555"}}>{p.payment_term||"—"}</td>
+                      <td style={{...td,color:"#555",fontSize:11}}>{(p.ivr_context||"—").replace("custom/","")}</td>
+                      <td style={{...td,fontFamily:"monospace",fontSize:11}}>{p.test_number||"—"}</td>
+                      <td style={{...td,textAlign:"right"}}>{p.number_count||0}</td>
+                      <td style={td}>
+                        <button onClick={()=>setPrefixModal(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                          background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>{p.price==null?"Set price":"Edit"}</button>
+                        <button onClick={()=>delPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
+                          background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                      </td>
+                    </tr>);})}
+                </tbody>
+              </GTable>
+            </div>}
           </div>
         )}
 

@@ -3097,7 +3097,21 @@ Route::put('/v1/prefixes/{id}', function(Request $r, $id) {
         DB::table('did_ranges')->where('prefix_id', $id)->update(['default_ivr' => $newIvrContext, 'updated_at' => now()]);
     }
 
-    return response()->json(['success'=>true,'data'=>DB::table('supplier_prefixes')->find($id)]);
+    // Same for price and payment term: did_router.php bills each call at
+    // dids.tariff, so the numbers must follow the prefix.
+    $updated = DB::table('supplier_prefixes')->find($id);
+    if ($updated->price !== null && ((string)$updated->price !== (string)$prefix->price || $updated->payment_term !== $prefix->payment_term)) {
+        DB::table('dids')->where('prefix_id', $id)->update([
+            'tariff' => $updated->price, 'selling_price' => $updated->price,
+            'payment_terms' => $updated->payment_term, 'updated_at' => now(),
+        ]);
+        DB::table('did_ranges')->where('prefix_id', $id)->update([
+            'rate' => $updated->price, 'selling_price' => $updated->price,
+            'payment_terms' => $updated->payment_term, 'updated_at' => now(),
+        ]);
+    }
+
+    return response()->json(['success'=>true,'data'=>$updated]);
 });
 
 Route::delete('/v1/prefixes/{id}', function($id) {
