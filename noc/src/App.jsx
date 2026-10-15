@@ -1842,6 +1842,62 @@ function SupplierAccountsPage({token,user,setPage}){
   );
 }
 
+// Apply & Reload Asterisk: preview (changes / warnings / blocking errors),
+// then apply, which backs up, writes pjsip.conf/extensions.conf, reloads
+// Asterisk, verifies and auto-restores the backup if verification fails.
+function AsteriskApplyModal({token,onClose,onApplied}){
+  const [applyBox,setApplyBox]=useState({loading:true});
+  useEffect(()=>{
+    apiFetch("/asterisk-config/preview",token).then(d=>{
+      if(!d||!d.data) setApplyBox({error:d?.error||"Could not load the Asterisk preview"});
+      else setApplyBox({preview:d.data});
+    });
+  },[token]);
+  const runApply=async()=>{
+    setApplyBox(b=>({...b,applying:true}));
+    const d=await apiFetch("/asterisk-config/apply",token,{method:"POST",body:JSON.stringify({})});
+    setApplyBox(b=>({...b,applying:false,result:d?.data||{success:false,summary:d?.error||"Apply failed"}}));
+    onApplied&&onApplied();
+  };
+  return(
+    <div onClick={()=>!applyBox.applying&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{...cardS,width:520,maxWidth:"calc(100vw - 32px)",padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontSize:15,fontWeight:800,marginBottom:12}}>⚡ Apply &amp; Reload Asterisk</div>
+        {applyBox.loading&&<div style={{fontSize:12,color:"#999",padding:"10px 0"}}>Checking what would change...</div>}
+        {applyBox.error&&<div style={{padding:"8px 10px",borderRadius:6,background:"rgba(239,68,68,0.08)",border:"1px solid #EF4444",color:"#EF4444",fontSize:12,fontWeight:600}}>{applyBox.error}</div>}
+        {applyBox.result?(
+          <div style={{padding:"12px",borderRadius:8,fontSize:12,fontWeight:600,whiteSpace:"pre-wrap",
+            background:applyBox.result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.08)",
+            border:"1px solid "+(applyBox.result.success?"#10B981":"#EF4444"),color:applyBox.result.success?"#0F7B5A":"#B91C1C"}}>
+            {applyBox.result.success?"✅ Applied and reloaded. Asterisk is running the new configuration.\n\n":"❌ Not applied - Asterisk kept its current configuration.\n\n"}{applyBox.result.summary}
+          </div>
+        ):applyBox.preview&&(()=>{
+          const pv=applyBox.preview, errs=pv.errors||[], warns=pv.warnings||[], chg=pv.changes||[];
+          const list=(items,color,bg)=>items.map((x,i)=><div key={i} style={{padding:"6px 10px",borderRadius:6,marginBottom:6,background:bg,border:"1px solid "+color,fontSize:11,color,fontWeight:600}}>{x}</div>);
+          return(<>
+            {errs.length>0&&<><div style={{fontSize:11,fontWeight:800,color:"#EF4444",marginBottom:6}}>BLOCKED - fix these first</div>{list(errs,"#EF4444","rgba(239,68,68,0.08)")}</>}
+            {warns.length>0&&<><div style={{fontSize:11,fontWeight:800,color:"#B7791F",margin:"8px 0 6px"}}>WARNINGS</div>{list(warns,"#B7791F","rgba(245,166,35,0.1)")}</>}
+            <div style={{fontSize:11,fontWeight:800,color:"#555",margin:"8px 0 6px"}}>CHANGES</div>
+            {chg.length===0?<div style={{fontSize:12,color:"#999"}}>No changes - Asterisk already matches.</div>:
+              <div style={{fontFamily:"monospace",fontSize:11,background:"#F7F7F7",borderRadius:6,padding:10}}>{chg.map((c,i)=><div key={i}>{c}</div>)}</div>}
+          </>);
+        })()}
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          {!applyBox.result&&applyBox.preview&&(
+            <button onClick={runApply} disabled={applyBox.applying||(applyBox.preview.errors||[]).length>0}
+              style={{flex:1,padding:"11px",borderRadius:8,border:"none",fontSize:13,fontWeight:800,cursor:"pointer",color:"#FFF",
+                background:(applyBox.preview.errors||[]).length>0?"#BBB":"#5B4FCF"}}>
+              {applyBox.applying?"Applying...":(applyBox.preview.errors||[]).length>0?"Blocked":"✅ Confirm Apply & Reload"}</button>
+          )}
+          <button onClick={()=>onClose()} disabled={applyBox.applying}
+            style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
+            {applyBox.result?"Close":"Cancel"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SupplierWorkspace({token,user,setPage,supplier:initial,onBack}){
   // Supplier page: panel login, contact person, IP list and the Asterisk
   // configuration only. Prefixes, prices and numbers live on the Numbers page.
@@ -1886,7 +1942,7 @@ function SupplierWorkspace({token,user,setPage,supplier:initial,onBack}){
   // verifies and auto-restores the backup if verification fails.
   const [savedAt,setSavedAt]=useState(null);
   const [savingAll,setSavingAll]=useState(false);
-  const [applyBox,setApplyBox]=useState(null); // {loading,preview,applying,result,error}
+  const [applyBox,setApplyBox]=useState(false);
   const loadAstConf=()=>apiFetch(`/supplier-accounts/${supplier.id}/asterisk-config`,token).then(d=>setAstConf(d.data||{trunks:[],routes:[]}));
   const saveAll=async()=>{
     setSavingAll(true);
@@ -1894,18 +1950,7 @@ function SupplierWorkspace({token,user,setPage,supplier:initial,onBack}){
     catch(e){ alert("Could not confirm save - check your connection and try again"); }
     setSavingAll(false);
   };
-  const openApply=async()=>{
-    setApplyBox({loading:true});
-    const d=await apiFetch("/asterisk-config/preview",token);
-    if(!d||!d.data) setApplyBox({error:d?.error||"Could not load the Asterisk preview"});
-    else setApplyBox({preview:d.data});
-  };
-  const runApply=async()=>{
-    setApplyBox(b=>({...b,applying:true}));
-    const d=await apiFetch("/asterisk-config/apply",token,{method:"POST",body:JSON.stringify({})});
-    setApplyBox(b=>({...b,applying:false,result:d?.data||{success:false,summary:d?.error||"Apply failed"}}));
-    loadAstConf();
-  };
+  const openApply=()=>setApplyBox(true);
   useEffect(()=>{ loadSupplier(); loadAstConf(); },[initial.id]);
 
   const infoRow=(k,v)=>(
@@ -2056,43 +2101,7 @@ function SupplierWorkspace({token,user,setPage,supplier:initial,onBack}){
             Save confirms every change on this page is stored. Apply &amp; Reload pushes the configuration to Asterisk and reloads it (affects all suppliers).</div>
         </div>
 
-        {applyBox&&(
-          <div onClick={()=>!applyBox.applying&&setApplyBox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div onClick={e=>e.stopPropagation()} style={{...cardS,width:520,maxWidth:"calc(100vw - 32px)",padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-              <div style={{fontSize:15,fontWeight:800,marginBottom:12}}>⚡ Apply &amp; Reload Asterisk</div>
-              {applyBox.loading&&<div style={{fontSize:12,color:"#999",padding:"10px 0"}}>Checking what would change...</div>}
-              {applyBox.error&&<div style={{padding:"8px 10px",borderRadius:6,background:"rgba(239,68,68,0.08)",border:"1px solid #EF4444",color:"#EF4444",fontSize:12,fontWeight:600}}>{applyBox.error}</div>}
-              {applyBox.result?(
-                <div style={{padding:"12px",borderRadius:8,fontSize:12,fontWeight:600,whiteSpace:"pre-wrap",
-                  background:applyBox.result.success?"rgba(16,185,129,0.1)":"rgba(239,68,68,0.08)",
-                  border:"1px solid "+(applyBox.result.success?"#10B981":"#EF4444"),color:applyBox.result.success?"#0F7B5A":"#B91C1C"}}>
-                  {applyBox.result.success?"✅ Applied and reloaded. Asterisk is running the new configuration.\n\n":"❌ Not applied - Asterisk kept its current configuration.\n\n"}{applyBox.result.summary}
-                </div>
-              ):applyBox.preview&&(()=>{
-                const pv=applyBox.preview, errs=pv.errors||[], warns=pv.warnings||[], chg=pv.changes||[];
-                const list=(items,color,bg)=>items.map((x,i)=><div key={i} style={{padding:"6px 10px",borderRadius:6,marginBottom:6,background:bg,border:"1px solid "+color,fontSize:11,color,fontWeight:600}}>{x}</div>);
-                return(<>
-                  {errs.length>0&&<><div style={{fontSize:11,fontWeight:800,color:"#EF4444",marginBottom:6}}>BLOCKED - fix these first</div>{list(errs,"#EF4444","rgba(239,68,68,0.08)")}</>}
-                  {warns.length>0&&<><div style={{fontSize:11,fontWeight:800,color:"#B7791F",margin:"8px 0 6px"}}>WARNINGS</div>{list(warns,"#B7791F","rgba(245,166,35,0.1)")}</>}
-                  <div style={{fontSize:11,fontWeight:800,color:"#555",margin:"8px 0 6px"}}>CHANGES</div>
-                  {chg.length===0?<div style={{fontSize:12,color:"#999"}}>No changes - Asterisk already matches.</div>:
-                    <div style={{fontFamily:"monospace",fontSize:11,background:"#F7F7F7",borderRadius:6,padding:10}}>{chg.map((c,i)=><div key={i}>{c}</div>)}</div>}
-                </>);
-              })()}
-              <div style={{display:"flex",gap:8,marginTop:16}}>
-                {!applyBox.result&&applyBox.preview&&(
-                  <button onClick={runApply} disabled={applyBox.applying||(applyBox.preview.errors||[]).length>0}
-                    style={{flex:1,padding:"11px",borderRadius:8,border:"none",fontSize:13,fontWeight:800,cursor:"pointer",color:"#FFF",
-                      background:(applyBox.preview.errors||[]).length>0?"#BBB":"#5B4FCF"}}>
-                    {applyBox.applying?"Applying...":(applyBox.preview.errors||[]).length>0?"Blocked":"✅ Confirm Apply & Reload"}</button>
-                )}
-                <button onClick={()=>setApplyBox(null)} disabled={applyBox.applying}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>
-                  {applyBox.result?"Close":"Cancel"}</button>
-              </div>
-            </div>
-          </div>
-        )}
+        {applyBox&&<AsteriskApplyModal token={token} onClose={()=>setApplyBox(null)} onApplied={loadAstConf}/>}
       </div>
 
       {edit&&(
@@ -2782,25 +2791,55 @@ function NumberInventoryPage({token,setPage}){
   const clearSel=()=>setSelected(new Set());
 
 
-  // Change the IVR of one number, or of every number in a prefix block
-  const setDidIvr=async(id,ctx)=>{
-    setDids(ds=>ds.map(x=>x.id===id?{...x,ivr_context:ctx}:x));
-    const d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids:[id],ivr_context:ctx})});
-    setResult(d.success?{success:true,message:"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
-    if(!d.success) load();
-  };
-  const setRangeIvr=async(r,ctx)=>{
-    const n=getNumbers(r).length;
-    if(!window.confirm("Apply this IVR to all "+n+" numbers in "+(r.prefix||r.range_start)+"?")) return;
-    // Prefix-level IVR lives on supplier_prefixes; the block route re-applies it to every number under it
-    if(r.prefix_id) await apiFetch("/prefixes/"+r.prefix_id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
-    const d=await apiFetch("/did-ranges/"+r.id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
-    setResult(d.success?{success:true,message:d.message||"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
+  // Inline edits (IVR changes, number deletes) are only marked here; SAVE
+  // writes them all, then APPLY TO ASTERISK pushes the config and reloads.
+  const NO_PENDING={pfxIvr:{},didIvr:{},delDid:{}};
+  const [pending,setPending]=useState(NO_PENDING);
+  const [savingPending,setSavingPending]=useState(false);
+  const [showApply,setShowApply]=useState(false);
+  const [savedPending,setSavedPending]=useState(false);
+  const pendingCount=Object.keys(pending.pfxIvr).length+Object.keys(pending.didIvr).length+Object.keys(pending.delDid).length;
+  const mark=(kind,id,val,orig)=>{setSavedPending(false);setPending(p=>{const m={...p[kind]};
+    if(val===undefined||val===orig) delete m[id]; else m[id]=val; return {...p,[kind]:m};});};
+  const setDidIvr=(d,ctx)=>mark("didIvr",d.id,ctx,d.ivr_context);
+  const setPfxIvr=(p,ctx)=>mark("pfxIvr",p.id,ctx,p.ivr_context);
+  const toggleDelDid=(d,e)=>{e.stopPropagation();mark("delDid",d.id,pending.delDid[d.id]?undefined:true);};
+  const didIvrShown=d=>pending.didIvr[d.id]??pending.pfxIvr[d.prefix_id]??d.ivr_context;
+  const savePending=async()=>{
+    setSavingPending(true);
+    const errs=[];let n=0;
+    // Prefix IVR first (it re-applies to every number under it), then per-number overrides, then deletes
+    for(const [pid,ctx] of Object.entries(pending.pfxIvr)){
+      const d=await apiFetch("/prefixes/"+pid+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
+      d.success?n++:errs.push("prefix "+(pfxById[pid]?.prefix||pid)+": "+(d.error||"failed"));
+    }
+    const byCtx={};
+    Object.entries(pending.didIvr).forEach(([id,ctx])=>{if(!pending.delDid[id])(byCtx[ctx]=byCtx[ctx]||[]).push(+id);});
+    for(const [ctx,ids] of Object.entries(byCtx)){
+      const d=await apiFetch("/dids/bulk-ivr",token,{method:"POST",body:JSON.stringify({ids,ivr_context:ctx})});
+      d.success?n+=ids.length:errs.push(ids.length+" number IVR(s): "+(d.error||d.message||"failed"));
+    }
+    const delIds=Object.keys(pending.delDid).map(Number);
+    if(delIds.length){
+      const d=await apiFetch("/dids/bulk-delete",token,{method:"POST",body:JSON.stringify({ids:delIds})});
+      d.success!==false?n+=delIds.length:errs.push("delete: "+(d.error||"failed"));
+    }
+    setSavingPending(false);
+    setPending(NO_PENDING);
+    setSavedPending(errs.length===0);
+    setResult({success:errs.length===0,message:errs.length?"Saved "+n+" change(s) · "+errs.length+" failed: "+errs.join("; "):"Saved "+n+" change(s). Now APPLY TO ASTERISK to push the config."});
     load();
   };
-  const ivrSelect=(value,onChange)=>(
+  useEffect(()=>{
+    if(!pendingCount) return;
+    const warn=e=>{e.preventDefault();e.returnValue="";};
+    window.addEventListener("beforeunload",warn);
+    return ()=>window.removeEventListener("beforeunload",warn);
+  },[pendingCount]);
+
+  const ivrSelect=(value,onChange,changed)=>(
     <select value={value||""} onClick={e=>e.stopPropagation()} onChange={e=>onChange(e.target.value)}
-      style={{padding:"3px 6px",borderRadius:6,border:"1px solid #CCC",background:"#FFF",color:"#333",fontSize:11,fontFamily:"inherit",maxWidth:150}}>
+      style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+(changed?"#F5A623":"#CCC"),background:changed?"#FFF7E6":"#FFF",color:"#333",fontSize:11,fontFamily:"inherit",maxWidth:150,fontWeight:changed?700:400}}>
       {value&&!ivrList.some(i=>"custom/"+i.name===value)&&<option value={value}>{value.replace("custom/","")} (missing)</option>}
       {!value&&<option value="">— select —</option>}
       {ivrList.map(i=><option key={i.id} value={"custom/"+i.name}>{i.display_name||i.name}</option>)}
@@ -2847,27 +2886,12 @@ function NumberInventoryPage({token,setPage}){
   const filteredPfx=!sq?pfxRows:pfxRows.filter(p=>String(p.prefix).includes(sq)||(p.country||"").toLowerCase().includes(sq)
     ||(p.supplier_name||"").toLowerCase().includes(sq)||(didsByPfx[p.id]||[]).some(d=>(d.number||"").includes(sq)));
   const filteredLoose=!sq?loose:loose.filter(d=>(d.number||"").includes(sq)||(d.country_name||"").toLowerCase().includes(sq));
-  const setPfxIvr=async(p,ctx)=>{
-    const n=(didsByPfx[p.id]||[]).length;
-    if(!window.confirm("Apply this IVR to prefix "+p.prefix+" and all "+n+" number(s) under it?")) return;
-    const d=await apiFetch("/prefixes/"+p.id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
-    setResult(d.success?{success:true,message:d.message||"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
-    load();
-  };
-
   const deleteRange=async(id,e)=>{
     e.stopPropagation();
     if(!window.confirm("Delete this number block?")) return;
     await apiFetch("/did-ranges/"+id,token,{method:"DELETE"});
     load();
   };
-  const deleteDid=async(id,e)=>{
-    e.stopPropagation();
-    if(!window.confirm("Delete this number?")) return;
-    await apiFetch("/dids/"+id,token,{method:"DELETE"});
-    load();
-  };
-
   const addNumber=async()=>{
     if(!addForm.number){alert("Enter a number");return;}
     if(!addForm.trunk_id){alert("Select a supplier");return;}
@@ -3090,6 +3114,21 @@ function NumberInventoryPage({token,setPage}){
           </div>
         )}
 
+        {/* SAVE (all pending edits) + APPLY TO ASTERISK */}
+        <div style={{position:"sticky",top:0,zIndex:20,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 12px",marginBottom:12,
+          borderRadius:10,background:pendingCount?"#FFF7E6":"#FFF",border:"1px solid "+(pendingCount?"#F5A623":"#E0E0E0"),boxShadow:"0 2px 6px rgba(0,0,0,0.06)"}}>
+          <span style={{flex:"1 1 160px",fontSize:12,fontWeight:700,color:pendingCount?"#B7791F":savedPending?"#10B981":"#888"}}>
+            {pendingCount?pendingCount+" unsaved change"+(pendingCount>1?"s":""):savedPending?"✅ Saved — apply to Asterisk when ready":"No unsaved changes"}</span>
+          {pendingCount>0&&<button onClick={()=>{if(window.confirm("Discard "+pendingCount+" unsaved change(s)?"))setPending(NO_PENDING);}} disabled={savingPending}
+            style={{padding:"9px 14px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:12,fontWeight:700,cursor:"pointer"}}>Discard</button>}
+          <button onClick={savePending} disabled={!pendingCount||savingPending}
+            style={{padding:"9px 16px",borderRadius:8,border:"none",background:pendingCount?"#2CADA6":"#BBB",color:"#FFF",fontSize:12,fontWeight:800,cursor:pendingCount?"pointer":"default"}}>
+            {savingPending?"Saving...":"💾 SAVE"+(pendingCount?" ("+pendingCount+")":"")}</button>
+          <button onClick={()=>pendingCount?alert("Save your changes first"):setShowApply(true)} disabled={savingPending}
+            style={{padding:"9px 16px",borderRadius:8,border:"none",background:pendingCount?"#BBB":"#5B4FCF",color:"#FFF",fontSize:12,fontWeight:800,cursor:"pointer"}}>⚡ APPLY TO ASTERISK</button>
+        </div>
+        {showApply&&<AsteriskApplyModal token={token} onClose={()=>setShowApply(false)} onApplied={()=>setSavedPending(false)}/>}
+
         {prefixModal&&<PrefixFormModal token={token} editing={prefixModal.id?prefixModal:null}
           suppliers={supplierAccounts} ivrs={ivrList} onClose={()=>setPrefixModal(null)}
           onSaved={m=>{setPrefixModal(null);setResult({success:true,message:m});load();}}/>}
@@ -3140,7 +3179,7 @@ function NumberInventoryPage({token,setPage}){
                             <td style={{...td,fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
                             <td style={{...td,fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
                               title="Open this supplier's page" onClick={e=>{e.stopPropagation();openSupplier(p.supplier_id);}}>{numSupplier(p.supplier_name)}</td>
-                            <td style={td}>{ivrSelect(p.ivr_context,ctx=>setPfxIvr(p,ctx))}</td>
+                            <td style={td}>{ivrSelect(pending.pfxIvr[p.id]??p.ivr_context,ctx=>setPfxIvr(p,ctx),pending.pfxIvr[p.id]!==undefined)}</td>
                             <td style={{...td,whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                               <button onClick={()=>setPrefixModal(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
                                 background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>{p.price==null?"Set price":"Edit"}</button>
@@ -3151,16 +3190,16 @@ function NumberInventoryPage({token,setPage}){
                           {isExp&&(nums.length===0
                             ?<tr><td colSpan={7} style={{padding:"6px 10px 6px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#F9F9F9"}}>No numbers yet — use + ADD NUMBER or + UPLOAD</td></tr>
                             :nums.map((d,di)=>(
-                              <tr key={d.id} style={{background:di%2===0?"#F5FFFE":"#EFFFFE",borderBottom:"1px solid #E0F5F5"}}>
+                              <tr key={d.id} style={{background:pending.delDid[d.id]?"#FDECEC":di%2===0?"#F5FFFE":"#EFFFFE",borderBottom:"1px solid #E0F5F5",textDecoration:pending.delDid[d.id]?"line-through":"none",opacity:pending.delDid[d.id]?0.7:1}}>
                                 <td style={{padding:"4px 10px 4px 37px",whiteSpace:"nowrap"}}>
                                   <span style={{fontSize:11,fontFamily:"monospace",color:"#1A1A1A"}}>{(d.number||"").replace("+","")}</span>
                                   <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
                                 </td>
                                 <td colSpan={4}/>
-                                <td style={{padding:"4px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
+                                <td style={{padding:"4px 10px"}}>{ivrSelect(didIvrShown(d),ctx=>setDidIvr(d,ctx),didIvrShown(d)!==d.ivr_context)}</td>
                                 <td style={{padding:"4px 10px"}}>
-                                  <button onClick={e=>deleteDid(d.id,e)} title="Delete this number" style={{padding:"1px 6px",borderRadius:4,border:"1px solid #EF4444",
-                                    background:"#FFF",color:"#EF4444",fontSize:10,cursor:"pointer"}}>✕</button></td>
+                                  <button onClick={e=>toggleDelDid(d,e)} title={pending.delDid[d.id]?"Undo delete":"Delete this number (on SAVE)"} style={{padding:"1px 6px",borderRadius:4,border:"1px solid "+(pending.delDid[d.id]?"#888":"#EF4444"),
+                                    background:"#FFF",color:pending.delDid[d.id]?"#555":"#EF4444",fontSize:10,cursor:"pointer"}}>{pending.delDid[d.id]?"↺":"✕"}</button></td>
                               </tr>
                             ))
                           )}
@@ -3175,17 +3214,17 @@ function NumberInventoryPage({token,setPage}){
                           </td>
                         </tr>
                         {filteredLoose.map((d,i)=>(
-                          <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
+                          <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:pending.delDid[d.id]?"#FDECEC":i%2===0?"#FFF":"#FAFAFA",textDecoration:pending.delDid[d.id]?"line-through":"none"}}>
                             <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
                             <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff)}</td>
                             <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"—"}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
                               title="Open this supplier's page" onClick={()=>openSupplier(d.supplier_id)}>{numSupplier(d.supplier_name)}</td>
-                            <td style={{padding:"5px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
+                            <td style={{padding:"5px 10px"}}>{ivrSelect(didIvrShown(d),ctx=>setDidIvr(d,ctx),didIvrShown(d)!==d.ivr_context)}</td>
                             <td style={{padding:"5px 10px"}}>
-                              <button onClick={e=>deleteDid(d.id,e)} title="Delete this number" style={{padding:"1px 6px",borderRadius:4,border:"1px solid #EF4444",
-                                background:"#FFF",color:"#EF4444",fontSize:10,cursor:"pointer"}}>✕</button></td>
+                              <button onClick={e=>toggleDelDid(d,e)} title={pending.delDid[d.id]?"Undo delete":"Delete this number (on SAVE)"} style={{padding:"1px 6px",borderRadius:4,border:"1px solid "+(pending.delDid[d.id]?"#888":"#EF4444"),
+                                background:"#FFF",color:pending.delDid[d.id]?"#555":"#EF4444",fontSize:10,cursor:"pointer"}}>{pending.delDid[d.id]?"↺":"✕"}</button></td>
                           </tr>
                         ))}
                       </React.Fragment>
