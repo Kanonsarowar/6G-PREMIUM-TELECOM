@@ -2635,7 +2635,6 @@ function NumberInventoryPage({token,setPage}){
   // Prefixes (price, payment term, IVR) are managed here, not on the Supplier page
   const [supplierAccounts,setSupplierAccounts]=useState([]);
   const [prefixModal,setPrefixModal]=useState(null);
-  const [showPrefixes,setShowPrefixes]=useState(true);
   const delPrefix=async(p)=>{
     if(!window.confirm(`Delete prefix ${p.prefix} (${p.supplier_name||"—"})? This also permanently removes its ${p.number_count||0} number(s).`)) return;
     const d=await apiFetch(`/prefixes/${p.id}`,token,{method:"DELETE"});
@@ -2829,6 +2828,33 @@ function NumberInventoryPage({token,setPage}){
     return !ranges.some(r=>n.startsWith(r.prefix?.replace(/\s/g,"")||""));
   });
 
+  // Numbers list: one row per prefix (every prefix, so a new one shows up
+  // straight away with 0 numbers); its numbers expand underneath. Numbers
+  // without a prefix_id match their supplier's longest prefix.
+  const pfxDigits=x=>String(x||"").replace(/[^0-9]/g,"");
+  const pfxRows=[...prefixList].sort((a,b)=>((b.number_count>0)-(a.number_count>0))||(a.supplier_name||"").localeCompare(b.supplier_name||"")||String(a.prefix).localeCompare(String(b.prefix)));
+  const didsByPfx={};const loose=[];
+  dids.forEach(d=>{
+    let pid=d.prefix_id&&pfxById[d.prefix_id]?d.prefix_id:null;
+    if(!pid){const n=pfxDigits(d.number);
+      const m=pfxRows.filter(p=>String(p.supplier_id)===String(d.supplier_id)&&pfxDigits(p.prefix)&&n.startsWith(pfxDigits(p.prefix)))
+        .sort((a,b)=>pfxDigits(b.prefix).length-pfxDigits(a.prefix).length)[0];
+      pid=m?m.id:null;}
+    if(pid)(didsByPfx[pid]=didsByPfx[pid]||[]).push(d); else loose.push(d);
+  });
+  Object.values(didsByPfx).forEach(a=>a.sort((x,y)=>pfxDigits(x.number).localeCompare(pfxDigits(y.number))));
+  const sq=search.trim().toLowerCase();
+  const filteredPfx=!sq?pfxRows:pfxRows.filter(p=>String(p.prefix).includes(sq)||(p.country||"").toLowerCase().includes(sq)
+    ||(p.supplier_name||"").toLowerCase().includes(sq)||(didsByPfx[p.id]||[]).some(d=>(d.number||"").includes(sq)));
+  const filteredLoose=!sq?loose:loose.filter(d=>(d.number||"").includes(sq)||(d.country_name||"").toLowerCase().includes(sq));
+  const setPfxIvr=async(p,ctx)=>{
+    const n=(didsByPfx[p.id]||[]).length;
+    if(!window.confirm("Apply this IVR to prefix "+p.prefix+" and all "+n+" number(s) under it?")) return;
+    const d=await apiFetch("/prefixes/"+p.id+"/ivr",token,{method:"PUT",body:JSON.stringify({ivr_context:ctx})});
+    setResult(d.success?{success:true,message:d.message||"IVR updated"}:{success:false,message:d.error||d.message||"Failed to update IVR"});
+    load();
+  };
+
   const deleteRange=async(id,e)=>{
     e.stopPropagation();
     if(!window.confirm("Delete this number block?")) return;
@@ -2900,7 +2926,7 @@ function NumberInventoryPage({token,setPage}){
         display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} numbers · {prefixList.length} prefixes</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
           <button onClick={()=>setPrefixModal({})}
@@ -3068,50 +3094,12 @@ function NumberInventoryPage({token,setPage}){
           suppliers={supplierAccounts} ivrs={ivrList} onClose={()=>setPrefixModal(null)}
           onSaved={m=>{setPrefixModal(null);setResult({success:true,message:m});load();}}/>}
 
-        {/* ── PREFIXES: price / payment term / IVR per supplier prefix ── */}
-        {tab==="numbers"&&(
-          <div style={{background:"#FFF",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",overflow:"hidden",marginBottom:12}}>
-            <div onClick={()=>setShowPrefixes(v=>!v)} style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",
-              display:"flex",justifyContent:"space-between",cursor:"pointer"}}>
-              <span>PREFIXES · PRICE &amp; PAYMENT TERM ({prefixList.length})</span><span style={{color:"#888"}}>{showPrefixes?"▲":"▼"}</span>
-            </div>
-            {showPrefixes&&<div style={{overflowX:"auto",maxHeight:360,overflowY:"auto"}}>
-              <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-                <thead><tr>{["Supplier","Prefix","Country","Code","Price","Term","IVR","Test Number","Numbers",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {prefixList.length===0?<tr><td colSpan={10} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — use "+ ADD PREFIX" above</td></tr>:
-                  [...prefixList].sort((a,b)=>(a.supplier_name||"").localeCompare(b.supplier_name||"")||String(a.prefix).localeCompare(String(b.prefix))).map((p,i)=>{
-                    const td={padding:"7px 10px",fontSize:12,borderBottom:"1px solid #F5F5F5",whiteSpace:"nowrap"};
-                    return(
-                    <tr key={p.id} style={{background:i%2?"#FAFAFA":"#FFF"}}>
-                      <td style={{...td,color:"#2CADA6",fontWeight:600}}>{p.supplier_name||"—"}</td>
-                      <td style={{...td,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
-                      <td style={{...td,color:"#555"}}>{p.country||"—"}</td>
-                      <td style={{...td,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
-                      <td style={{...td,fontFamily:"monospace",fontWeight:700,color:p.price==null?"#B7791F":"#10B981"}}>{p.price==null?"not set":fmtUSDT(p.price)}</td>
-                      <td style={{...td,color:"#555"}}>{p.payment_term||"—"}</td>
-                      <td style={{...td,color:"#555",fontSize:11}}>{(p.ivr_context||"—").replace("custom/","")}</td>
-                      <td style={{...td,fontFamily:"monospace",fontSize:11}}>{p.test_number||"—"}</td>
-                      <td style={{...td,textAlign:"right"}}>{p.number_count||0}</td>
-                      <td style={td}>
-                        <button onClick={()=>setPrefixModal(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
-                          background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>{p.price==null?"Set price":"Edit"}</button>
-                        <button onClick={()=>delPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
-                          background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
-                      </td>
-                    </tr>);})}
-                </tbody>
-              </GTable>
-            </div>}
-          </div>
-        )}
-
         {/* ── NUMBERS TAB ── */}
         {tab==="numbers"&&(
           <>
             <div style={{display:"flex",gap:6,marginBottom:10}}>
               <input value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder="Search by number, country or prefix..."
+                placeholder="Search by number, prefix, country or supplier..."
                 style={{...inp,flex:1}}/>
               {search&&<button onClick={()=>setSearch("")}
                 style={{padding:"9px 12px",borderRadius:8,border:"1px solid #DDD",
@@ -3122,40 +3110,46 @@ function NumberInventoryPage({token,setPage}){
               <div style={{overflowX:"auto"}}>
                 <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:500,whiteSpace:"nowrap"}}>
                   <thead>
-                    <tr>{["NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","IVR"].map((h,i)=>(
+                    <tr>{["PREFIX / NUMBERS","COUNTRY","TARIFF","TERMS","SUPPLIER","IVR",""].map((h,i)=>(
                       <th key={i} style={thS}>{h}</th>
                     ))}</tr>
                   </thead>
                   <tbody>
-                    {filteredRanges.map(r=>{
-                      const nums=getNumbers(r);
-                      const isExp=expanded[r.id];
+                    {filteredPfx.map(p=>{
+                      const all=didsByPfx[p.id]||[];
+                      // Searching for a number: open its prefix and show just the matches
+                      const pfxHit=!sq||String(p.prefix).includes(sq)||(p.country||"").toLowerCase().includes(sq)||(p.supplier_name||"").toLowerCase().includes(sq);
+                      const nums=pfxHit?all:all.filter(d=>(d.number||"").includes(sq));
+                      const isExp=expanded["p"+p.id]||(!pfxHit&&nums.length>0);
+                      const td={padding:"6px 10px"};
                       return(
-                        <React.Fragment key={"r"+r.id}>
+                        <React.Fragment key={"p"+p.id}>
                           <tr style={{borderBottom:"1px solid #E8E8E8",background:isExp?"#F0FAFA":"#FFF",cursor:"pointer"}}
-                            onClick={()=>toggleRow(r.id)}>
-                            <td style={{padding:"6px 10px"}}>
+                            onClick={()=>toggleRow("p"+p.id)}>
+                            <td style={td}>
                               <div style={{display:"flex",alignItems:"center",gap:7}}>
                                 <div style={{width:20,height:20,borderRadius:"50%",background:"#2CADA6",
                                   color:"#FFF",display:"flex",alignItems:"center",justifyContent:"center",
                                   fontSize:13,fontWeight:700,flexShrink:0}}>{isExp?"−":"+"}</div>
-                                <span style={{fontSize:12,fontWeight:800,color:"#1A1A1A",fontFamily:"monospace",whiteSpace:"nowrap"}}>
-                                  {r.prefix||r.range_start}
-                                </span>
-                                <span style={{fontSize:11,color:"#AAA"}}>({nums.length})</span>
+                                <span style={{fontSize:12,fontWeight:800,color:"#1A1A1A",fontFamily:"monospace",whiteSpace:"nowrap"}}>{p.prefix}</span>
+                                <span style={{fontSize:11,color:"#AAA"}}>({all.length})</span>
                               </div>
                             </td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#333",fontWeight:600}}>{r.country_name||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,fontFamily:"monospace"}}>{r.prefix_id?pfxTariff(r.prefix_id):fmtUSDT(r.rate)}</td>
-                            <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{pfxTerm(r.prefix_id,r.payment_terms)}</td>
-                            <td style={{padding:"6px 10px",fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
-                              title="Open this supplier's page" onClick={e=>{e.stopPropagation();openSupplier(r.supplier_id);}}>{numSupplier(r.supplier_name)}</td>
-                            <td style={{padding:"6px 10px"}}>
-                              {ivrSelect(r.ivr_context||r.default_ivr,ctx=>setRangeIvr(r,ctx))}
+                            <td style={{...td,fontSize:12,color:"#333",fontWeight:600}}>{p.country||"—"}</td>
+                            <td style={{...td,fontSize:12,fontFamily:"monospace",fontWeight:700,color:p.price==null?"#B7791F":"#10B981"}}>{p.price==null?"not set":fmtUSDT(p.price)}</td>
+                            <td style={{...td,fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
+                            <td style={{...td,fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
+                              title="Open this supplier's page" onClick={e=>{e.stopPropagation();openSupplier(p.supplier_id);}}>{numSupplier(p.supplier_name)}</td>
+                            <td style={td}>{ivrSelect(p.ivr_context,ctx=>setPfxIvr(p,ctx))}</td>
+                            <td style={{...td,whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                              <button onClick={()=>setPrefixModal(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #2CADA6",
+                                background:"rgba(44,173,166,0.1)",color:"#2CADA6",fontSize:10,fontWeight:700,cursor:"pointer",marginRight:6}}>{p.price==null?"Set price":"Edit"}</button>
+                              <button onClick={()=>delPrefix(p)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #EF4444",
+                                background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
                             </td>
                           </tr>
                           {isExp&&(nums.length===0
-                            ?<tr><td colSpan={6} style={{padding:"6px 10px 6px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#F9F9F9"}}>No numbers</td></tr>
+                            ?<tr><td colSpan={7} style={{padding:"6px 10px 6px 37px",fontSize:11,color:"#999",fontStyle:"italic",background:"#F9F9F9"}}>No numbers yet — use + ADD NUMBER or + UPLOAD</td></tr>
                             :nums.map((d,di)=>(
                               <tr key={d.id} style={{background:di%2===0?"#F5FFFE":"#EFFFFE",borderBottom:"1px solid #E0F5F5"}}>
                                 <td style={{padding:"4px 10px 4px 37px",whiteSpace:"nowrap"}}>
@@ -3163,37 +3157,41 @@ function NumberInventoryPage({token,setPage}){
                                   <span style={{fontSize:10,color:"#AAA",marginLeft:8}}>— {(d.created_at||"").slice(0,10)}</span>
                                 </td>
                                 <td colSpan={4}/>
+                                <td style={{padding:"4px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
                                 <td style={{padding:"4px 10px"}}>
-                                  {ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}
-                                </td>
+                                  <button onClick={e=>deleteDid(d.id,e)} title="Delete this number" style={{padding:"1px 6px",borderRadius:4,border:"1px solid #EF4444",
+                                    background:"#FFF",color:"#EF4444",fontSize:10,cursor:"pointer"}}>✕</button></td>
                               </tr>
                             ))
                           )}
                         </React.Fragment>
                       );
                     })}
-                    {ungroupedDids.length>0&&(
+                    {filteredLoose.length>0&&(
                       <React.Fragment>
                         <tr style={{background:"#F0F0F0"}}>
-                          <td colSpan={6} style={{padding:"5px 10px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase"}}>
-                            Individual Numbers ({ungroupedDids.length})
+                          <td colSpan={7} style={{padding:"5px 10px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase"}}>
+                            Numbers without a prefix ({filteredLoose.length})
                           </td>
                         </tr>
-                        {ungroupedDids.map((d,i)=>(
+                        {filteredLoose.map((d,i)=>(
                           <tr key={d.id} style={{borderBottom:"1px solid #F0F0F0",background:i%2===0?"#FFF":"#FAFAFA"}}>
                             <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace",fontWeight:600}}>{(d.number||"").replace("+","")}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#333"}}>{d.country_name||"—"}</td>
-                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{d.prefix_id?pfxTariff(d.prefix_id):fmtUSDT(d.tariff)}</td>
-                            <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{pfxTerm(d.prefix_id,d.payment_terms)}</td>
+                            <td style={{padding:"5px 10px",fontSize:12,fontFamily:"monospace"}}>{fmtUSDT(d.tariff)}</td>
+                            <td style={{padding:"5px 10px",fontSize:11,color:"#555"}}>{d.payment_terms||"—"}</td>
                             <td style={{padding:"5px 10px",fontSize:12,color:"#2CADA6",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}
                               title="Open this supplier's page" onClick={()=>openSupplier(d.supplier_id)}>{numSupplier(d.supplier_name)}</td>
                             <td style={{padding:"5px 10px"}}>{ivrSelect(d.ivr_context,ctx=>setDidIvr(d.id,ctx))}</td>
+                            <td style={{padding:"5px 10px"}}>
+                              <button onClick={e=>deleteDid(d.id,e)} title="Delete this number" style={{padding:"1px 6px",borderRadius:4,border:"1px solid #EF4444",
+                                background:"#FFF",color:"#EF4444",fontSize:10,cursor:"pointer"}}>✕</button></td>
                           </tr>
                         ))}
                       </React.Fragment>
                     )}
-                    {filteredRanges.length===0&&ungroupedDids.length===0&&(
-                      <tr><td colSpan={6} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No numbers found</td></tr>
+                    {filteredPfx.length===0&&filteredLoose.length===0&&(
+                      <tr><td colSpan={7} style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>{sq?"Nothing matches the search":"No prefixes yet — use + ADD PREFIX"}</td></tr>
                     )}
                   </tbody>
                 </GTable>
