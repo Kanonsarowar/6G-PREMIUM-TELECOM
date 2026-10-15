@@ -2863,7 +2863,8 @@ Route::get('/v1/sip/log', function() {
     $log = '/var/log/asterisk/full';
     $lines = [];
     if(file_exists($log)){
-        exec("tail -200 {$log}", $lines);
+        // Hide the Remote UNIX connection noise from asterisk -rx polling
+        exec("tail -2000 {$log} | grep -v 'Remote UNIX connection' | tail -200", $lines);
     }
     return response()->json(['data'=>array_slice($lines,-100),'total'=>count($lines)]);
 });
