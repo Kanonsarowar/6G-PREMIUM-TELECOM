@@ -3114,19 +3114,6 @@ function NumberInventoryPage({token,setPage}){
           </div>
         )}
 
-        {/* SAVE (all pending edits) + APPLY TO ASTERISK */}
-        <div style={{position:"sticky",top:0,zIndex:20,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 12px",marginBottom:12,
-          borderRadius:10,background:pendingCount?"#FFF7E6":"#FFF",border:"1px solid "+(pendingCount?"#F5A623":"#E0E0E0"),boxShadow:"0 2px 6px rgba(0,0,0,0.06)"}}>
-          <span style={{flex:"1 1 160px",fontSize:12,fontWeight:700,color:pendingCount?"#B7791F":savedPending?"#10B981":"#888"}}>
-            {pendingCount?pendingCount+" unsaved change"+(pendingCount>1?"s":""):savedPending?"✅ Saved — apply to Asterisk when ready":"No unsaved changes"}</span>
-          {pendingCount>0&&<button onClick={()=>{if(window.confirm("Discard "+pendingCount+" unsaved change(s)?"))setPending(NO_PENDING);}} disabled={savingPending}
-            style={{padding:"9px 14px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:12,fontWeight:700,cursor:"pointer"}}>Discard</button>}
-          <button onClick={savePending} disabled={!pendingCount||savingPending}
-            style={{padding:"9px 16px",borderRadius:8,border:"none",background:pendingCount?"#2CADA6":"#BBB",color:"#FFF",fontSize:12,fontWeight:800,cursor:pendingCount?"pointer":"default"}}>
-            {savingPending?"Saving...":"💾 SAVE"+(pendingCount?" ("+pendingCount+")":"")}</button>
-          <button onClick={()=>pendingCount?alert("Save your changes first"):setShowApply(true)} disabled={savingPending}
-            style={{padding:"9px 16px",borderRadius:8,border:"none",background:pendingCount?"#BBB":"#5B4FCF",color:"#FFF",fontSize:12,fontWeight:800,cursor:"pointer"}}>⚡ APPLY TO ASTERISK</button>
-        </div>
         {showApply&&<AsteriskApplyModal token={token} onClose={()=>setShowApply(false)} onApplied={()=>setSavedPending(false)}/>}
 
         {prefixModal&&<PrefixFormModal token={token} editing={prefixModal.id?prefixModal:null}
@@ -3237,6 +3224,27 @@ function NumberInventoryPage({token,setPage}){
               </div>
             </div>}
           </>
+        )}
+
+        {/* SAVE (all pending edits) + APPLY TO ASTERISK — last on the page; sticks
+            to the bottom while scrolling so unsaved edits stay in view */}
+        {tab==="numbers"&&(
+          <div style={{position:"sticky",bottom:76,zIndex:20,marginTop:14,padding:16,borderRadius:10,
+            background:pendingCount?"#FFF7E6":"#FFF",border:"1px solid "+(pendingCount?"#F5A623":"#E0E0E0"),boxShadow:"0 2px 10px rgba(0,0,0,0.08)"}}>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <button onClick={savePending} disabled={!pendingCount||savingPending} style={{flex:"1 1 200px",padding:"14px",borderRadius:8,border:"none",
+                background:pendingCount?"#2CADA6":"#BBB",color:"#FFF",fontSize:14,fontWeight:800,cursor:pendingCount?"pointer":"default"}}>
+                {savingPending?"Saving...":"💾 SAVE"+(pendingCount?" ("+pendingCount+")":"")}</button>
+              <button onClick={()=>pendingCount?alert("Save your changes first"):setShowApply(true)} disabled={savingPending} style={{flex:"1 1 200px",padding:"14px",borderRadius:8,border:"none",
+                background:pendingCount?"#BBB":"#5B4FCF",color:"#FFF",fontSize:14,fontWeight:800,cursor:"pointer"}}>⚡ APPLY TO ASTERISK</button>
+            </div>
+            <div style={{marginTop:10,display:"flex",justifyContent:"center",alignItems:"center",gap:10,fontSize:12,fontWeight:700,
+              color:pendingCount?"#B7791F":savedPending?"#10B981":"#999"}}>
+              <span>{pendingCount?pendingCount+" unsaved change"+(pendingCount>1?"s":""):savedPending?"✅ Saved — apply to Asterisk when ready":"No unsaved changes"}</span>
+              {pendingCount>0&&<button onClick={()=>{if(window.confirm("Discard "+pendingCount+" unsaved change(s)?"))setPending(NO_PENDING);}} disabled={savingPending}
+                style={{padding:"4px 10px",borderRadius:6,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:11,fontWeight:700,cursor:"pointer"}}>Discard</button>}
+            </div>
+          </div>
         )}
 
         {/* ── ASSIGN RESELLER TAB ── */}
