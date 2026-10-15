@@ -53,7 +53,8 @@ function redactSupplier($supplier) {
     if (!$supplier) return $supplier;
     $arr = (array) $supplier;
     $arr['has_api_secret'] = !empty($arr['api_secret']);
-    unset($arr['api_secret']);
+    $arr['has_panel_password'] = !empty($arr['panel_password']);
+    unset($arr['api_secret'], $arr['panel_password']);
     return $arr;
 }
 
@@ -953,8 +954,11 @@ Route::middleware('auth:sanctum')->group(function() {
             'name','code','country','contact_name','email','phone','status','notes',
             'tariff','currency','payment_terms','settlement_period',
             'api_enabled','api_type','api_endpoint','api_auth_method',
+            'panel_url','panel_username',
         ]);
         if ($r->filled('api_secret')) $data['api_secret'] = $r->api_secret;
+        if ($r->filled('panel_password'))
+            $data['panel_password'] = \Illuminate\Support\Facades\Crypt::encryptString($r->panel_password);
         $data['updated_at'] = now();
         DB::table('suppliers')->where('id',$id)->update($data);
         return response()->json(['success'=>true,'data'=>redactSupplier(DB::table('suppliers')->find($id))]);
@@ -974,13 +978,19 @@ Route::middleware('auth:sanctum')->group(function() {
         }
         $s = DB::table('suppliers')->find($id);
         if (!$s) return response()->json(['error'=>'Supplier not found'],404);
+        $field = $r->field === 'panel_password' ? 'panel_password' : 'api_secret';
+        $value = $s->$field;
+        if ($field === 'panel_password' && $value !== null) {
+            try { $value = \Illuminate\Support\Facades\Crypt::decryptString($value); }
+            catch (\Throwable $e) { return response()->json(['error'=>'Stored password could not be decrypted'],500); }
+        }
         DB::table('audit_logs')->insert([
             'user'=>$r->user()->name,'role'=>$r->user()->role??'unknown','action'=>'REVEAL_SECRET',
-            'module'=>'Suppliers','details'=>"Revealed api_secret for supplier #{$id} ({$s->name})",
+            'module'=>'Suppliers','details'=>"Revealed {$field} for supplier #{$id} ({$s->name})",
             'ip_address'=>$r->ip(),'method'=>'POST','url'=>"/api/v1/supplier-accounts/{$id}/reveal",
             'status_code'=>200,'created_at'=>now(),'updated_at'=>now(),
         ]);
-        return response()->json(['field'=>'api_secret','value'=>$s->api_secret]);
+        return response()->json(['field'=>$field,'value'=>$value]);
     });
 
     Route::post('/v1/supplier-accounts/{id}/api-test', function(Request $r, $id) {
