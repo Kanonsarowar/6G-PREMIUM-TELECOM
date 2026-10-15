@@ -3563,6 +3563,78 @@ function NumberInventoryPage({token,setPage}){
     if(ok) {setShowAddNum(false);load();}
   };
 
+  // Upload / Paste: pull every 8-15 digit number out of the text (a cell equal
+  // to one of the supplier's prefixes is the block column, not a number; "a - b"
+  // on one line is a range), match each to the supplier's longest prefix, then
+  // save through the same POST /numbers as Add Number.
+  const [showUpl,setShowUpl]=useState(false);
+  const [upl,setUpl]=useState({supplier_id:"",mode:"upload",text:"",file:""});
+  const [uplPreview,setUplPreview]=useState(null);
+  const openUpl=()=>{setUpl({supplier_id:"",mode:"upload",text:"",file:""});setUplPreview(null);setShowUpl(true);};
+  const parseUpl=(text,supplierId)=>{
+    if(!supplierId){alert("Select a supplier first");return;}
+    const pfx=prefixList.filter(p=>String(p.supplier_id)===String(supplierId))
+      .map(p=>({...p,d:String(p.prefix).replace(/[^0-9]/g,"")})).filter(p=>p.d).sort((a,b)=>b.d.length-a.d.length);
+    const pfxSet=new Set(pfx.map(p=>p.d));
+    const existing=new Set(dids.map(d=>String(d.number||"").replace(/[^0-9]/g,"")));
+    const seen=new Set();const rows=[];
+    const push=n=>{if(seen.has(n))return;seen.add(n);
+      const p=pfx.find(x=>n.startsWith(x.d));
+      rows.push({number:n,prefix:p||null,status:existing.has(n)?"exists":p?"new":"noprefix"});};
+    for(const line of String(text||"").split(/\r?\n/)){
+      const r=line.match(/(?<![\d.])\+?(\d{8,15})\s*(?:-|–|to)\s*\+?(\d{8,15})(?![\d.])/i);
+      if(r&&r[1].length===r[2].length&&BigInt(r[2])>=BigInt(r[1])&&BigInt(r[2])-BigInt(r[1])<1000n){
+        for(let n=BigInt(r[1]);n<=BigInt(r[2]);n++) push(n.toString().padStart(r[1].length,"0"));
+        continue;
+      }
+      for(const m of line.matchAll(/(?<![\d.])\+?(\d{8,15})(?![\d.])/g)){
+        if(pfxSet.has(m[1])) continue;
+        push(m[1]);
+      }
+    }
+    if(rows.length===0){alert("No numbers found");return;}
+    if(rows.length>5000){alert("Too many numbers ("+rows.length+"); upload at most 5000 at a time");return;}
+    setUplPreview(rows);
+  };
+  const handleUplFile=e=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file) return;
+    if(!upl.supplier_id){alert("Select a supplier first");return;}
+    if(!/\.(csv|txt|xlsx|xls)$/i.test(file.name)){alert("Please choose a .csv, .txt, .xlsx or .xls file");return;}
+    setUpl(u=>({...u,file:file.name}));
+    const reader=new FileReader();
+    if(/\.(xlsx|xls)$/i.test(file.name)){
+      reader.onload=async ev=>{
+        // Loaded on demand so the main bundle stays small
+        const XLSX=await import("xlsx");
+        const wb=XLSX.read(ev.target.result,{type:"array"});
+        const text=wb.SheetNames.map(n=>XLSX.utils.sheet_to_csv(wb.Sheets[n],{FS:"\t",blankrows:false,rawNumbers:true})).join("\n");
+        parseUpl(text,upl.supplier_id);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload=ev=>parseUpl(ev.target.result,upl.supplier_id);
+      reader.readAsText(file);
+    }
+  };
+  const confirmUpl=async()=>{
+    const todo=uplPreview.filter(r=>r.status==="new");
+    if(!todo.length){alert("Nothing new to add");return;}
+    setAdding({done:0,total:todo.length});
+    let ok=0;const failed=[];
+    for(const r of todo){
+      const d=await apiFetch("/numbers",token,{method:"POST",body:JSON.stringify({supplier_id:upl.supplier_id,prefix_id:r.prefix.id,number:r.number})});
+      if(d.success) ok++; else failed.push(r.number+": "+(d.error||"failed"));
+      setAdding(s=>({...s,done:s.done+1}));
+    }
+    setAdding(null);
+    const ex=uplPreview.filter(r=>r.status==="exists").length,np=uplPreview.filter(r=>r.status==="noprefix").length;
+    setResult({success:failed.length===0,message:ok+" number(s) added"+(ex?" · "+ex+" already existed":"")+(np?" · "+np+" had no prefix":"")
+      +(failed.length?" · "+failed.length+" failed ("+failed.slice(0,3).join("; ")+(failed.length>3?"; …":"")+")":"")});
+    setShowUpl(false);setUplPreview(null);load();
+  };
+
   const pfxById=Object.fromEntries(prefixList.map(p=>[p.id,p]));
   const pfxTariff=(pid)=>{const p=pfxById[pid];return !p?"—":p.price==null?"not set":fmtUSDT(p.price);};
   const pfxTerm=(pid,fallback)=>(pfxById[pid]&&pfxById[pid].payment_term)||fallback||"—";
@@ -3710,10 +3782,84 @@ function NumberInventoryPage({token,setPage}){
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
           <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
         </div>
-        <button onClick={openAddNum}
-          style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",
-            fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD NUMBER</button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <button onClick={openAddNum}
+            style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",
+              fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD NUMBER</button>
+          <button onClick={openUpl}
+            style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",
+              fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ UPLOAD</button>
+        </div>
       </div>
+
+      {showUpl&&(()=>{
+        const lbl={fontSize:11,color:"#888",fontWeight:600,marginBottom:4};
+        const cnt=s=>(uplPreview||[]).filter(r=>r.status===s).length;
+        const groups=uplPreview?Object.values(uplPreview.filter(r=>r.status==="new").reduce((m,r)=>{
+          const k=r.prefix.id;(m[k]=m[k]||{p:r.prefix,n:0}).n++;return m;},{})):[];
+        const tab=(m,label)=>(
+          <button onClick={()=>{setUpl({...upl,mode:m});setUplPreview(null);}}
+            style={{padding:"6px 14px",borderRadius:16,border:"1px solid "+(upl.mode===m?"#F5A623":"#E0E0E0"),
+              background:upl.mode===m?"rgba(245,166,35,0.1)":"#FFF",color:upl.mode===m?"#F5A623":"#666",
+              fontSize:11,fontWeight:700,cursor:"pointer"}}>{label}</button>);
+        return(
+        <div onClick={()=>!adding&&setShowUpl(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#FFF",borderRadius:12,width:480,maxWidth:"100%",padding:20,maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Upload Numbers</div>
+            <div style={{marginBottom:10}}>
+              <div style={lbl}>Supplier *</div>
+              <select style={inp} value={upl.supplier_id} disabled={!!adding} onChange={e=>{setUpl({...upl,supplier_id:e.target.value,file:""});setUplPreview(null);}}>
+                <option value="">— Select Supplier —</option>
+                {addNumSuppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            {!uplPreview&&(<>
+              <div style={{display:"flex",gap:8,marginBottom:12}}>{tab("upload","Upload file")}{tab("paste","Paste")}</div>
+              {upl.mode==="upload"?(
+                <label style={{display:"block",padding:"22px 12px",border:"2px dashed #E0E0E0",borderRadius:10,textAlign:"center",
+                  cursor:upl.supplier_id?"pointer":"not-allowed",color:"#888",fontSize:12,marginBottom:10,opacity:upl.supplier_id?1:0.6}}>
+                  <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleUplFile} disabled={!upl.supplier_id} style={{display:"none"}}/>
+                  {upl.file?<b style={{color:"#333"}}>{upl.file}</b>:upl.supplier_id?"Click to choose a .csv, .txt, .xlsx or .xls file":"Select a supplier first"}
+                </label>
+              ):(<>
+                <textarea style={{...inp,minHeight:140,fontFamily:"monospace",fontSize:12,marginBottom:10}} value={upl.text}
+                  onChange={e=>setUpl({...upl,text:e.target.value})}
+                  placeholder={"One number per line, any columns, or ranges like\n97717122400 - 97717122429"}/>
+                <button onClick={()=>parseUpl(upl.text,upl.supplier_id)}
+                  style={{width:"100%",padding:"10px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer",marginBottom:10}}>Preview</button>
+              </>)}
+              <div style={{fontSize:11,color:"#999"}}>Each number goes under the supplier's longest matching prefix. Add missing prefixes on the supplier's page first.</div>
+            </>)}
+            {uplPreview&&(<>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+                {[["New",cnt("new"),"#10B981"],["Already exist",cnt("exists"),"#888"],["No prefix",cnt("noprefix"),"#EF4444"]].map(([l,v,c])=>(
+                  <div key={l} style={{border:"1px solid #EEE",borderRadius:8,padding:"8px 10px",borderLeft:"3px solid "+c}}>
+                    <div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>{l}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:c}}>{v}</div></div>))}
+              </div>
+              {groups.length>0&&<div style={{border:"1px solid #EEE",borderRadius:8,marginBottom:10,overflow:"hidden"}}>
+                {groups.map(g=>(
+                  <div key={g.p.id} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"7px 10px",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
+                    <span><b style={{fontFamily:"monospace"}}>{g.p.prefix}</b> <span style={{color:"#888"}}>{g.p.country||""}</span></span>
+                    <span style={{color:"#555"}}>{g.n} new · {g.p.price==null?"price not set":fmtUSDT(g.p.price)+"/min"}</span>
+                  </div>))}
+              </div>}
+              {cnt("noprefix")>0&&<div style={{fontSize:11,color:"#EF4444",marginBottom:10,wordBreak:"break-all"}}>
+                No prefix for: {uplPreview.filter(r=>r.status==="noprefix").slice(0,10).map(r=>r.number).join(", ")}{cnt("noprefix")>10?" …":""}</div>}
+              {adding&&<div style={{fontSize:11,color:"#555",marginBottom:10}}>Adding {adding.done} / {adding.total}…</div>}
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={confirmUpl} disabled={!!adding||cnt("new")===0}
+                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:cnt("new")?"#2CADA6":"#BBB",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                  {adding?"Saving...":"✅ Add "+cnt("new")+" number(s)"}</button>
+                <button onClick={()=>setUplPreview(null)} disabled={!!adding}
+                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Back</button>
+              </div>
+            </>)}
+            {!uplPreview&&<button onClick={()=>setShowUpl(false)}
+              style={{width:"100%",marginTop:12,padding:"10px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>}
+          </div>
+        </div>);
+      })()}
 
       {showAddNum&&(()=>{
         const supPrefixes=prefixList.filter(p=>String(p.supplier_id)===String(addNum.supplier_id));
