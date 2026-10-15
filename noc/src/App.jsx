@@ -6209,9 +6209,6 @@ function RoutePrefixPage({token}){
   const sel={width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,
     background:"rgba(255,255,255,0.05)",color:C.text,fontSize:13,outline:"none"};
 
-  const COUNTRIES=[["IT","Italy"],["IE","Ireland"],["FR","France"],["DE","Germany"],
-    ["GB","UK"],["US","USA"],["SA","Saudi Arabia"],["AE","UAE"]];
-
   const add=async()=>{
     setSaving(true);
     const s=suppliers.find(x=>String(x.id)===String(form.trunk_id));
@@ -6254,10 +6251,10 @@ function RoutePrefixPage({token}){
             <div>
               <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Country</div>
               <select style={sel} value={form.country_code} onChange={e=>{
-                const m=Object.fromEntries(COUNTRIES);
-                setForm(f=>({...f,country_code:e.target.value,country_name:m[e.target.value]||e.target.value}));
+                const c=COUNTRIES.find(x=>x.code===e.target.value);
+                setForm(f=>({...f,country_code:e.target.value,country_name:c?.name||e.target.value}));
               }}>
-                {COUNTRIES.map(([c,n])=><option key={c} value={c}>{n}</option>)}
+                {COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.name} (+{c.prefix})</option>)}
               </select>
             </div>
             <div>
