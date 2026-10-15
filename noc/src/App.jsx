@@ -6379,16 +6379,22 @@ function SIPMonitorPage({token}){
       const epList=[];let cur=null;
       for(const line of (d.pjsip||[])){
         const m=line.match(/Endpoint:\s+([A-Z0-9_-]+)/);
-        if(m){cur={name:m[1],status:"",rtt:"—"};epList.push(cur);}
+        if(m){cur={name:m[1],status:"",rtt:"—",state:"",contacts:[]};epList.push(cur);}
         if(cur){
-          const s=line.match(/(Avail|NonQual|Unavail|Not in use|In use)/);
-          if(s&&!cur.status) cur.status=s[1];
           if(/^\s*Contact:/.test(line)){
+            // Reachability comes from the contacts (qualify), not the endpoint's
+            // idle/busy state ("Not in use")
+            const s=line.match(/\s(Avail|NonQual|Unavail|Unknown)\s/);
+            if(s) cur.contacts.push(s[1]);
             const r=line.match(/([\d.]+)$/);
             if(r&&cur.rtt==="—") cur.rtt=r[1]+"ms";
+          } else if(m){
+            const s=line.match(/(Unavailable|Not in use|In use|Busy|Ringing)/);
+            if(s) cur.state=s[1];
           }
         }
       }
+      epList.forEach(e=>{e.status=e.contacts.includes("Avail")?"Avail":e.contacts[0]||(e.state==="Unavailable"?"Unavail":e.state);});
       setEps(epList);
       setLoading(false);
     });
