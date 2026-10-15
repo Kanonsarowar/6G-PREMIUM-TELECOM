@@ -12,8 +12,8 @@ while(!feof(STDIN)){
 $did = $agi['extension'] ?? $agi['dnid'] ?? '';
 $src = $agi['callerid'] ?? 'unknown';
 
-// Normalize DID - remove + and 00 prefix
-$didClean = preg_replace('/^\+|^00/', '', $did);
+// Normalize DID - remove +, 00 and +00 prefixes
+$didClean = preg_replace('/^\+?(00)?/', '', $did);
 
 // DB lookup
 try {
