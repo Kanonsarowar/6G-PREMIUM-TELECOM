@@ -6384,7 +6384,7 @@ function SIPMonitorPage({token}){
     return()=>clearInterval(t);
   },[autoRefresh,load,loadLog,tab]);
 
-  const sipFiltered=invites.filter(inv=>!sipSearch||(inv.caller||'').includes(sipSearch)||(inv.did||'').includes(sipSearch)||(inv.supplier||'').toLowerCase().includes(sipSearch.toLowerCase()));
+  const sipFiltered=invites.filter(inv=>!sipSearch||(inv.caller||'').includes(sipSearch)||(inv.did||'').includes(sipSearch)||(inv.supplier||'').toLowerCase().includes(sipSearch.toLowerCase())||(inv.reseller||'').toLowerCase().includes(sipSearch.toLowerCase()));
   const RESULT_META={
     ANSWERED:   {label:"CONNECTED",  color:"#10B981", icon:"✅"},
     RINGING:    {label:"RINGING",    color:"#3B82F6", icon:"📞"},
@@ -6451,7 +6451,7 @@ function SIPMonitorPage({token}){
         {tab==="invites"&&(
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input value={sipSearch} onChange={e=>setSipSearch(e.target.value)}
-              placeholder="Search by CLI, DID, supplier..."
+              placeholder="Search by CLI, DID, supplier, reseller..."
               style={{width:"100%",padding:"9px 12px",border:"1px solid #E0E0E0",borderRadius:8,
                 fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             <div style={{background:"#FFF",borderRadius:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
@@ -6459,10 +6459,10 @@ function SIPMonitorPage({token}){
               :sipFiltered.length===0
                 ?<div style={{padding:30,textAlign:"center",color:"#999",fontSize:12}}>No events found</div>
                 :<div style={{overflowX:"auto"}}>
-                  <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+                  <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:680}}>
                     <thead>
                       <tr style={{background:"#2CADA6"}}>
-                        {["TIME","CALLER","DID/PRN","SUPPLIER","DURATION","STATUS"].map((h,i)=>(
+                        {["TIME","CALLER","DID/PRN","SUPPLIER","RESELLER","DURATION","STATUS"].map((h,i)=>(
                           <th key={i} style={{fontSize:9,color:"#FFF",fontWeight:700,letterSpacing:"0.8px",
                             padding:"6px 8px",textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
                         ))}
@@ -6482,6 +6482,9 @@ function SIPMonitorPage({token}){
                         </td>
                         <td style={{padding:"5px 8px",fontSize:10,fontWeight:600,color:"#333"}}>
                           {inv.supplier||"—"}
+                        </td>
+                        <td style={{padding:"5px 8px",fontSize:10,fontWeight:600,color:inv.reseller&&inv.reseller!=="—"?"#333":"#AAA",whiteSpace:"nowrap"}}>
+                          {inv.reseller||"—"}
                         </td>
                         <td style={{padding:"5px 8px",fontSize:10,fontFamily:"monospace",color:"#555"}}>
                           {inv.duration>0?fmtDur(inv.duration):"—"}
