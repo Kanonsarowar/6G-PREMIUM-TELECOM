@@ -2372,30 +2372,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
           </div>
         </div>
 
-        {/* ACTIVE PREFIX */}
-        <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
-          <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5"}}>ACTIVE PREFIX</div>
-          <div style={{overflowX:"auto"}}>
-            <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-              <thead><tr>{["Prefix","Country","Code","Price","Payment Term","IVR","Test Number"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
-              <tbody>
-                {prefixes.length===0?<tr><td colSpan={7} style={{padding:20,textAlign:"center",color:"#999",fontSize:12}}>No prefixes yet — add one on the Numbers page</td></tr>:
-                prefixes.map((p,i)=>(
-                  <tr key={p.id} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",fontWeight:700}}>{p.prefix}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,color:"#555"}}>{p.country||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontFamily:"monospace",color:"#555"}}>{p.country_code||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,color:p.price==null?"#B7791F":"#10B981",fontFamily:"monospace"}}>{p.price==null?"not set":fmtUSDT(p.price)}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{p.payment_term||"—"}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,color:"#555"}}>{(p.ivr_context||"—").replace("custom/","")}</td>
-                    <td style={{padding:"8px 10px",fontSize:11,fontFamily:"monospace"}}>{p.test_number||"—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </GTable>
-          </div>
-        </div>
-
         {/* NUMBER / RANGES */}
         <div style={{...cardS,overflow:"hidden",marginBottom:14}}>
           <div style={{padding:"10px 14px",fontSize:12,fontWeight:700,background:"#F5F5F5",display:"flex",
