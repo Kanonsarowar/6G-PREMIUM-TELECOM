@@ -2947,21 +2947,21 @@ function NumberInventoryPage({token,setPage}){
     <div style={{paddingBottom:70,minHeight:"100vh",background:"#F2F2F2",fontFamily:"Arial,Helvetica,sans-serif"}}>
       {/* Header */}
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"12px 16px",
-        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
+        display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+        <div style={{textAlign:"center"}}>
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
           <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} numbers · {prefixList.length} prefixes</div>
         </div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+        <div style={{display:"flex",gap:6,flexWrap:"nowrap",justifyContent:"center",width:"100%",maxWidth:420}}>
           <button onClick={()=>setPrefixModal({})}
-            style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",
-              fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD PREFIX</button>
+            style={{flex:"1 1 0",minWidth:0,padding:"9px 6px",borderRadius:8,border:"none",background:"#5B4FCF",color:"#FFF",
+              fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD PREFIX</button>
           <button onClick={openAddNum}
-            style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",
-              fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD NUMBER</button>
+            style={{flex:"1 1 0",minWidth:0,padding:"9px 6px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",
+              fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD NUMBER</button>
           <button onClick={openUpl}
-            style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",
-              fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ UPLOAD</button>
+            style={{flex:"1 1 0",minWidth:0,padding:"9px 6px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",
+              fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ UPLOAD</button>
         </div>
       </div>
 
