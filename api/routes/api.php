@@ -1675,7 +1675,7 @@ Route::middleware('auth:sanctum')->group(function() {
             'is_test'       => 0,
             'prefix'        => $prefix->prefix,
             'country_name'  => $prefix->country,
-            'country_code'  => 'XX',
+            'country_code'  => $prefix->country_code ?: 'XX',
             'tariff'        => $prefix->price,
             'selling_price' => $prefix->price,
             'currency'      => 'USDT',

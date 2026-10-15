@@ -1856,21 +1856,8 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
   const [showAddPrefix,setShowAddPrefix]=useState(false);
   const [editingPrefix,setEditingPrefix]=useState(null);
   const [prefixForm,setPrefixForm]=useState({prefix:"",country:"",country_code:"",price:"",payment_term:"",test_number:"",operator:"",ivr_context:"",status:"active"});
-  const [showAddNum,setShowAddNum]=useState(false);
-  const [addNum,setAddNum]=useState({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
   const [showAddTest,setShowAddTest]=useState(false);
   const [addTest,setAddTest]=useState({prefix_id:"",number:""});
-
-  // Upload and Paste share this exact same state/flow and the same
-  // backend engine (/import/preview, /import/confirm) - the only
-  // difference between them is how importText gets populated.
-  const [showImport,setShowImport]=useState(false);
-  const [importMode,setImportMode]=useState("upload");
-  const [importText,setImportText]=useState("");
-  const [importFileName,setImportFileName]=useState("");
-  const [importStep,setImportStep]=useState("input");
-  const [importPreviewData,setImportPreviewData]=useState(null);
-  const [importing,setImporting]=useState(false);
 
   const [showPayment,setShowPayment]=useState(false);
   const [payLoading,setPayLoading]=useState(false);
@@ -2082,20 +2069,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     else alert(d.error||"Failed to delete");
   };
 
-  const addNumber=async()=>{
-    if(!addNum.prefix_id){alert("Select a Prefix first");return;}
-    if(addNum.mode==="single"&&!addNum.number){alert("Number is required");return;}
-    if(addNum.mode==="range"&&(!addNum.range_start||!addNum.range_end)){alert("Range start and end are required");return;}
-    setSaving(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/numbers`,token,{method:"POST",body:JSON.stringify(addNum)});
-    setSaving(false);
-    if(d.success){
-      flash(d.message||("Number"+(addNum.mode==="range"?" range":"")+" added"));
-      setAddNum({prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
-      setShowAddNum(false); loadNumbers(); loadPrefixes();
-    } else alert(d.error||"Failed to add");
-  };
-
   const delNumber=async(id)=>{ if(!window.confirm("Remove this number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
   const delRange=async(id)=>{ if(!window.confirm("Remove this range?"))return; await apiFetch("/did-ranges/"+id,token,{method:"DELETE"}); loadNumbers(); loadPrefixes(); };
 
@@ -2162,63 +2135,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
     } else alert(d.error||"Failed to add");
   };
   const delTest=async(id)=>{ if(!window.confirm("Remove this test number?"))return; await apiFetch("/dids/"+id,token,{method:"DELETE"}); loadTest(); loadPrefixes(); };
-
-  // ── Number Import: Upload + Paste share this one flow ───────────
-  const openImport=(mode)=>{
-    setImportMode(mode); setImportText(""); setImportFileName("");
-    setImportStep("input"); setImportPreviewData(null); setShowImport(true);
-  };
-
-  const handleImportFile=(e)=>{
-    const file=e.target.files?.[0];
-    if(!file) return;
-    if(!/\.(csv|txt|xlsx|xls)$/i.test(file.name)){ alert("Please choose a .csv, .txt, .xlsx or .xls file"); return; }
-    setImportFileName(file.name);
-    if(/\.(xlsx|xls)$/i.test(file.name)){
-      const reader=new FileReader();
-      reader.onload=async(ev)=>{
-        // Excel workbook -> tab-separated text, so it flows through the
-        // exact same parser/preview/confirm path as a pasted or .csv/.txt import.
-        // Loaded on demand (~350KB) so every visitor isn't paying for it upfront.
-        const XLSX=await import("xlsx");
-        const wb=XLSX.read(ev.target.result,{type:"array"});
-        const sheet=wb.Sheets[wb.SheetNames[0]];
-        const text=XLSX.utils.sheet_to_csv(sheet,{FS:"\t",blankrows:false});
-        setImportText(text);
-        runImportPreview(text);
-      };
-      reader.readAsArrayBuffer(file);
-      return;
-    }
-    const reader=new FileReader();
-    reader.onload=(ev)=>{
-      const text=ev.target.result;
-      setImportText(text);
-      runImportPreview(text);
-    };
-    reader.readAsText(file);
-  };
-
-  const runImportPreview=async(text)=>{
-    const raw=text!==undefined?text:importText;
-    if(!raw||!raw.trim()){alert("Nothing to preview yet");return;}
-    setImporting(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/import/preview`,token,{method:"POST",body:JSON.stringify({raw_text:raw})});
-    setImporting(false);
-    if(d.data){ setImportPreviewData(d.data); setImportStep("preview"); }
-    else alert(d.error||"Failed to parse import");
-  };
-
-  const runImportConfirm=async()=>{
-    setImporting(true);
-    const d=await apiFetch(`/supplier-accounts/${supplier.id}/import/confirm`,token,{method:"POST",
-      body:JSON.stringify({records:importPreviewData.records})});
-    setImporting(false);
-    if(d.success){
-      flash(`Imported: ${d.created_numbers} number(s), ${d.created_ranges} range(s), ${d.created_prefixes} new prefix(es) — ${d.skipped} skipped`);
-      setShowImport(false); loadPrefixes(); loadNumbers(); loadTest();
-    } else alert(d.error||"Failed to import");
-  };
 
   // ── Payment: closed-period gating computed client-side from the
   // existing /supplier-payments/pending + /history endpoints (no backend
@@ -2431,8 +2347,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
       <div style={{background:"#FFF",borderBottom:"1px solid #E0E0E0",padding:"14px 16px"}}>
         <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:8,maxWidth:480,margin:"0 auto"}}>
           <button onClick={openAddPrefix} style={actionBtn("#5B4FCF")}>+ ADD PREFIX</button>
-          <button onClick={()=>setShowAddNum(true)} style={actionBtn("#2CADA6")}>+ ADD NUMBER / RANGE</button>
-          <button onClick={()=>openImport("upload")} style={actionBtn("#F5A623")}>+ UPLOAD NUMBER</button>
           <button onClick={()=>setShowApi(true)} style={actionBtn("#F5F5F5","#555")}>API</button>
         </div>
       </div>
@@ -2941,50 +2855,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
         </div>
       )}
 
-      {showAddNum&&(
-        <div onClick={()=>setShowAddNum(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Add Number / Range</div>
-            <div style={{marginBottom:10}}>
-              <div style={lblS}>Prefix *</div>
-              <select style={inpS} value={addNum.prefix_id} onChange={e=>setAddNum({...addNum,prefix_id:e.target.value})}>
-                <option value="">— Select Prefix —</option>
-                {prefixes.map(p=><option key={p.id} value={p.id}>{p.prefix} ({p.country})</option>)}
-              </select>
-            </div>
-            {addNum.prefix_id&&(()=>{const p=prefixes.find(x=>String(x.id)===String(addNum.prefix_id));return p&&(
-              <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555",flexWrap:"wrap"}}>
-                <span>Country: <b>{p.country}</b></span><span>Price: <b>{p.price==null?"not set":fmtUSDT(p.price)+"/min"}</b></span><span>Term: <b>{p.payment_term}</b></span>
-              </div>
-            );})()}
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              {["single","range"].map(m=>(
-                <button key={m} onClick={()=>setAddNum({...addNum,mode:m})}
-                  style={{padding:"6px 14px",borderRadius:16,border:"1px solid "+(addNum.mode===m?"#2CADA6":"#E0E0E0"),
-                    background:addNum.mode===m?"rgba(44,173,166,0.1)":"#FFF",
-                    color:addNum.mode===m?"#2CADA6":"#666",fontSize:11,fontWeight:700,cursor:"pointer",textTransform:"capitalize"}}>{m}</button>
-              ))}
-            </div>
-            {addNum.mode==="single"?(
-              <div style={{marginBottom:10}}><div style={lblS}>Number *</div>
-                <input style={inpS} value={addNum.number} onChange={e=>setAddNum({...addNum,number:e.target.value})} placeholder="+9198760001"/></div>
-            ):(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div><div style={lblS}>From *</div>
-                <input style={inpS} value={addNum.range_start} onChange={e=>setAddNum({...addNum,range_start:e.target.value})} placeholder="9198760001"/></div>
-              <div><div style={lblS}>To *</div>
-                <input style={inpS} value={addNum.range_end} onChange={e=>setAddNum({...addNum,range_end:e.target.value})} placeholder="9198760100"/></div>
-            </div>)}
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={addNumber} disabled={saving}
-                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                {saving?"Saving...":"✅ Add"}</button>
-              <button onClick={()=>setShowAddNum(false)}
-                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {editNum&&(
         <div onClick={()=>setEditNum(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div onClick={e=>e.stopPropagation()} style={{...cardS,width:420,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
@@ -3037,101 +2907,6 @@ function SupplierWorkspace({token,user,setPage,supplier,onBack}){
               <button onClick={()=>setShowAddTest(false)}
                 style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showImport&&(
-        <div onClick={()=>setShowImport(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div onClick={e=>e.stopPropagation()} style={{...cardS,width:820,maxWidth:"100%",padding:20,maxHeight:"92vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <div style={{fontSize:15,fontWeight:800}}>{importMode==="upload"?"Upload Number":"Paste Numbers"} — {numSupplier(supplier.name)}</div>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>{setImportMode("upload");setImportStep("input");}}
-                  style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="upload"?"#F5A623":"#E0E0E0"),
-                    background:importMode==="upload"?"rgba(245,166,35,0.1)":"#FFF",color:importMode==="upload"?"#F5A623":"#888",
-                    fontSize:10,fontWeight:700,cursor:"pointer"}}>Upload</button>
-                <button onClick={()=>{setImportMode("paste");setImportStep("input");}}
-                  style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(importMode==="paste"?"#F5A623":"#E0E0E0"),
-                    background:importMode==="paste"?"rgba(245,166,35,0.1)":"#FFF",color:importMode==="paste"?"#F5A623":"#888",
-                    fontSize:10,fontWeight:700,cursor:"pointer"}}>Paste</button>
-              </div>
-            </div>
-            <div style={{fontSize:11,color:"#999",marginBottom:14}}>
-              Same intelligent parser either way — no fixed template required. Prices are always $/min; nothing is written until you confirm.
-            </div>
-
-            {importStep==="input"&&(<>
-              {importMode==="upload"?(
-                <div style={{...cardS,padding:20,textAlign:"center",border:"2px dashed #E0E0E0",marginBottom:14}}>
-                  <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleImportFile} id="import-file-input" style={{display:"none"}}/>
-                  <label htmlFor="import-file-input" style={{cursor:"pointer"}}>
-                    <div style={{fontSize:30,marginBottom:8}}>📄</div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#5B4FCF"}}>Click to choose a .csv, .txt, .xlsx or .xls file</div>
-                    {importFileName&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Selected: {importFileName}</div>}
-                  </label>
-                </div>
-              ):(
-                <textarea value={importText} onChange={e=>setImportText(e.target.value)}
-                  placeholder={"Paste numbers/ranges here, any format, e.g.:\n+919876543210, India, 0.040, 30/45, STC\n9779767851000  9779767851099  Nepal  0.06  Weekly  Ncell"}
-                  style={{...inpS,minHeight:220,resize:"vertical",fontFamily:"monospace",fontSize:12,marginBottom:12}}/>
-              )}
-              <div style={{display:"flex",gap:8}}>
-                {importMode==="paste"&&<button onClick={()=>runImportPreview()} disabled={importing}
-                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#F5A623",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
-                  {importing?"Parsing...":"Preview"}</button>}
-                <button onClick={()=>setShowImport(false)}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-              </div>
-            </>)}
-
-            {importStep==="preview"&&importPreviewData&&(<>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-                {[["Total",importPreviewData.summary.total,"#555"],["New",importPreviewData.summary.new,"#10B981"],
-                  ["Duplicate",importPreviewData.summary.duplicate,"#F5A623"],["Error",importPreviewData.summary.error,"#EF4444"],
-                  ["New Prefixes",importPreviewData.summary.new_prefixes,"#5B4FCF"]].map(([k,v,c])=>(
-                  <div key={k} style={{...cardS,padding:"8px 14px",background:"#F9F9F9"}}>
-                    <div style={{fontSize:9,color:"#999",textTransform:"uppercase",fontWeight:700}}>{k}</div>
-                    <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{overflowX:"auto",maxHeight:340,overflowY:"auto",marginBottom:14,border:"1px solid #F0F0F0",borderRadius:8}}>
-                <GTable style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-                  <thead><tr>{["Status","Number/Range","Country","Prefix","Price","Term","Operator","Note"].map((h,i)=><th key={i} style={thSup}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {importPreviewData.records.map((rec,i)=>(
-                      <tr key={i} style={{borderBottom:"1px solid #F5F5F5",background:i%2?"#FAFAFA":"#FFF"}}>
-                        <td style={{padding:"6px 10px"}}>
-                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,
-                            background:rec.status==="new"?"rgba(16,185,129,0.1)":rec.status==="duplicate"?"rgba(245,166,35,0.12)":"rgba(239,68,68,0.1)",
-                            color:rec.status==="new"?"#10B981":rec.status==="duplicate"?"#F5A623":"#EF4444"}}>{rec.status.toUpperCase()}</span></td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",fontWeight:700}}>
-                          {rec.mode==="range"?`${rec.range_start||"?"} – ${rec.range_end||"?"}`:(rec.number||"—")}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.country||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#555"}}>
-                          {rec.prefix||"—"}{rec.will_create_prefix?" (new)":""}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,fontFamily:"monospace",color:"#10B981"}}>{rec.price?fmtUSDT(rec.price):"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.payment_term||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:11,color:"#555"}}>{rec.operator||"—"}</td>
-                        <td style={{padding:"6px 10px",fontSize:10,color:"#999"}}>{rec.reason||""}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </GTable>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={runImportConfirm} disabled={importing||importPreviewData.summary.new===0}
-                  style={{flex:1,padding:"11px",borderRadius:8,border:"none",
-                    background:importPreviewData.summary.new===0?"#DDD":"#10B981",color:"#FFF",fontSize:13,fontWeight:800,
-                    cursor:importPreviewData.summary.new===0?"not-allowed":"pointer"}}>
-                  {importing?"Importing...":`✅ CONFIRM IMPORT (${importPreviewData.summary.new})`}</button>
-                <button onClick={()=>setImportStep("input")}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>← Back</button>
-                <button onClick={()=>setShowImport(false)}
-                  style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
-              </div>
-            </>)}
           </div>
         </div>
       )}
@@ -3746,6 +3521,48 @@ function NumberInventoryPage({token,setPage}){
   const [testResult,setTestResult]=useState(null);
   const [testing,setTesting]=useState(false);
 
+  // Add Number / Range: pick a supplier, then one of that supplier's prefixes.
+  // Saved one number at a time through POST /numbers (it fills tariff, term
+  // and IVR from the prefix).
+  const [showAddNum,setShowAddNum]=useState(false);
+  const [addNum,setAddNum]=useState({supplier_id:"",prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});
+  const [adding,setAdding]=useState(null);
+  const addNumSuppliers=Object.values(Object.fromEntries(prefixList.filter(p=>p.supplier_id)
+    .map(p=>[p.supplier_id,{id:p.supplier_id,name:p.supplier_name||("Supplier "+p.supplier_id)}])))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  const openAddNum=()=>{setAddNum({supplier_id:"",prefix_id:"",mode:"single",number:"",range_start:"",range_end:""});setShowAddNum(true);};
+  const saveAddNum=async()=>{
+    if(!addNum.supplier_id){alert("Select a supplier");return;}
+    if(!addNum.prefix_id){alert("Select a prefix");return;}
+    const digits=s=>String(s||"").replace(/[^0-9]/g,"");
+    let list;
+    if(addNum.mode==="single"){
+      if(!digits(addNum.number)){alert("Number is required");return;}
+      list=[digits(addNum.number)];
+    } else {
+      const a=digits(addNum.range_start),b=digits(addNum.range_end);
+      if(!a||!b){alert("Range start and end are required");return;}
+      if(a.length!==b.length){alert("From and To must have the same number of digits");return;}
+      const start=BigInt(a),end=BigInt(b);
+      if(end<start){alert("To must be greater than or equal to From");return;}
+      if(end-start>=1000n){alert("A range can have at most 1000 numbers");return;}
+      list=[];for(let n=start;n<=end;n++) list.push(n.toString().padStart(a.length,"0"));
+    }
+    const p=prefixList.find(x=>String(x.id)===String(addNum.prefix_id));
+    const off=list.filter(n=>p&&!n.startsWith(String(p.prefix).replace(/[^0-9]/g,"")));
+    if(off.length&&!window.confirm(off.length+" number(s) do not start with prefix "+p.prefix+". Add anyway?")) return;
+    setAdding({done:0,total:list.length});
+    let ok=0;const failed=[];
+    for(const n of list){
+      const d=await apiFetch("/numbers",token,{method:"POST",body:JSON.stringify({supplier_id:addNum.supplier_id,prefix_id:addNum.prefix_id,number:n})});
+      if(d.success) ok++; else failed.push(n+": "+(d.error||"failed"));
+      setAdding(s=>({...s,done:s.done+1}));
+    }
+    setAdding(null);
+    setResult({success:failed.length===0,message:ok+" number(s) added"+(failed.length?" · "+failed.length+" skipped ("+failed.slice(0,3).join("; ")+(failed.length>3?"; …":"")+")":"")});
+    if(ok) {setShowAddNum(false);load();}
+  };
+
   const pfxById=Object.fromEntries(prefixList.map(p=>[p.id,p]));
   const pfxTariff=(pid)=>{const p=pfxById[pid];return !p?"—":p.price==null?"not set":fmtUSDT(p.price);};
   const pfxTerm=(pid,fallback)=>(pfxById[pid]&&pfxById[pid].payment_term)||fallback||"—";
@@ -3891,10 +3708,68 @@ function NumberInventoryPage({token,setPage}){
         display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontSize:18,fontWeight:700,color:"#1A1A1A"}}>Numbers</div>
-          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks · add or edit numbers on each supplier's page (click a supplier)</div>
+          <div style={{fontSize:11,color:"#999",marginTop:2}}>{dids.length} total · {ranges.length} blocks</div>
         </div>
-        
+        <button onClick={openAddNum}
+          style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",
+            fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>+ ADD NUMBER</button>
       </div>
+
+      {showAddNum&&(()=>{
+        const supPrefixes=prefixList.filter(p=>String(p.supplier_id)===String(addNum.supplier_id));
+        const p=prefixList.find(x=>String(x.id)===String(addNum.prefix_id));
+        const lbl={fontSize:11,color:"#888",fontWeight:600,marginBottom:4};
+        return(
+        <div onClick={()=>!adding&&setShowAddNum(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#FFF",borderRadius:12,width:420,maxWidth:"100%",padding:20,maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box"}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:14}}>Add Number / Range</div>
+            <div style={{marginBottom:10}}>
+              <div style={lbl}>Supplier *</div>
+              <select style={inp} value={addNum.supplier_id} onChange={e=>setAddNum({...addNum,supplier_id:e.target.value,prefix_id:""})}>
+                <option value="">— Select Supplier —</option>
+                {addNumSuppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div style={{marginBottom:10}}>
+              <div style={lbl}>Prefix *</div>
+              <select style={inp} value={addNum.prefix_id} disabled={!addNum.supplier_id} onChange={e=>setAddNum({...addNum,prefix_id:e.target.value})}>
+                <option value="">{addNum.supplier_id?(supPrefixes.length?"— Select Prefix —":"No prefixes — add one on the supplier's page"):"Select a supplier first"}</option>
+                {supPrefixes.map(x=><option key={x.id} value={x.id}>{x.prefix} ({x.country||"—"})</option>)}
+              </select>
+            </div>
+            {p&&(
+              <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11,color:"#555",flexWrap:"wrap"}}>
+                <span>Country: <b>{p.country||"—"}</b></span><span>Price: <b>{p.price==null?"not set":fmtUSDT(p.price)+"/min"}</b></span><span>Term: <b>{p.payment_term||"—"}</b></span>
+              </div>
+            )}
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              {["single","range"].map(m=>(
+                <button key={m} onClick={()=>setAddNum({...addNum,mode:m})}
+                  style={{padding:"6px 14px",borderRadius:16,border:"1px solid "+(addNum.mode===m?"#2CADA6":"#E0E0E0"),
+                    background:addNum.mode===m?"rgba(44,173,166,0.1)":"#FFF",
+                    color:addNum.mode===m?"#2CADA6":"#666",fontSize:11,fontWeight:700,cursor:"pointer",textTransform:"capitalize"}}>{m}</button>
+              ))}
+            </div>
+            {addNum.mode==="single"?(
+              <div style={{marginBottom:10}}><div style={lbl}>Number *</div>
+                <input style={inp} value={addNum.number} onChange={e=>setAddNum({...addNum,number:e.target.value})} placeholder={p?p.prefix+"00":"Number"}/></div>
+            ):(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div><div style={lbl}>From *</div>
+                <input style={inp} value={addNum.range_start} onChange={e=>setAddNum({...addNum,range_start:e.target.value})} placeholder={p?p.prefix+"00":"From"}/></div>
+              <div><div style={lbl}>To *</div>
+                <input style={inp} value={addNum.range_end} onChange={e=>setAddNum({...addNum,range_end:e.target.value})} placeholder={p?p.prefix+"29":"To"}/></div>
+            </div>)}
+            {adding&&<div style={{fontSize:11,color:"#555",marginBottom:10}}>Adding {adding.done} / {adding.total}…</div>}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveAddNum} disabled={!!adding}
+                style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:"#2CADA6",color:"#FFF",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                {adding?"Saving...":"✅ Add"}</button>
+              <button onClick={()=>setShowAddNum(false)} disabled={!!adding}
+                style={{padding:"11px 16px",borderRadius:8,border:"1px solid #DDD",background:"#FFF",color:"#666",fontSize:13,cursor:"pointer"}}>Cancel</button>
+            </div>
+          </div>
+        </div>);
+      })()}
 
       <div style={{padding:"12px 16px"}}>
         {/* Tabs (Numbers is read-only; numbers come from the Suppliers page) */}
